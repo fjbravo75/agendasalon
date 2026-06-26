@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="page-grid">
+    <div>
+      <h1 class="page-title">AgendaSalon</h1>
+      <p class="lede">
+        SaaS Django-first para peluquerias pequenas y salones de belleza que
+        necesitan gestionar citas de forma clara, manual y operativa.
+      </p>
+      <div class="actions">
+        <a class="button" href="{% url 'accounts:login' %}">Entrar al panel</a>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel__body">
+        <h2 class="panel__title">MVP</h2>
+        <div class="empty">
+          Reserva publica y panel cliente quedan fuera del MVP inicial. La cita
+          se crea desde el panel profesional tras llamada, WhatsApp o mostrador.
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
