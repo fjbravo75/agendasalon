@@ -28,9 +28,20 @@ El proyecto usa por defecto `config.settings.dev` para desarrollo.
 
 ## Estado actual
 
-Base Django creada con estructura de settings por entorno y usuario custom
-interno desde el inicio. Antes de ejecutar migraciones de base de datos, el
-siguiente bloque debe cerrar los modelos iniciales del dominio.
+Base Django creada con estructura de settings por entorno, usuario custom
+interno desde el inicio y nucleo inicial de modelos SaaS/agenda.
+
+Incluye negocios, pertenencias profesionales, servicios, disponibilidad, cierres,
+lineas de trabajo, fichas de cliente, contactos autorizados, citas,
+servicios dentro de cita, festivos y notificaciones internas simuladas.
+
+Verificacion actual:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py check
+.\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
+.\.venv\Scripts\python.exe manage.py test
+```
 
 ## Alcance limpio
 
