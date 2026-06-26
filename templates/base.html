@@ -1,0 +1,48 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}AgendaSalon{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="app-header__inner">
+          <a class="brand" href="{% url 'home' %}">
+            <span class="brand__mark">AgendaSalon</span>
+            <span class="brand__tag">SaaS profesional</span>
+          </a>
+          <nav class="nav" aria-label="Navegacion principal">
+            {% if user.is_authenticated %}
+              {% if user.is_superuser %}
+                <a href="{% url 'dashboards:superadmin_home' %}">Dashboard</a>
+              {% else %}
+                <a href="{% url 'dashboards:professional_home' %}">Agenda</a>
+              {% endif %}
+              <form method="post" action="{% url 'accounts:logout' %}">
+                {% csrf_token %}
+                <button type="submit">Salir</button>
+              </form>
+            {% else %}
+              <a href="{% url 'accounts:login' %}">Entrar</a>
+            {% endif %}
+          </nav>
+        </div>
+      </header>
+
+      <main class="app-main">
+        {% if messages %}
+          <div class="form-stack" role="status">
+            {% for message in messages %}
+              <p class="alert">{{ message }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

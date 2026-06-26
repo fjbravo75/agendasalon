@@ -29,11 +29,15 @@ El proyecto usa por defecto `config.settings.dev` para desarrollo.
 ## Estado actual
 
 Base Django creada con estructura de settings por entorno, usuario custom
-interno desde el inicio y nucleo inicial de modelos SaaS/agenda.
+interno desde el inicio, nucleo inicial de modelos SaaS/agenda y entrada
+autenticada por telefono normalizado.
 
 Incluye negocios, pertenencias profesionales, servicios, disponibilidad, cierres,
 lineas de trabajo, fichas de cliente, contactos autorizados, citas,
 servicios dentro de cita, festivos y notificaciones internas simuladas.
+
+Tambien incluye login visual, templates base, redireccion por rol y resolucion
+del negocio activo del profesional autenticado.
 
 Verificacion actual:
 

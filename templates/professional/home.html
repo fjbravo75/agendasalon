@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}{{ business.commercial_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section>
+    <h1 class="page-title page-title--compact">{{ business.commercial_name }}</h1>
+    <p class="lede">
+      Panel profesional inicial. Desde aqui se conectara la agenda asistida,
+      clientes, servicios y horarios del negocio.
+    </p>
+
+    <div class="status-grid">
+      <div class="metric">
+        <strong>{{ services_count }}</strong>
+        <span>Servicios activos</span>
+      </div>
+      <div class="metric">
+        <strong>{{ work_lines_count }}</strong>
+        <span>Lineas activas</span>
+      </div>
+      <div class="metric">
+        <strong>{{ appointments_count }}</strong>
+        <span>Citas registradas</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a class="button" href="#">Nueva cita</a>
+      <a class="button button--secondary" href="#">Clientes</a>
+      <a class="button button--secondary" href="#">Servicios</a>
+    </div>
+
+    <div class="chip-row">
+      {% if is_operational %}
+        <span class="chip">Agenda operativa</span>
+      {% else %}
+        <span class="chip chip--editorial">Configuracion pendiente</span>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

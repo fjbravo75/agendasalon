@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard superadministrador - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section>
+    <h1 class="page-title page-title--compact">Salud del SaaS</h1>
+    <p class="lede">
+      Vista inicial de uso y configuracion general de AgendaSalon.
+    </p>
+
+    <div class="status-grid">
+      <div class="metric">
+        <strong>{{ active_businesses }}</strong>
+        <span>Negocios activos</span>
+      </div>
+      <div class="metric">
+        <strong>{{ inactive_businesses }}</strong>
+        <span>Negocios inactivos</span>
+      </div>
+      <div class="metric">
+        <strong>{{ professionals_count }}</strong>
+        <span>Profesionales vinculados</span>
+      </div>
+      <div class="metric">
+        <strong>{{ clients_count }}</strong>
+        <span>Fichas de cliente</span>
+      </div>
+      <div class="metric">
+        <strong>{{ appointments_count }}</strong>
+        <span>Citas registradas</span>
+      </div>
+      <div class="metric">
+        <strong>{{ total_businesses }}</strong>
+        <span>Negocios totales</span>
+      </div>
+    </div>
+  </section>
+{% endblock %}

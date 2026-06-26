@@ -6,6 +6,7 @@ from django.test import TestCase
 from apps.accounts.models import User
 from apps.booking.models import AvailabilityRule, Service, WorkLine
 from apps.businesses.models import Business, BusinessMembership
+from apps.businesses.services import get_primary_business_for_user
 
 
 class BusinessModelTests(TestCase):
@@ -49,4 +50,38 @@ class BusinessModelTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             BusinessMembership.objects.create(business=self.business, user=self.user)
 
-# Create your tests here.
+
+class BusinessAccessServiceTests(TestCase):
+    def test_primary_business_ignores_inactive_memberships(self):
+        user = User.objects.create_user(
+            normalized_phone="+34600111002",
+            password="test-pass",
+            full_name="Mari Profesional",
+        )
+        business = Business.objects.create(
+            commercial_name="Peluqueria Mari",
+            slug="peluqueria-mari",
+            is_active=True,
+        )
+        BusinessMembership.objects.create(
+            business=business,
+            user=user,
+            is_active=False,
+        )
+
+        self.assertIsNone(get_primary_business_for_user(user))
+
+    def test_primary_business_returns_active_business_for_professional(self):
+        user = User.objects.create_user(
+            normalized_phone="+34600111003",
+            password="test-pass",
+            full_name="Mari Profesional",
+        )
+        business = Business.objects.create(
+            commercial_name="Peluqueria Mari",
+            slug="peluqueria-mari",
+            is_active=True,
+        )
+        BusinessMembership.objects.create(business=business, user=user)
+
+        self.assertEqual(get_primary_business_for_user(user), business)

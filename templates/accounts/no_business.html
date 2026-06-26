@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Sin negocio activo - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="page-grid">
+    <div>
+      <h1 class="page-title page-title--compact">Cuenta sin negocio activo.</h1>
+      <p class="lede">
+        Tu usuario existe, pero todavia no tiene una pertenencia profesional
+        activa asociada a un negocio.
+      </p>
+    </div>
+    <div class="panel">
+      <div class="panel__body">
+        <h2 class="panel__title">Estado de acceso</h2>
+        <div class="empty">
+          Para entrar al panel profesional hace falta que el superadministrador
+          vincule esta cuenta con un negocio activo.
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
