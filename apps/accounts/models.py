@@ -79,5 +79,3 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.full_name or self.normalized_phone
-
-# Create your models here.
