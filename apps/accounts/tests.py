@@ -35,7 +35,34 @@ class PhoneAuthenticationFormTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Telefono o contrasena no validos.", form.non_field_errors())
+        self.assertIn("Teléfono o contraseña no válidos.", form.non_field_errors())
+
+
+class LoginPageTemplateTests(TestCase):
+    def test_login_page_uses_private_editorial_copy(self):
+        response = self.client.get(reverse("accounts:login"))
+
+        self.assertContains(response, "AgendaSalon - Acceso privado")
+        self.assertContains(response, "Entrar en AgendaSalon")
+        self.assertContains(response, "Acceso privado para cuentas registradas.")
+        self.assertContains(response, "Agenda clara")
+        self.assertContains(response, "TELÉFONO")
+        self.assertContains(response, "CONTRASEÑA")
+        self.assertNotContains(response, "Entrar en mi agenda")
+        self.assertNotContains(response, "¿Has olvidado")
+        self.assertNotContains(response, "MVP")
+
+    def test_invalid_login_keeps_private_editorial_context(self):
+        response = self.client.post(
+            reverse("accounts:login"),
+            {"username": "600 000 000", "password": "clave-no-valida"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Teléfono o contraseña no válidos.")
+        self.assertContains(response, "Entrar en AgendaSalon")
+        self.assertNotContains(response, "¿Has olvidado")
+        self.assertNotContains(response, "MVP")
 
 
 class LoginRoutingTests(TestCase):

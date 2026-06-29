@@ -9,17 +9,27 @@ class PhoneAuthenticationForm(AuthenticationForm):
     """Authenticate internal SaaS users by normalized phone and password."""
 
     error_messages = {
-        "invalid_login": "Telefono o contrasena no validos.",
-        "inactive": "Esta cuenta esta inactiva.",
+        "invalid_login": "Teléfono o contraseña no válidos.",
+        "inactive": "Esta cuenta está inactiva.",
     }
 
     username = forms.CharField(
-        label="Telefono",
+        label="Teléfono",
         widget=forms.TextInput(
             attrs={
                 "autocomplete": "tel",
                 "autofocus": True,
                 "placeholder": "600 000 000",
+            }
+        ),
+    )
+    password = forms.CharField(
+        label="Contraseña",
+        strip=False,
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "current-password",
+                "placeholder": "Tu contraseña",
             }
         ),
     )
