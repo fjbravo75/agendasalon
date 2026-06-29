@@ -6,8 +6,8 @@
   <section>
     <h1 class="page-title page-title--compact">{{ business.commercial_name }}</h1>
     <p class="lede">
-      Panel profesional inicial. Desde aqui se conectara la agenda asistida,
-      clientes, servicios y horarios del negocio.
+      Un resumen rapido para saber como esta preparado el salon antes de empezar
+      a colocar citas en la agenda.
     </p>
 
     <div class="status-grid">
@@ -25,17 +25,11 @@
       </div>
     </div>
 
-    <div class="actions">
-      <a class="button" href="#">Nueva cita</a>
-      <a class="button button--secondary" href="#">Clientes</a>
-      <a class="button button--secondary" href="#">Servicios</a>
-    </div>
-
     <div class="chip-row">
       {% if is_operational %}
-        <span class="chip">Agenda operativa</span>
+        <span class="chip">Listo para agendar</span>
       {% else %}
-        <span class="chip chip--editorial">Configuracion pendiente</span>
+        <span class="chip chip--editorial">Ajustes por completar</span>
       {% endif %}
     </div>
   </section>
