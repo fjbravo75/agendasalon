@@ -66,6 +66,10 @@ del negocio activo del profesional autenticado.
 La entrada profesional `/profesional/` funciona como agenda operativa de la
 jornada: muestra datos que entiende el profesional, líneas de trabajo, huecos
 recomendados, estado del salón y un vacío accionable cuando no hay citas.
+Las citas cuya hora ya terminó aparecen como pendientes de cierre: el
+profesional puede registrar si fueron atendidas o si el cliente no se presentó,
+también mediante una selección múltiple. El paso del tiempo nunca marca una
+cita automáticamente como atendida.
 
 El motor de citas por duración total ya existe como servicio de dominio en
 `apps/booking/slot_engine.py`. Calcula disponibilidad diaria por líneas, días de
@@ -91,6 +95,19 @@ elegir una hora guarda un borrador temporal, solicita acceso cliente y recupera
 una revisión final antes de confirmar. La cita solo se crea mediante POST
 protegido, tras revalidar el hueco, y queda vinculada a su ficha de cliente.
 
+El superadministrador dispone de un panel de estado y de una gestión propia de
+negocios. Puede dar de alta un salón con su primer acceso profesional, editarlo,
+pausarlo o reactivarlo, gestionar profesionales y activar o detener la reserva
+online sin borrar el historial. Esta administración no entra en el recorrido de
+reserva del cliente.
+
+La ficha de cada negocio incorpora un historial de actividad de solo lectura.
+Registra cambios reales de estado: citas creadas, canceladas o cerradas;
+servicios, horarios, cierres y líneas modificados; y cambios de negocio,
+reserva pública o accesos profesionales. Cada movimiento conserva fecha,
+categoría, responsable y canal, sin guardar contraseñas ni datos personales
+innecesarios. El historial completo admite filtros y paginación por cursor.
+
 También existe una semilla de demostración reproducible:
 
 ```powershell
@@ -104,16 +121,26 @@ comando puede ejecutarse varias veces sin duplicar los registros principales.
 
 ## Rutas principales
 
-- `/`: selector público de negocio.
+- `/`: redirección al acceso interno, sin directorio público de negocios.
 - `/cuenta/entrar/`: acceso de profesionales y superadministración.
+- `/cuenta/desconectado/`: confirmación de cierre de la sesión interna.
 - `/profesional/`: agenda operativa de la jornada.
 - `/profesional/citas/nueva/`: asistente de nueva cita.
+- `/profesional/citas/pendientes/`: revisión completa de citas pendientes de cierre.
 - `/profesional/servicios/`: catálogo profesional.
 - `/profesional/horarios/`: disponibilidad, cierres y líneas.
 - `/clientes/profesional/`: fichas de cliente.
+- `/superadmin/dashboard/`: estado general de AgendaSalon.
+- `/superadmin/negocios/`: alta y gestión de negocios y accesos profesionales.
+- `/superadmin/negocios/<id>/actividad/`: historial filtrable de un negocio.
 - `/reservar/<slug>/`: reserva online híbrida.
 - `/clientes/<slug>/entrar/`: acceso cliente por negocio.
 - `/clientes/<slug>/registro/`: alta cliente por negocio.
+
+Cada cliente llega mediante la URL del negocio concreto. Por ejemplo, la
+demostración utiliza `/reservar/peluqueria-mari/` y
+`/reservar/barberia-norte/`; AgendaSalon no muestra un selector global de
+salones ni enlaza el acceso profesional desde las pantallas cliente.
 
 Verificación actual:
 
@@ -123,7 +150,7 @@ Verificación actual:
 .\.venv\Scripts\python.exe manage.py test
 ```
 
-La última verificación local completa deja la batería en 104 pruebas correctas.
+La última verificación local completa deja la batería en 127 pruebas correctas.
 También se puede ejecutar por dominios:
 
 ```powershell
