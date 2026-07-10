@@ -72,6 +72,31 @@ class SuperadminBusinessManagementTests(TestCase):
             "Se genera desde el nombre si lo dejas vacío",
         )
 
+    def test_first_professional_fields_keep_help_outside_the_grid(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(reverse("businesses:superadmin_business_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="professional-access-guidance"')
+        self.assertContains(
+            response,
+            "Será su identificador para entrar en AgendaSalon.",
+            count=1,
+        )
+        self.assertContains(
+            response,
+            "Debe tener al menos 8 caracteres y no ser demasiado común.",
+            count=1,
+        )
+        self.assertContains(response, "Correo electrónico (opcional)")
+        professional_form = response.context["professional_form"]
+        for field_name in ("phone", "password"):
+            self.assertEqual(
+                professional_form.fields[field_name].widget.attrs["aria-describedby"],
+                "professional-access-guidance",
+            )
+
     def test_superadmin_creates_business_with_first_professional_atomically(self):
         self.client.force_login(self.superadmin)
         response = self.client.post(

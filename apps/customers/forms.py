@@ -136,19 +136,23 @@ class ProfessionalClientQuickForm(forms.Form):
     phone = forms.CharField(
         label="Teléfono",
         max_length=32,
-        widget=forms.TextInput(
-            attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}
+        widget=forms.TelInput(
+            attrs={
+                "autocomplete": "tel",
+                "inputmode": "tel",
+                "placeholder": "Teléfono (600 000 000)",
+            }
         ),
     )
     email = forms.EmailField(
-        label="Email",
+        label="Correo electrónico (opcional)",
         required=False,
         widget=forms.EmailInput(
             attrs={"autocomplete": "email", "placeholder": "Email opcional"}
         ),
     )
     internal_notes = forms.CharField(
-        label="Notas internas",
+        label="Notas internas (opcional)",
         required=False,
         max_length=500,
         widget=forms.Textarea(
