@@ -11,8 +11,17 @@ from django.views.decorators.http import require_POST
 
 from apps.booking.models import Appointment
 from apps.businesses.activity import record_business_activity
-from apps.businesses.forms import BusinessForm, ProfessionalCreateForm
+from apps.businesses.forms import (
+    BusinessForm,
+    BusinessVisualSettingsForm,
+    ProfessionalCreateForm,
+)
 from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
+from apps.businesses.services import (
+    get_business_public_image_url,
+    get_business_visual_theme,
+    get_primary_business_for_user,
+)
 
 
 ACTIVITY_FILTERS = (
@@ -351,6 +360,81 @@ def superadmin_membership_toggle(request, business_id, membership_id):
     )
     messages.success(request, f"El acceso de {membership.user.full_name} queda {state}.")
     return redirect("businesses:superadmin_business_detail", business_id=business_id)
+
+
+@login_required
+def professional_settings(request):
+    if request.user.is_superuser:
+        return HttpResponseForbidden("Los ajustes pertenecen al negocio profesional.")
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+
+    previous_image_name = business.public_image.name if business.public_image else ""
+    previous_image_storage = business.public_image.storage if business.public_image else None
+    settings_form = BusinessVisualSettingsForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=business,
+    )
+    if request.method == "POST" and settings_form.is_valid():
+        theme_changed = "professional_theme" in settings_form.changed_data
+        image_uploaded = "public_image" in settings_form.changed_data
+        image_removed = bool(
+            previous_image_name and settings_form.cleaned_data.get("remove_public_image")
+        )
+        appearance_changed = theme_changed or image_uploaded or image_removed
+
+        with transaction.atomic():
+            business = settings_form.save()
+            if appearance_changed:
+                updated_parts = []
+                if theme_changed:
+                    updated_parts.append("tema del panel")
+                if image_uploaded or image_removed:
+                    updated_parts.append("imagen pública")
+                record_business_activity(
+                    business=business,
+                    category=BusinessActivityEvent.Category.CONFIGURATION,
+                    event_type=BusinessActivityEvent.EventType.VISUAL_SETTINGS_UPDATED,
+                    origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                    summary=f"Apariencia actualizada: {', '.join(updated_parts)}.",
+                    actor=request.user,
+                    entity=business,
+                    entity_type="business",
+                    changes={
+                        "professional_theme": business.professional_theme,
+                        "has_custom_public_image": bool(business.public_image),
+                    },
+                )
+            new_image_name = business.public_image.name if business.public_image else ""
+            if (
+                previous_image_name
+                and previous_image_name != new_image_name
+                and previous_image_storage is not None
+            ):
+                transaction.on_commit(
+                    lambda storage=previous_image_storage, name=previous_image_name: storage.delete(
+                        name
+                    )
+                )
+
+        if appearance_changed:
+            messages.success(request, "Los ajustes visuales del negocio quedan guardados.")
+        else:
+            messages.info(request, "No había cambios pendientes en la apariencia.")
+        return redirect("business_settings:professional_settings")
+
+    return render(
+        request,
+        "professional/settings.html",
+        {
+            "business": business,
+            "settings_form": settings_form,
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+        },
+    )
 
 
 def _activity_category(value):

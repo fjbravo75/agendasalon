@@ -184,3 +184,66 @@ class ProfessionalCreateForm(forms.Form):
             is_active=True,
         )
         return user
+
+
+class BusinessVisualSettingsForm(forms.ModelForm):
+    remove_public_image = forms.BooleanField(
+        label="Volver a la imagen predeterminada",
+        required=False,
+    )
+
+    class Meta:
+        model = Business
+        fields = ("professional_theme", "public_image")
+        labels = {
+            "professional_theme": "Apariencia del panel",
+            "public_image": "Nueva imagen pública",
+        }
+        error_messages = {
+            "public_image": {
+                "invalid_image": "Selecciona una imagen JPG, PNG o WebP válida.",
+            }
+        }
+        widgets = {
+            "professional_theme": forms.RadioSelect,
+            "public_image": forms.FileInput(
+                attrs={
+                    "accept": "image/jpeg,image/png,image/webp",
+                }
+            ),
+        }
+
+    def clean_public_image(self):
+        image = self.cleaned_data.get("public_image")
+        if not image or "public_image" not in self.files:
+            return image
+        if image.size > 5 * 1024 * 1024:
+            raise forms.ValidationError("La imagen no puede superar los 5 MB.")
+        verified_image = getattr(image, "image", None)
+        image_format = getattr(verified_image, "format", "")
+        if image_format not in {"JPEG", "PNG", "WEBP"}:
+            raise forms.ValidationError("Usa una imagen JPG, PNG o WebP.")
+        width = getattr(verified_image, "width", 0)
+        height = getattr(verified_image, "height", 0)
+        if width * height > 24_000_000:
+            raise forms.ValidationError("La imagen tiene demasiados píxeles para un uso seguro.")
+        if width < 800 or height < 500:
+            raise forms.ValidationError("La imagen debe medir al menos 800 × 500 píxeles.")
+        return image
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("remove_public_image") and self.files.get("public_image"):
+            self.add_error(
+                "public_image",
+                "Elige una imagen nueva o vuelve a la predeterminada, pero no ambas opciones.",
+            )
+        return cleaned_data
+
+    def save(self, commit=True):
+        business = super().save(commit=False)
+        if self.cleaned_data.get("remove_public_image"):
+            business.public_image = None
+        if commit:
+            business.save()
+        return business

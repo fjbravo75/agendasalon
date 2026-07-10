@@ -1,9 +1,22 @@
+from pathlib import Path
+from uuid import uuid4
+
 from django.conf import settings
+from django.core.validators import FileExtensionValidator
 from django.db import models
+
+
+def business_public_image_upload_to(instance, filename):
+    extension = Path(filename).suffix.lower()
+    return f"businesses/{instance.slug}/public-{uuid4().hex}{extension}"
 
 
 class Business(models.Model):
     """Business subscribed to AgendaSalon."""
+
+    class ProfessionalTheme(models.TextChoices):
+        LIGHT = "light", "Modo claro"
+        DARK = "dark", "Modo oscuro"
 
     commercial_name = models.CharField("nombre comercial", max_length=160)
     slug = models.SlugField("slug", max_length=180, unique=True)
@@ -15,6 +28,18 @@ class Business(models.Model):
     province = models.CharField("provincia", max_length=120, blank=True)
     is_active = models.BooleanField("activo", default=True)
     public_booking_enabled = models.BooleanField("reserva pública activa", default=True)
+    professional_theme = models.CharField(
+        "tema del panel profesional",
+        max_length=12,
+        choices=ProfessionalTheme.choices,
+        default=ProfessionalTheme.LIGHT,
+    )
+    public_image = models.ImageField(
+        "imagen pública personalizada",
+        upload_to=business_public_image_upload_to,
+        blank=True,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+    )
     last_activity_at = models.DateTimeField("última actividad", null=True, blank=True)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
     updated_at = models.DateTimeField("última actualización", auto_now=True)
@@ -145,6 +170,7 @@ class BusinessActivityEvent(models.Model):
         BUSINESS_REACTIVATED = "business_reactivated", "Negocio reactivado"
         PUBLIC_BOOKING_ENABLED = "public_booking_enabled", "Reserva pública activada"
         PUBLIC_BOOKING_DISABLED = "public_booking_disabled", "Reserva pública pausada"
+        VISUAL_SETTINGS_UPDATED = "visual_settings_updated", "Apariencia actualizada"
         MEMBERSHIP_CREATED = "membership_created", "Acceso profesional creado"
         MEMBERSHIP_PAUSED = "membership_paused", "Acceso profesional pausado"
         MEMBERSHIP_REACTIVATED = "membership_reactivated", "Acceso profesional reactivado"

@@ -48,7 +48,11 @@ from apps.booking.slot_engine import (
 )
 from apps.businesses.activity import record_business_activity
 from apps.businesses.models import Business, BusinessActivityEvent
-from apps.businesses.services import get_business_visual_theme, get_primary_business_for_user
+from apps.businesses.services import (
+    get_business_public_image_url,
+    get_business_visual_theme,
+    get_primary_business_for_user,
+)
 from apps.customers.forms import ProfessionalClientQuickForm
 from apps.customers.services import get_session_client_access
 from apps.customers.models import BusinessClient
@@ -992,6 +996,7 @@ def _public_booking_base_context(*, business, client_access, form, has_search):
         "business": business,
         "client_access": client_access,
         "client_auth_theme": get_business_visual_theme(business),
+        "client_auth_image_url": get_business_public_image_url(business),
         "form": form,
         "available_services": tuple(form.fields["services"].queryset),
         "selected_service_ids": _selected_service_ids(data),

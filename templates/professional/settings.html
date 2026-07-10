@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Ajustes de {{ business.commercial_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="settings-shell" aria-labelledby="settings-title">
+    <header class="professional-dashboard__hero settings-hero">
+      <div class="professional-dashboard__copy">
+        <span>Personalización del negocio</span>
+        <h1 class="page-title page-title--compact" id="settings-title">Ajustes de {{ business.commercial_name }}</h1>
+        <p>
+          Adapta la apariencia del panel profesional y la imagen que ven tus
+          clientes al reservar o entrar en su cuenta.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'public_booking' business.slug %}" target="_blank" rel="noopener">Ver reserva pública</a>
+      </div>
+    </header>
+
+    <form class="settings-form" method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {{ settings_form.non_field_errors }}
+
+      <div class="settings-grid">
+        <section class="settings-panel" aria-labelledby="theme-settings-title">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Panel profesional</span>
+              <h2 id="theme-settings-title">Modo de visualización</h2>
+            </div>
+          </div>
+          <p class="settings-panel__intro">
+            Elige cómo se muestra la zona de trabajo del equipo. No cambia la
+            reserva pública ni la imagen de acceso de los clientes.
+          </p>
+          <div class="theme-choice-list">
+            {% for choice in settings_form.professional_theme %}
+              <label class="theme-choice{% if choice.data.selected %} is-selected{% endif %}">
+                {{ choice.tag }}
+                <span class="theme-choice__sample theme-choice__sample--{{ choice.data.value }}" aria-hidden="true">
+                  <i></i><i></i><i></i>
+                </span>
+                <span>
+                  <strong>{{ choice.choice_label }}</strong>
+                  <small>{% if choice.data.value == 'dark' %}Menos luminosidad para trabajar en ambientes con poca luz.{% else %}La apariencia clara y editorial habitual de AgendaSalon.{% endif %}</small>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          {{ settings_form.professional_theme.errors }}
+        </section>
+
+        <section class="settings-panel" aria-labelledby="public-image-title">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Experiencia cliente</span>
+              <h2 id="public-image-title">Imagen pública del negocio</h2>
+            </div>
+            <span class="settings-state">{% if business.public_image %}Personalizada{% else %}Predeterminada{% endif %}</span>
+          </div>
+          <p class="settings-panel__intro">
+            Esta imagen se utiliza en la reserva online y en las pantallas de
+            acceso y registro de clientes. El acceso profesional conserva su
+            imagen propia de AgendaSalon.
+          </p>
+
+          <div class="settings-image-layout">
+            <div class="settings-public-preview settings-public-preview--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--settings-public-bg: url('{{ client_auth_image_url }}');"{% endif %} role="img" aria-label="Vista previa de la imagen pública de {{ business.commercial_name }}">
+              <div>
+                <span>Reserva online</span>
+                <strong>{{ business.commercial_name }}</strong>
+              </div>
+            </div>
+
+            <div class="settings-image-controls">
+              <div class="field settings-upload-field">
+                {{ settings_form.public_image.label_tag }}
+                {{ settings_form.public_image }}
+                <small>JPG, PNG o WebP · máximo 5 MB · mínimo 800 × 500 px. Recomendado: imagen horizontal de 1600 × 1000 px o superior.</small>
+                {{ settings_form.public_image.errors }}
+              </div>
+
+              {% if business.public_image %}
+                <label class="settings-remove-image">
+                  {{ settings_form.remove_public_image }}
+                  <span>
+                    <strong>{{ settings_form.remove_public_image.label }}</strong>
+                    <small>Se recuperará automáticamente la imagen estándar del tipo de negocio.</small>
+                  </span>
+                </label>
+                {{ settings_form.remove_public_image.errors }}
+              {% else %}
+                <p class="settings-default-note">
+                  Ahora se utiliza la imagen estándar asignada al tipo de negocio.
+                  Si subes una nueva, podrás volver a esta opción cuando quieras.
+                </p>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="settings-form__actions">
+        <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Cancelar</a>
+        <button class="button" type="submit">Guardar ajustes</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

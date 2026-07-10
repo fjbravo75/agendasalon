@@ -12,7 +12,11 @@ from django.views.decorators.http import require_POST
 from apps.booking.models import Appointment
 from apps.booking.public_booking_drafts import get_public_booking_draft
 from apps.businesses.models import Business
-from apps.businesses.services import get_business_visual_theme, get_primary_business_for_user
+from apps.businesses.services import (
+    get_business_public_image_url,
+    get_business_visual_theme,
+    get_primary_business_for_user,
+)
 from apps.customers.forms import (
     ClientLoginForm,
     ClientRegistrationForm,
@@ -387,6 +391,7 @@ def client_access(request, slug):
             "login_form": login_form,
             "next_url": next_url,
             "client_auth_theme": auth_theme,
+            "client_auth_image_url": get_business_public_image_url(business),
             "has_pending_booking": has_pending_booking,
         },
     )
@@ -428,6 +433,7 @@ def client_register(request, slug):
             "registration_form": registration_form,
             "next_url": next_url,
             "client_auth_theme": auth_theme,
+            "client_auth_image_url": get_business_public_image_url(business),
             "has_pending_booking": has_pending_booking,
         },
     )

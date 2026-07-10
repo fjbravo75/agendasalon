@@ -35,3 +35,12 @@ def get_business_visual_theme(business):
     if "barber" in identity:
         return "barberia"
     return "salon"
+
+
+def get_business_public_image_url(business):
+    if not business.public_image:
+        return ""
+    try:
+        return business.public_image.url
+    except ValueError:
+        return ""

@@ -4,7 +4,7 @@
 {% block body_class %}login-body client-auth-body{% endblock %}
 
 {% block content %}
-  <div class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}">
+  <div class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--client-auth-bg: url('{{ client_auth_image_url }}');"{% endif %}>
     <section class="login-shell client-auth-shell">
       <div class="login-topbar" aria-label="Cabecera">
         <a class="login-brand" href="{% url 'public_booking' business.slug %}">
