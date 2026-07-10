@@ -17,11 +17,15 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.booking.views import public_booking
 from apps.core.views import home
 
 urlpatterns = [
     path("", home, name="home"),
     path("cuenta/", include("apps.accounts.urls")),
+    path("clientes/", include("apps.customers.urls")),
+    path("profesional/", include("apps.booking.urls")),
+    path("reservar/<slug:slug>/", public_booking, name="public_booking"),
     path("", include("apps.dashboards.urls")),
     path("admin/", admin.site.urls),
 ]

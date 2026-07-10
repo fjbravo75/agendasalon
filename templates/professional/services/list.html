@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Servicios - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="services-shell" aria-label="Servicios de {{ business.commercial_name }}">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Catálogo operativo</span>
+        <h1 class="page-title page-title--compact">Servicios de {{ business.commercial_name }}</h1>
+        <p>
+          Define qué se puede reservar, cuánto dura y en qué orden debe aparecer.
+          Define qué se puede reservar, cuánto dura y en qué orden aparece. Estas
+          duraciones permiten calcular horas reales para el equipo y la reserva online.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Agenda</a>
+        <a class="button" href="{% url 'booking:appointment_assistant' %}">Nueva cita</a>
+      </div>
+    </header>
+
+    <div class="service-metric-grid" aria-label="Resumen de servicios">
+      <article class="service-metric service-metric--primary">
+        <span>Disponibles</span>
+        <strong>{{ active_services_count }}</strong>
+        <p>Servicios disponibles ahora para crear una cita.</p>
+      </article>
+      <article class="service-metric">
+        <span>Pausados</span>
+        <strong>{{ paused_services_count }}</strong>
+        <p>No aparecen en nuevas citas, pero conservan su historial.</p>
+      </article>
+      <article class="service-metric">
+        <span>Duración media</span>
+        <strong>{% if average_duration %}{{ average_duration }} min{% else %}-{% endif %}</strong>
+        <p>Referencia rápida para entender el peso de la agenda.</p>
+      </article>
+      <article class="service-metric">
+        <span>Con precio</span>
+        <strong>{{ priced_services_count }}</strong>
+        <p>Importe orientativo visible para el equipo.</p>
+      </article>
+    </div>
+
+    <div class="services-workspace">
+      <section class="service-list-panel" aria-label="Catálogo de servicios">
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>Servicios del salón</span>
+            <h2>Catálogo de reserva</h2>
+          </div>
+          <strong>{{ services|length }}</strong>
+        </div>
+
+        <div class="service-list">
+          {% for service in services %}
+            <article class="service-row{% if not service.is_active %} service-row--paused{% endif %}" style="--service-color: {{ service.color_hex|default:'#08927F' }};">
+              <span class="service-row__swatch" aria-hidden="true"></span>
+              <div class="service-row__main">
+                <div class="service-row__title">
+                  <strong>{{ service.name }}</strong>
+                  {% if service.is_active %}
+                    <span class="service-status service-status--active">Disponible</span>
+                  {% else %}
+                    <span class="service-status">Pausado</span>
+                  {% endif %}
+                </div>
+                {% if service.description %}
+                  <p>{{ service.description }}</p>
+                {% else %}
+                  <p>Sin nota interna para el equipo.</p>
+                {% endif %}
+              </div>
+
+              <div class="service-row__meta">
+                <strong>{{ service.duration_minutes }} min</strong>
+                {% if service.price_amount %}
+                  <span>{{ service.price_amount }} €</span>
+                {% else %}
+                  <span>Sin precio</span>
+                {% endif %}
+                <small>{{ service.appointments_total }} citas vinculadas</small>
+              </div>
+
+              <div class="service-row__actions">
+                <a class="button button--secondary" href="{% url 'booking:professional_service_edit' service.id %}">Editar</a>
+                <form method="post" action="{% url 'booking:professional_service_toggle' service.id %}">
+                  {% csrf_token %}
+                  {% if service.is_active %}
+                    <button class="button button--secondary" type="submit">Pausar</button>
+                  {% else %}
+                    <button class="button" type="submit">Activar</button>
+                  {% endif %}
+                </form>
+              </div>
+            </article>
+          {% empty %}
+            <div class="empty service-empty">
+              Aún no hay servicios. Crea el primero para poder calcular horas disponibles.
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <aside class="service-form-panel" aria-label="{% if editing_service %}Editar servicio{% else %}Crear servicio{% endif %}">
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>{% if editing_service %}Editar servicio{% else %}Nuevo servicio{% endif %}</span>
+            <h2>{% if editing_service %}{{ editing_service.name }}{% else %}Añadir al catálogo{% endif %}</h2>
+          </div>
+          {% if editing_service %}
+            <a class="button button--secondary" href="{% url 'booking:professional_service_list' %}">Nuevo</a>
+          {% endif %}
+        </div>
+
+        <p class="soft-note">
+          Usa duraciones reales en tramos de 15 minutos. Si el servicio deja de ofrecerse,
+          mejor pausarlo que borrarlo.
+        </p>
+
+        <form class="service-form" method="post" action="{% if editing_service %}{% url 'booking:professional_service_edit' editing_service.id %}{% else %}{% url 'booking:professional_service_list' %}{% endif %}">
+          {% csrf_token %}
+          {% if service_form.non_field_errors %}
+            <div class="alert">{{ service_form.non_field_errors }}</div>
+          {% endif %}
+
+          <div class="service-form-grid">
+            <div class="field field--full">
+              {{ service_form.name.label_tag }}
+              {{ service_form.name }}
+              {{ service_form.name.errors }}
+            </div>
+            <div class="field">
+              {{ service_form.duration_minutes.label_tag }}
+              {{ service_form.duration_minutes }}
+              {{ service_form.duration_minutes.errors }}
+            </div>
+            <div class="field">
+              {{ service_form.price_amount.label_tag }}
+              {{ service_form.price_amount }}
+              {{ service_form.price_amount.errors }}
+            </div>
+            <div class="field">
+              {{ service_form.color_hex.label_tag }}
+              {{ service_form.color_hex }}
+              {{ service_form.color_hex.errors }}
+            </div>
+            <div class="field">
+              {{ service_form.display_order.label_tag }}
+              {{ service_form.display_order }}
+              {{ service_form.display_order.errors }}
+            </div>
+            <div class="field field--full">
+              {{ service_form.description.label_tag }}
+              {{ service_form.description }}
+              {{ service_form.description.errors }}
+            </div>
+            <div class="service-state-field field--full">
+              <label class="service-check-row">
+                {{ service_form.is_active }}
+                <span>
+                  <strong>Disponible para reservar</strong>
+                  <small>Aparecerá en nueva cita y en reserva online.</small>
+                </span>
+              </label>
+              {{ service_form.is_active.errors }}
+            </div>
+          </div>
+
+          <button class="button button--wide" type="submit">
+            {% if editing_service %}Guardar cambios{% else %}Crear servicio{% endif %}
+          </button>
+        </form>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

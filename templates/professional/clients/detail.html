@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}{{ business_client.full_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="client-detail-shell" aria-label="Ficha de cliente">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Ficha de cliente</span>
+        <h1 class="page-title page-title--compact">{{ business_client.full_name }}</h1>
+        <p>
+          Datos, cuenta online, personas autorizadas y citas reunidos para
+          atender cualquier gestión desde una sola ficha.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'customers:professional_client_list' %}">Clientes</a>
+        <a class="button button--secondary" href="{% url 'customers:professional_client_edit' business_client.id %}">Editar datos</a>
+        {% if business_client.is_active %}
+          <a class="button" href="{% url 'booking:appointment_assistant' %}?business_client={{ business_client.id }}">Nueva cita</a>
+        {% endif %}
+      </div>
+    </header>
+
+    {% if not business_client.is_active %}
+      <section class="client-state-banner" aria-label="Ficha pausada">
+        <div>
+          <span>Ficha pausada</span>
+          <strong>No aparece al crear nuevas citas</strong>
+          <p>El historial sigue disponible y puedes reactivarla cuando vuelva a ser necesaria.</p>
+        </div>
+        <form method="post" action="{% url 'customers:professional_client_toggle' business_client.id %}">
+          {% csrf_token %}
+          <button class="button" type="submit">Reactivar ficha</button>
+        </form>
+      </section>
+    {% endif %}
+
+    <div class="client-profile-grid">
+      <aside class="client-profile-card" aria-label="Datos básicos">
+        <div class="client-avatar" aria-hidden="true">{{ business_client.full_name|first }}</div>
+        <div>
+          <span>Contacto principal</span>
+          <h2>{{ business_client.full_name }}</h2>
+          <p>{{ business_client.phone }}</p>
+          {% if business_client.email %}
+            <p>{{ business_client.email }}</p>
+          {% endif %}
+        </div>
+
+        <div class="client-facts">
+          <div>
+            <span>Origen</span>
+            <strong>{{ business_client.get_source_display }}</strong>
+          </div>
+          <div>
+            <span>Alta</span>
+            <strong>{{ business_client.created_at|date:"j M Y" }}</strong>
+          </div>
+          <div>
+           <span>Reserva online</span>
+            {% if client_access and not business_client.is_active %}
+              <strong>Bloqueada</strong>
+            {% elif has_client_access %}
+              <strong>Activa</strong>
+            {% elif client_access %}
+              <strong>Pausada</strong>
+            {% else %}
+              <strong>Sin cuenta</strong>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if business_client.internal_notes %}
+          <div class="client-note">
+            <span>Notas internas</span>
+            <p>{{ business_client.internal_notes }}</p>
+          </div>
+        {% endif %}
+
+        <div class="client-account-control">
+          <span>Cuenta online</span>
+          {% if client_access %}
+            <strong>{{ client_access.phone }}</strong>
+            {% if client_access.last_login_at %}
+              <small>Último acceso: {{ client_access.last_login_at|date:"j M Y H:i" }}</small>
+            {% else %}
+              <small>Todavía no ha iniciado sesión.</small>
+            {% endif %}
+            {% if business_client.is_active %}
+              <form method="post" action="{% url 'customers:professional_client_access_toggle' business_client.id %}">
+                {% csrf_token %}
+                {% if client_access.is_active %}
+                  <button class="button button--secondary" type="submit">Pausar cuenta online</button>
+                {% else %}
+                  <button class="button" type="submit">Reactivar cuenta online</button>
+                {% endif %}
+              </form>
+            {% else %}
+              <small>Se reactivará con su estado anterior cuando la ficha vuelva a estar activa.</small>
+            {% endif %}
+          {% else %}
+            <strong>Sin registro</strong>
+            <small>La persona puede crear su cuenta desde el acceso público del salón.</small>
+          {% endif %}
+        </div>
+
+        {% if business_client.is_active %}
+          <div class="client-lifecycle-control">
+            <span>Estado de la ficha</span>
+            {% if pending_confirmed_count %}
+              <strong>{{ pending_confirmed_count }} cita{% if pending_confirmed_count != 1 %}s{% endif %} pendiente{% if pending_confirmed_count != 1 %}s{% endif %}</strong>
+              <small>Completa o cancela esas citas antes de pausar la ficha.</small>
+              <button class="button button--secondary" type="button" disabled>Pausa protegida</button>
+            {% else %}
+              <strong>Activa</strong>
+              <small>Si ya no debe aparecer al agendar, puedes pausarla sin borrar su historial.</small>
+              <form method="post" action="{% url 'customers:professional_client_toggle' business_client.id %}">
+                {% csrf_token %}
+                <button class="button button--danger" type="submit">Pausar ficha</button>
+              </form>
+            {% endif %}
+          </div>
+        {% endif %}
+      </aside>
+
+      <div class="client-detail-main">
+        <section class="client-history-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Agenda</span>
+              <h2>Próximas citas</h2>
+            </div>
+          </div>
+
+          <div class="appointment-history-list">
+            {% for appointment in upcoming_appointments %}
+              <article class="appointment-history-card appointment-history-card--upcoming">
+                <time>{{ appointment.starts_at|date:"l j H:i" }}</time>
+                <strong>{{ appointment.service_summary_snapshot|default:"Servicios de la cita" }}</strong>
+                <span>{{ appointment.total_duration_minutes }} min · {{ appointment.work_line.name|default:"línea asignada" }}</span>
+                <a class="appointment-inline-link" href="{% url 'booking:professional_appointment_detail' appointment.id %}">Gestionar</a>
+              </article>
+            {% empty %}
+              <div class="empty">No tiene próximas citas. Puedes crear una desde esta ficha.</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="client-history-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Historial</span>
+              <h2>Citas anteriores</h2>
+            </div>
+          </div>
+
+          <div class="appointment-history-list">
+            {% for appointment in history_appointments %}
+              <article class="appointment-history-card appointment-history-card--{{ appointment.status }}">
+                <time>{{ appointment.starts_at|date:"j M Y H:i" }}</time>
+                <strong>{{ appointment.service_summary_snapshot|default:"Servicios de la cita" }}</strong>
+                <span>{{ appointment.get_status_display }} · {{ appointment.total_duration_minutes }} min · {{ appointment.get_manual_channel_display }}</span>
+                <a class="appointment-inline-link" href="{% url 'booking:professional_appointment_detail' appointment.id %}">Ver cita</a>
+              </article>
+            {% empty %}
+              <div class="empty">Todavía no hay historial para esta ficha.</div>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+
+      <aside class="client-side-panel" aria-label="Personas autorizadas">
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>Personas autorizadas</span>
+            <h2>Pueden pedir cita</h2>
+          </div>
+          <a class="button button--secondary" href="{% url 'customers:professional_contact_create' business_client.id %}">Añadir</a>
+        </div>
+
+        <p class="soft-note">{{ active_contacts_count }} persona{% if active_contacts_count != 1 %}s{% endif %} autorizada{% if active_contacts_count != 1 %}s{% endif %} ahora.</p>
+
+        <div class="authorized-contact-list">
+          {% for contact in authorized_contacts %}
+            <article class="authorized-contact{% if not contact.is_active %} authorized-contact--paused{% endif %}">
+              <div class="authorized-contact__head">
+                <strong>{{ contact.full_name }}</strong>
+                {% if contact.is_active %}
+                  <span class="client-state client-state--active">Activa</span>
+                {% else %}
+                  <span class="client-state">Pausada</span>
+                {% endif %}
+              </div>
+              <span>{{ contact.get_relationship_label_display }} · {{ contact.phone }}</span>
+              {% if contact.is_primary_contact %}
+                <small>Contacto principal</small>
+              {% endif %}
+              {% if contact.notes %}<p>{{ contact.notes }}</p>{% endif %}
+              <div class="authorized-contact__actions">
+                <a class="appointment-inline-link" href="{% url 'customers:professional_contact_edit' business_client.id contact.id %}">Editar</a>
+                <form method="post" action="{% url 'customers:professional_contact_toggle' business_client.id contact.id %}">
+                  {% csrf_token %}
+                  <button class="text-action" type="submit">{% if contact.is_active %}Pausar{% else %}Reactivar{% endif %}</button>
+                </form>
+              </div>
+            </article>
+          {% empty %}
+            <p class="soft-note">
+              No hay personas autorizadas guardadas. La ficha puede usarse igual
+              para citas propias del cliente.
+            </p>
+          {% endfor %}
+        </div>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

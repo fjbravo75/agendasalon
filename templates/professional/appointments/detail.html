@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}Cita de {{ appointment.business_client.full_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="appointment-detail-shell" aria-label="Gestión de cita">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Gestión de cita</span>
+        <h1 class="page-title page-title--compact">{{ appointment.business_client.full_name }}</h1>
+        <p>
+          Revisa el estado, servicios y trazabilidad de esta cita antes de
+          cerrarla o cancelarla. La agenda conserva el historial completo.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Agenda</a>
+        <a class="button button--secondary" href="{% url 'customers:professional_client_detail' appointment.business_client.id %}">Ficha cliente</a>
+        <a class="button" href="{% url 'booking:appointment_assistant' %}?business_client={{ appointment.business_client.id }}">Nueva cita</a>
+      </div>
+    </header>
+
+    <div class="appointment-metric-grid" aria-label="Resumen de la cita">
+      <article class="appointment-metric appointment-metric--primary">
+        <span>Estado</span>
+        <strong>{{ appointment.get_status_display }}</strong>
+        <p>{{ appointment.get_manual_channel_display }} como canal de entrada.</p>
+      </article>
+      <article class="appointment-metric">
+        <span>Día y hora</span>
+        <strong>{{ appointment.starts_at|date:"H:i" }}</strong>
+        <p>{{ appointment.starts_at|date:"l j \\d\\e F" }}</p>
+      </article>
+      <article class="appointment-metric">
+        <span>Duración</span>
+        <strong>{{ appointment.total_duration_minutes }} min</strong>
+        <p>{{ appointment.service_summary_snapshot|default:"Servicios guardados en la cita" }}</p>
+      </article>
+      <article class="appointment-metric">
+        <span>Línea</span>
+        <strong>{{ appointment.work_line.name|default:"Línea asignada" }}</strong>
+        <p>Capacidad reservada para este tramo.</p>
+      </article>
+    </div>
+
+    <div class="appointment-detail-grid">
+      <div class="appointment-detail-main">
+        <section class="appointment-panel appointment-panel--hero">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Seguimiento</span>
+              <h2>Resumen operativo</h2>
+            </div>
+            <strong>{{ appointment.starts_at|date:"H:i" }}-{{ appointment.ends_at|date:"H:i" }}</strong>
+          </div>
+
+          <dl class="appointment-fact-grid">
+            <div>
+              <dt>Cliente</dt>
+              <dd>{{ appointment.business_client.full_name }}</dd>
+            </div>
+            <div>
+              <dt>Teléfono</dt>
+              <dd>{{ appointment.business_client.phone }}</dd>
+            </div>
+            <div>
+              <dt>Canal</dt>
+              <dd>{{ appointment.get_manual_channel_display }}</dd>
+            </div>
+            <div>
+              <dt>Alta</dt>
+              <dd>{{ appointment.created_at|date:"j M Y H:i" }}</dd>
+            </div>
+          </dl>
+
+          {% if appointment.duration_adjustment_reason %}
+            <div class="appointment-note">
+              <span>Ajuste de duración</span>
+              <p>{{ appointment.duration_adjustment_reason }}</p>
+            </div>
+          {% endif %}
+        </section>
+
+        <section class="appointment-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Servicios</span>
+              <h2>Trabajo reservado</h2>
+            </div>
+          </div>
+
+          <div class="appointment-service-list">
+            {% for item in appointment_services %}
+              <article class="appointment-service-item" style="--service-color: {{ item.color_hex_snapshot|default:'#08927F' }};">
+                <span aria-hidden="true"></span>
+                <div>
+                  <strong>{{ item.service_name_snapshot }}</strong>
+                  <small>{{ item.duration_minutes_snapshot }} min</small>
+                </div>
+                {% if item.price_amount_snapshot %}
+                  <p>{{ item.price_amount_snapshot }} €</p>
+                {% endif %}
+              </article>
+            {% empty %}
+              <p class="soft-note">Esta cita no tiene servicios desglosados, pero conserva su resumen.</p>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="appointment-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Trazabilidad</span>
+              <h2>Registro de la cita</h2>
+            </div>
+          </div>
+
+          <div class="appointment-audit-list">
+            <article>
+              <span>Creada</span>
+              <strong>{{ appointment.created_at|date:"j M Y H:i" }}</strong>
+              {% if appointment.created_by %}
+                <small>Por {{ appointment.created_by.full_name|default:appointment.created_by.normalized_phone }}</small>
+              {% else %}
+                <small>Reserva online del cliente</small>
+              {% endif %}
+            </article>
+
+            {% if appointment.cancelled_at %}
+              <article>
+                <span>Cancelada</span>
+                <strong>{{ appointment.cancelled_at|date:"j M Y H:i" }}</strong>
+                {% if appointment.cancelled_by %}
+                  <small>Por {{ appointment.cancelled_by.full_name|default:appointment.cancelled_by.normalized_phone }}</small>
+                {% endif %}
+              </article>
+              <article class="appointment-audit-list__reason">
+                <span>Motivo</span>
+                <strong>{{ appointment.cancellation_reason }}</strong>
+              </article>
+            {% endif %}
+
+            {% if appointment.completed_at %}
+              <article>
+                <span>Completada</span>
+                <strong>{{ appointment.completed_at|date:"j M Y H:i" }}</strong>
+                {% if appointment.completed_by %}
+                  <small>Por {{ appointment.completed_by.full_name|default:appointment.completed_by.normalized_phone }}</small>
+                {% endif %}
+              </article>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+
+      <aside class="appointment-action-stack" aria-label="Acciones de cita">
+        <section class="appointment-action-card appointment-action-card--state appointment-action-card--{{ appointment.status }}">
+          <span>Estado actual</span>
+          <h2>{{ appointment.get_status_display }}</h2>
+          {% if appointment.status == "confirmada" %}
+            <p>La cita sigue ocupando hueco en la agenda.</p>
+          {% elif appointment.status == "cancelada" %}
+            <p>El hueco vuelve a estar disponible para nuevas citas.</p>
+          {% else %}
+            <p>La cita queda cerrada en el historial del cliente.</p>
+          {% endif %}
+        </section>
+
+        {% if can_cancel %}
+          <section class="appointment-action-card">
+            <span>Cierre de atención</span>
+            <h2>Completar cita</h2>
+            {% if can_complete %}
+              <p>Usa esta acción cuando el servicio ya se haya realizado.</p>
+              <form method="post" action="{% url 'booking:professional_appointment_complete' appointment.id %}">
+                {% csrf_token %}
+                <button class="button button--wide" type="submit">Completar cita</button>
+              </form>
+            {% else %}
+              <p>{{ complete_blocked_reason }}</p>
+              <button class="button button--wide" type="button" disabled>Aún no ha empezado</button>
+            {% endif %}
+          </section>
+
+          <section class="appointment-action-card appointment-action-card--cancel">
+            <span>Si no puede venir</span>
+            <h2>Cancelar cita</h2>
+            <p>Guarda el motivo para que el historial tenga contexto.</p>
+
+            <form class="appointment-cancel-form" method="post" action="{% url 'booking:professional_appointment_cancel' appointment.id %}">
+              {% csrf_token %}
+              {% if cancel_form.non_field_errors %}
+                <div class="alert">{{ cancel_form.non_field_errors }}</div>
+              {% endif %}
+              <div class="field">
+                {{ cancel_form.cancellation_reason.label_tag }}
+                {{ cancel_form.cancellation_reason }}
+                {{ cancel_form.cancellation_reason.errors }}
+              </div>
+              <button class="button button--danger button--wide" type="submit">Cancelar cita</button>
+            </form>
+          </section>
+        {% else %}
+          <section class="appointment-action-card">
+            <span>Sin acciones pendientes</span>
+            <h2>La cita está cerrada</h2>
+            <p>
+              Puedes consultarla desde el historial del cliente sin modificar su
+              trazabilidad.
+            </p>
+          </section>
+        {% endif %}
+      </aside>
+    </div>
+  </section>
+{% endblock %}

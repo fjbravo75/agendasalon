@@ -28,3 +28,10 @@ def get_primary_business_for_user(user):
 
 def user_has_active_business(user):
     return get_active_memberships_for_user(user).exists()
+
+
+def get_business_visual_theme(business):
+    identity = f"{business.slug} {business.commercial_name}".lower()
+    if "barber" in identity:
+        return "barberia"
+    return "salon"

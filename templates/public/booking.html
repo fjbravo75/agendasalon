@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% load l10n %}
+
+{% block title %}Reservar en {{ business.commercial_name }} - AgendaSalon{% endblock %}
+{% block body_class %}public-booking-body public-booking-body--{{ client_auth_theme }}{% endblock %}
+
+{% block app_header %}
+  <header class="app-header app-header--public-booking">
+    <div class="app-header__inner">
+      <a class="brand" href="{% url 'home' %}">
+        <span class="brand__mark">AgendaSalon</span>
+        <span class="brand__tag">Reservas online para profesionales de belleza</span>
+      </a>
+      <nav class="nav" aria-label="Accesos">
+        {% if client_access %}
+          <span class="public-nav-client">Hola, {{ client_access.business_client.full_name }}</span>
+        {% else %}
+          <a href="{% url 'customers:client_access' business.slug %}">Ya tengo cuenta</a>
+        {% endif %}
+        <a href="{% url 'accounts:login' %}">Acceso profesional</a>
+      </nav>
+    </div>
+  </header>
+{% endblock %}
+
+{% block content %}
+  <section class="public-booking">
+    <div class="public-booking-identity">
+      <div>
+        <span class="assistant-kicker">Reserva online</span>
+        <h1 class="page-title page-title--compact">{{ business.commercial_name }}</h1>
+        {% if business.address or business.city %}
+          <p class="public-business-location">
+            {% if business.address %}{{ business.address }}{% endif %}{% if business.address and business.city %} · {% endif %}{% if business.city %}{{ business.city }}{% endif %}
+          </p>
+        {% endif %}
+      </div>
+
+      {% if client_access %}
+        <aside class="client-account-note" aria-label="Cuenta cliente activa">
+          <span>Reservas como</span>
+          <strong>{{ client_access.business_client.full_name }}</strong>
+          <small>{{ client_access.phone }}</small>
+          <form method="post" action="{% url 'customers:client_logout' business.slug %}">
+            {% csrf_token %}
+            <button class="text-action" type="submit">Salir de esta cuenta</button>
+          </form>
+        </aside>
+      {% else %}
+        <aside class="public-account-promise" aria-label="Información sobre la cuenta">
+          <strong>Primero eliges. Después te identificas.</strong>
+          <span>No necesitas una cuenta para consultar servicios y horas.</span>
+        </aside>
+      {% endif %}
+    </div>
+
+    <ol class="booking-progress" aria-label="Progreso de la reserva">
+      <li class="is-complete">
+        <span>1</span>
+        <strong>Servicios</strong>
+      </li>
+      <li class="{% if booking_progress_step == 'time' or booking_progress_step == 'confirm' %}is-complete{% endif %}">
+        <span>2</span>
+        <strong>Hora</strong>
+      </li>
+      <li class="{% if booking_progress_step == 'confirm' %}is-active{% endif %}">
+        <span>3</span>
+        <strong>Confirmación</strong>
+      </li>
+    </ol>
+
+    {% if confirmation_pending %}
+      <section class="booking-confirmation" aria-labelledby="booking-confirmation-title">
+        <div class="booking-confirmation__intro">
+          <span class="assistant-kicker">Tu cita está preparada</span>
+          <h2 id="booking-confirmation-title">Revisa y confirma</h2>
+          <p>La hora se comprobará una vez más al confirmar para evitar reservas duplicadas.</p>
+        </div>
+
+        <div class="booking-confirmation__summary">
+          <div>
+            <span>Fecha y hora</span>
+            <strong>{{ selected_slot.starts_at|date:"l j \d\e F, H:i" }}</strong>
+          </div>
+          <div>
+            <span>Servicios</span>
+            <strong>
+              {% for service in selected_services %}
+                {{ service.name }}{% if not forloop.last %}, {% endif %}
+              {% endfor %}
+            </strong>
+            <small>{{ duration_minutes }} min en total</small>
+          </div>
+          <div>
+            <span>Precio</span>
+            <strong>
+              {% if has_priced_services %}{% if has_unpriced_services %}Desde {% endif %}{{ total_price }} €{% else %}A consultar{% endif %}
+            </strong>
+            {% if has_unpriced_services and has_priced_services %}<small>Hay servicios sin precio publicado.</small>{% endif %}
+          </div>
+          <div>
+            <span>Cliente</span>
+            <strong>{{ client_access.business_client.full_name }}</strong>
+            <small>{{ client_access.phone }}</small>
+          </div>
+        </div>
+
+        <div class="booking-confirmation__actions">
+          <a class="button button--secondary" href="{{ change_search_url }}">Cambiar selección</a>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="confirm_booking">
+            <button class="button" type="submit">Confirmar cita</button>
+          </form>
+        </div>
+        <p class="booking-confirmation__expiry">Guardamos esta selección durante 30 minutos. La cita solo queda creada al pulsar «Confirmar cita».</p>
+      </section>
+    {% else %}
+      <div class="assistant-workbench{% if has_search and search_is_valid %} has-results{% endif %}">
+        <form id="buscar-hueco" class="assistant-form booking-search" method="get" aria-label="Buscar cita online" data-booking-search>
+          <header class="assistant-card-head">
+            <span>1</span>
+            <div>
+              <h2>Elige tus servicios</h2>
+              <p>Consulta las horas disponibles sin registrarte.</p>
+            </div>
+          </header>
+
+          {% if form.non_field_errors %}
+            <div class="alert" role="alert">{{ form.non_field_errors }}</div>
+          {% endif %}
+
+          <div class="form-section">
+            <div class="section-title-row">
+              <h3>Servicios</h3>
+              <span>Duración y precio</span>
+            </div>
+            {{ form.services.errors }}
+            <div class="service-choice-list public-service-list">
+              {% for service in available_services %}
+                <label class="service-choice public-service-choice">
+                  <input
+                    type="checkbox"
+                    name="services"
+                    value="{{ service.id }}"
+                    data-booking-service
+                    data-duration="{{ service.duration_minutes }}"
+                    data-price="{% if service.price_amount is not None %}{{ service.price_amount|unlocalize }}{% endif %}"
+                    {% if service.id in selected_service_ids %}checked{% endif %}
+                  >
+                  <span class="service-choice__dot" aria-hidden="true"></span>
+                  <span class="public-service-choice__body">
+                    <strong>{{ service.name }}</strong>
+                    {% if service.description %}<small>{{ service.description }}</small>{% endif %}
+                  </span>
+                  <span class="public-service-choice__meta">
+                    <strong>{{ service.duration_minutes }} min</strong>
+                    <small>{% if service.price_amount is not None %}{{ service.price_amount }} €{% else %}A consultar{% endif %}</small>
+                  </span>
+                </label>
+              {% empty %}
+                <p class="soft-note">Este negocio todavía no ha publicado servicios reservables.</p>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="field">
+            {{ form.target_date.label_tag }}
+            {{ form.target_date }}
+            {{ form.target_date.errors }}
+          </div>
+
+          <div class="booking-live-summary" aria-live="polite">
+            <span data-booking-count>Ningún servicio seleccionado</span>
+            <strong data-booking-total>Selecciona al menos uno</strong>
+          </div>
+
+          <button class="button button--wide" type="submit">Ver horas disponibles</button>
+          <p class="booking-search__account-note">Te pediremos entrar o crear una cuenta únicamente cuando hayas elegido la hora.</p>
+        </form>
+
+        <div class="assistant-results">
+          {% if has_search and search_is_valid %}
+            <section class="decision-strip decision-strip--public" aria-label="Resumen de búsqueda">
+              <div class="decision-strip__main">
+                <span>Tu selección</span>
+                <strong>{{ duration_minutes }} min</strong>
+                <small>
+                  {% for service in selected_services %}
+                    {{ service.name }}{% if not forloop.last %}, {% endif %}
+                  {% endfor %}
+                </small>
+              </div>
+              <div>
+                <span>Precio</span>
+                <strong>{% if has_priced_services %}{% if has_unpriced_services %}Desde {% endif %}{{ total_price }} €{% else %}A consultar{% endif %}</strong>
+              </div>
+              <div>
+                <span>Buscar desde</span>
+                <strong>{{ target_date|date:"j F" }}</strong>
+              </div>
+            </section>
+
+            <section class="preview-band">
+              <header class="section-card-head">
+                <div>
+                  <span>Elige la que mejor te venga</span>
+                  <h2>Horas disponibles</h2>
+                </div>
+                <a class="appointment-inline-link booking-change-search" href="#buscar-hueco">Cambiar búsqueda</a>
+              </header>
+
+              {% if options %}
+                <div class="booking-options">
+                  {% for slot in options %}
+                    <form class="booking-option-card" method="post">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="choose_slot">
+                      <input type="hidden" name="target_date" value="{{ slot.starts_at|date:'Y-m-d' }}">
+                      <input type="hidden" name="selected_work_line_id" value="{{ slot.work_line_id }}">
+                      <input type="hidden" name="selected_starts_at" value="{{ slot.starts_at|date:'c' }}">
+                      {% for service in selected_services %}
+                        <input type="hidden" name="services" value="{{ service.id }}">
+                      {% endfor %}
+
+                      <div class="booking-option-card__time">
+                        <span>{% if forloop.first %}Primera disponible{% else %}Otra opción{% endif %}</span>
+                        <strong>{{ slot.starts_at|date:"l j, H:i" }}</strong>
+                        <small>{{ duration_minutes }} min · {{ business.commercial_name }}</small>
+                      </div>
+
+                      <button class="button" type="submit">Elegir esta hora</button>
+                    </form>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="assistant-empty assistant-empty--plain">
+                  <strong>No hay horas libres con esta selección</strong>
+                  <p>Prueba otra fecha o ajusta los servicios.</p>
+                </div>
+              {% endif %}
+            </section>
+          {% elif has_search %}
+            <section class="assistant-empty assistant-empty--plain">
+              <strong>Revisa los datos de búsqueda</strong>
+              <p>Selecciona al menos un servicio y una fecha válida.</p>
+            </section>
+          {% else %}
+            <section class="assistant-empty assistant-empty--guided">
+              <div class="assistant-empty__inner">
+                <span>Reserva sin llamadas</span>
+                <h2>Tú eliges antes de crear la cuenta</h2>
+                <p>Selecciona servicios y fecha. Verás horas reales disponibles y solo te identificarás al preparar la confirmación.</p>
+                <div class="assistant-empty__steps" aria-label="Cómo reservar">
+                  <div><strong>1</strong><span>Servicios</span><small>Compara duración y precio.</small></div>
+                  <div><strong>2</strong><span>Hora</span><small>Elige entre opciones disponibles.</small></div>
+                  <div><strong>3</strong><span>Confirma</span><small>Entra o crea tu cuenta.</small></div>
+                </div>
+              </div>
+            </section>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block extra_js %}
+  <script>
+    (() => {
+      const form = document.querySelector("[data-booking-search]");
+      if (!form) return;
+
+      const services = [...form.querySelectorAll("[data-booking-service]")];
+      const countNode = form.querySelector("[data-booking-count]");
+      const totalNode = form.querySelector("[data-booking-total]");
+
+      const updateSummary = () => {
+        const selected = services.filter((service) => service.checked);
+        const duration = selected.reduce((total, service) => total + Number(service.dataset.duration || 0), 0);
+        const priced = selected.filter((service) => service.dataset.price !== "");
+        const price = priced.reduce((total, service) => total + Number(service.dataset.price || 0), 0);
+        const hasUnpriced = priced.length !== selected.length;
+
+        if (!selected.length) {
+          countNode.textContent = "Ningún servicio seleccionado";
+          totalNode.textContent = "Selecciona al menos uno";
+          return;
+        }
+
+        countNode.textContent = `${selected.length} ${selected.length === 1 ? "servicio" : "servicios"} · ${duration} min`;
+        if (!priced.length) {
+          totalNode.textContent = "Precio a consultar";
+          return;
+        }
+        totalNode.textContent = `${hasUnpriced ? "Desde " : ""}${price.toLocaleString("es-ES", {minimumFractionDigits: 2, maximumFractionDigits: 2})} €`;
+      };
+
+      services.forEach((service) => service.addEventListener("change", updateSummary));
+      updateSummary();
+    })();
+  </script>
+{% endblock %}

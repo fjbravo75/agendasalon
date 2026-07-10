@@ -19,7 +19,7 @@ class PhoneAuthenticationForm(AuthenticationForm):
             attrs={
                 "autocomplete": "tel",
                 "autofocus": True,
-                "placeholder": "600 000 000",
+                "placeholder": "Teléfono (600 000 000)",
             }
         ),
     )

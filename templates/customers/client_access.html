@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Reservar en {{ business.commercial_name }} - AgendaSalon{% endblock %}
+{% block body_class %}login-body client-auth-body{% endblock %}
+
+{% block content %}
+  <main class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}">
+    <section class="login-shell client-auth-shell">
+      <div class="login-topbar" aria-label="Cabecera">
+        <a class="login-brand" href="{% url 'home' %}">
+          <strong>{{ business.commercial_name }}</strong>
+          <span>Reserva online con AgendaSalon</span>
+        </a>
+        <nav class="login-micro-nav" aria-label="Accesos">
+          <a href="{% url 'accounts:login' %}">Acceso profesional</a>
+        </nav>
+      </div>
+
+      <div class="client-auth-content">
+        <div class="login-hero-copy client-auth-copy">
+          <div class="client-auth-business-signal">Zona cliente de {{ business.commercial_name }}</div>
+          {% if has_pending_booking %}
+            <h1 aria-label="Tu hora sigue preparada.">Tu hora sigue<br>preparada.</h1>
+            <p>
+              Entra con tu cuenta de cliente para revisar los servicios y la
+              hora que acabas de elegir. Nada quedará reservado hasta que lo confirmes.
+            </p>
+          {% else %}
+            <h1 aria-label="Reserva en {{ business.commercial_name }}.">Reserva en<br>{{ business.commercial_name }}.</h1>
+            <p>
+              Entra con tu cuenta de cliente para gestionar la reserva en
+              {{ business.commercial_name }}. También puedes volver atrás y consultar
+              servicios y horas antes de identificarte.
+            </p>
+          {% endif %}
+          <div class="login-proof-line" aria-label="Ventajas para el cliente">
+            <span>Tus datos guardados</span>
+            <span>Citas en tu historial</span>
+            <span>Reserva más rápida</span>
+          </div>
+        </div>
+
+        <aside class="login-panel client-auth-panel" aria-label="Acceso cliente">
+          <div class="login-panel__inner">
+            <div class="client-auth-panel-context">{{ business.commercial_name }}</div>
+            <h2 class="visually-hidden">Entrar para reservar</h2>
+            <form method="post" class="login-form-stack" novalidate>
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ next_url }}">
+
+              {% if login_form.non_field_errors %}
+                <div class="login-form-error" role="alert">
+                  {{ login_form.non_field_errors }}
+                </div>
+              {% endif %}
+
+              <div class="login-field{% if login_form.phone.errors %} is-error{% endif %}">
+                <label for="{{ login_form.phone.id_for_label }}">TELÉFONO</label>
+                {{ login_form.phone }}
+                {% if login_form.phone.errors %}
+                  <div class="login-field-error" role="alert">{{ login_form.phone.errors }}</div>
+                {% endif %}
+              </div>
+
+              <div class="login-field{% if login_form.password.errors %} is-error{% endif %}">
+                <label for="{{ login_form.password.id_for_label }}">CONTRASEÑA</label>
+                {{ login_form.password }}
+                {% if login_form.password.errors %}
+                  <div class="login-field-error" role="alert">{{ login_form.password.errors }}</div>
+                {% endif %}
+              </div>
+
+              <button class="login-button" type="submit">{% if has_pending_booking %}Entrar y revisar reserva{% else %}Entrar en mi cuenta{% endif %}</button>
+            </form>
+            <div class="login-panel-note client-auth-note">
+              ¿Todavía no tienes cuenta de cliente?
+              <a href="{% url 'customers:client_register' business.slug %}?next={{ next_url|urlencode }}">Créala en un momento</a>.
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="client-auth-image-space" aria-hidden="true"></div>
+    </section>
+  </main>
+{% endblock %}

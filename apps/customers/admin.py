@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import BusinessClient, BusinessClientAuthorizedContact
+from .models import BusinessClient, BusinessClientAccess, BusinessClientAuthorizedContact
 
 
 class BusinessClientAuthorizedContactInline(admin.TabularInline):
@@ -13,6 +13,20 @@ class BusinessClientAuthorizedContactInline(admin.TabularInline):
         "is_primary_contact",
         "is_active",
     )
+
+
+class BusinessClientAccessInline(admin.StackedInline):
+    model = BusinessClientAccess
+    extra = 0
+    fields = (
+        "phone",
+        "phone_normalized",
+        "is_active",
+        "last_login_at",
+        "created_at",
+        "updated_at",
+    )
+    readonly_fields = ("phone_normalized", "last_login_at", "created_at", "updated_at")
 
 
 @admin.register(BusinessClient)
@@ -34,7 +48,7 @@ class BusinessClientAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    inlines = [BusinessClientAuthorizedContactInline]
+    inlines = [BusinessClientAccessInline, BusinessClientAuthorizedContactInline]
 
 
 @admin.register(BusinessClientAuthorizedContact)
@@ -56,5 +70,19 @@ class BusinessClientAuthorizedContactAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("business", "business_client")
     readonly_fields = ("phone_normalized", "created_at", "updated_at")
+
+
+@admin.register(BusinessClientAccess)
+class BusinessClientAccessAdmin(admin.ModelAdmin):
+    list_display = ("business_client", "business", "phone", "is_active", "last_login_at")
+    list_filter = ("is_active", "business")
+    search_fields = (
+        "phone",
+        "phone_normalized",
+        "business_client__full_name",
+        "business__commercial_name",
+    )
+    autocomplete_fields = ("business", "business_client")
+    readonly_fields = ("phone_normalized", "last_login_at", "created_at", "updated_at")
 
 # Register your models here.

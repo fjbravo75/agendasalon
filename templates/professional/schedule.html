@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+
+{% block title %}Horarios y capacidad - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="schedule-shell" aria-label="Horarios y capacidad de {{ business.commercial_name }}">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Organización del salón</span>
+        <h1 class="page-title page-title--compact">Horarios y capacidad de {{ business.commercial_name }}</h1>
+        <p>
+          Ajusta cuándo trabaja el salón, cuántas citas puede atender al mismo
+          tiempo y qué cierres debe respetar la agenda.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Agenda</a>
+        <a class="button" href="{% url 'booking:appointment_assistant' %}">Nueva cita</a>
+      </div>
+    </header>
+
+    <div class="schedule-metric-grid" aria-label="Resumen de horarios y capacidad">
+      <article class="schedule-metric schedule-metric--primary">
+        <span>Semana tipo</span>
+        <strong>{{ active_availability_rules_count }}</strong>
+        <p>Tramos activos que generan horas disponibles.</p>
+      </article>
+      <article class="schedule-metric">
+        <span>Capacidad</span>
+        <strong>{{ active_work_lines_count }}</strong>
+        <p>Líneas disponibles para citas simultáneas dentro del horario.</p>
+      </article>
+      <article class="schedule-metric">
+        <span>Cierres próximos</span>
+        <strong>{{ active_closures_count }}</strong>
+        <p>Bloqueos activos que se descuentan antes de enseñar huecos.</p>
+      </article>
+      <article class="schedule-metric">
+        <span>Intervalo</span>
+        <strong>{{ slot_interval_minutes }} min</strong>
+        <p>
+          {% if apply_national_holidays %}
+            La agenda también respeta los festivos nacionales.
+          {% else %}
+            Los festivos nacionales no se descuentan automáticamente.
+          {% endif %}
+        </p>
+      </article>
+    </div>
+
+    <div class="schedule-workspace">
+      <div class="schedule-main-stack">
+        <section class="schedule-panel" aria-label="Semana tipo del salón">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Horario semanal</span>
+              <h2>Semana tipo</h2>
+              <p>Los tramos pausados no se usan para nuevas citas, pero se conservan para poder reactivarlos.</p>
+            </div>
+            <strong>{{ active_availability_rules_count }}</strong>
+          </div>
+
+          <div class="weekday-list">
+            {% for day in weekday_sections %}
+              <article class="weekday-row{% if not day.active_count %} weekday-row--quiet{% endif %}">
+                <div class="weekday-row__day">
+                  <strong>{{ day.label }}</strong>
+                  {% if day.active_count %}
+                    <span>{{ day.active_count }} tramo{% if day.active_count != 1 %}s{% endif %} activo{% if day.active_count != 1 %}s{% endif %}</span>
+                  {% else %}
+                    <span>Sin horario activo</span>
+                  {% endif %}
+                </div>
+
+                <div class="availability-pill-list">
+                  {% for rule in day.rules %}
+                    <div class="availability-pill{% if not rule.is_active %} availability-pill--paused{% endif %}">
+                      <div>
+                        <strong>{{ rule.start_time|time:"H:i" }}-{{ rule.end_time|time:"H:i" }}</strong>
+                        {% if rule.is_active %}
+                          <span>Disponible para reservar</span>
+                        {% else %}
+                          <span>Pausado</span>
+                        {% endif %}
+                      </div>
+                      <div class="schedule-mini-actions">
+                        <a class="button button--secondary" href="{% url 'booking:professional_availability_edit' rule.id %}">Editar</a>
+                        <form method="post" action="{% url 'booking:professional_availability_toggle' rule.id %}">
+                          {% csrf_token %}
+                          {% if rule.is_active %}
+                            <button class="button button--secondary" type="submit">Pausar</button>
+                          {% else %}
+                            <button class="button" type="submit">Activar</button>
+                          {% endif %}
+                        </form>
+                      </div>
+                    </div>
+                  {% empty %}
+                    <p class="ops-empty-line">Este día seguirá cerrado hasta que añadas un tramo.</p>
+                  {% endfor %}
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="schedule-panel" aria-label="Cierres y bloqueos">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Cierres y bloqueos</span>
+              <h2>Fechas protegidas</h2>
+              <p>Úsalos para vacaciones, formación, festivos locales o bloqueos puntuales de una línea.</p>
+            </div>
+            <strong>{{ active_closures_count }}</strong>
+          </div>
+
+          <div class="closure-list">
+            {% for closure in closures %}
+              <article class="closure-row{% if not closure.is_active %} closure-row--paused{% endif %}">
+                <div class="closure-row__main">
+                  <span>{{ closure.type_label }}</span>
+                  <strong>
+                    {{ closure.date_from|date:"j M Y" }}
+                    {% if closure.date_from != closure.date_to %}
+                      - {{ closure.date_to|date:"j M Y" }}
+                    {% endif %}
+                  </strong>
+                  <p>
+                    {% if closure.start_time and closure.end_time %}
+                      {{ closure.start_time|time:"H:i" }}-{{ closure.end_time|time:"H:i" }}
+                    {% else %}
+                      Día completo
+                    {% endif %}
+                    ·
+                    {% if closure.work_line %}
+                      {{ closure.work_line }}
+                    {% else %}
+                      Todo el negocio
+                    {% endif %}
+                    {% if closure.internal_reason %} · {{ closure.internal_reason }}{% endif %}
+                  </p>
+                </div>
+                <div class="closure-row__state">
+                  {% if closure.is_active %}
+                    <span class="schedule-status schedule-status--active">Aplicado</span>
+                  {% else %}
+                    <span class="schedule-status">Pausado</span>
+                  {% endif %}
+                </div>
+                <div class="schedule-mini-actions">
+                  <a class="button button--secondary" href="{% url 'booking:professional_closure_edit' closure.id %}">Editar</a>
+                  <form method="post" action="{% url 'booking:professional_closure_toggle' closure.id %}">
+                    {% csrf_token %}
+                    {% if closure.is_active %}
+                      <button class="button button--secondary" type="submit">Pausar</button>
+                    {% else %}
+                      <button class="button" type="submit">Activar</button>
+                    {% endif %}
+                  </form>
+                </div>
+              </article>
+            {% empty %}
+              <div class="empty">No hay cierres próximos. El horario semanal queda libre salvo festivos aplicados.</div>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+
+      <aside class="schedule-side-stack" aria-label="Ajustes de capacidad">
+        <section class="schedule-panel schedule-panel--lines">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Líneas de trabajo</span>
+              <h2>Capacidad real</h2>
+              <p>Una línea es una atención simultánea posible, no una persona concreta.</p>
+            </div>
+          </div>
+
+          <div class="capacity-line-list">
+            {% for line in work_lines %}
+              <article class="capacity-line-row{% if not line.is_active %} capacity-line-row--paused{% endif %}">
+                <div>
+                  <span>Línea {{ line.line_number }}</span>
+                  <strong>{{ line.name|default:"Línea de trabajo" }}</strong>
+                  <p>
+                    {{ line.future_confirmed_count }} cita{% if line.future_confirmed_count != 1 %}s{% endif %} futura{% if line.future_confirmed_count != 1 %}s{% endif %}
+                    · {{ line.appointments_total }} en historial
+                  </p>
+                </div>
+                <div class="schedule-mini-actions">
+                  <a class="button button--secondary" href="{% url 'booking:professional_work_line_edit' line.id %}">Editar</a>
+                  {% if line.is_active and line.future_confirmed_count %}
+                    <button class="button button--secondary" type="button" disabled>Protegida</button>
+                  {% else %}
+                    <form method="post" action="{% url 'booking:professional_work_line_toggle' line.id %}">
+                      {% csrf_token %}
+                      {% if line.is_active %}
+                        <button class="button button--secondary" type="submit">Pausar</button>
+                      {% else %}
+                        <button class="button" type="submit">Activar</button>
+                      {% endif %}
+                    </form>
+                  {% endif %}
+                </div>
+              </article>
+            {% empty %}
+              <div class="empty">Crea al menos una línea para poder asignar nuevas citas.</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="schedule-form-panel" aria-label="{% if editing_availability %}Editar tramo{% else %}Añadir tramo{% endif %}">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>{% if editing_availability %}Editar tramo{% else %}Nuevo tramo{% endif %}</span>
+              <h2>{% if editing_availability %}{{ editing_availability_label }}{% else %}Añadir horario{% endif %}</h2>
+            </div>
+            {% if editing_availability %}
+              <a class="button button--secondary" href="{% url 'booking:professional_schedule' %}">Nuevo</a>
+            {% endif %}
+          </div>
+
+          <form class="schedule-form" method="post" action="{% if editing_availability %}{% url 'booking:professional_availability_edit' editing_availability.id %}{% else %}{% url 'booking:professional_schedule' %}{% endif %}">
+            {% csrf_token %}
+            <input type="hidden" name="form_kind" value="availability">
+            {% if availability_form.non_field_errors %}
+              <div class="alert">{{ availability_form.non_field_errors }}</div>
+            {% endif %}
+            <div class="schedule-form-grid">
+              <div class="field field--full">
+                {{ availability_form.weekday.label_tag }}
+                {{ availability_form.weekday }}
+                {{ availability_form.weekday.errors }}
+              </div>
+              <div class="field">
+                {{ availability_form.start_time.label_tag }}
+                {{ availability_form.start_time }}
+                {{ availability_form.start_time.errors }}
+              </div>
+              <div class="field">
+                {{ availability_form.end_time.label_tag }}
+                {{ availability_form.end_time }}
+                {{ availability_form.end_time.errors }}
+              </div>
+              <div class="service-state-field field--full">
+                <label class="service-check-row">
+                  {{ availability_form.is_active }}
+                  <span>
+                    <strong>Disponible para reservar</strong>
+                    <small>Las horas de este tramo quedarán disponibles para reservar.</small>
+                  </span>
+                </label>
+                {{ availability_form.is_active.errors }}
+              </div>
+            </div>
+            <button class="button button--wide" type="submit">
+              {% if editing_availability %}Guardar tramo{% else %}Añadir tramo{% endif %}
+            </button>
+          </form>
+        </section>
+
+        <section class="schedule-form-panel" aria-label="{% if editing_work_line %}Editar línea{% else %}Añadir línea{% endif %}">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>{% if editing_work_line %}Editar línea{% else %}Nueva línea{% endif %}</span>
+              <h2>{% if editing_work_line %}{{ editing_work_line }}{% else %}Capacidad{% endif %}</h2>
+            </div>
+            {% if editing_work_line %}
+              <a class="button button--secondary" href="{% url 'booking:professional_schedule' %}">Nuevo</a>
+            {% endif %}
+          </div>
+
+          {% if work_line_form %}
+            <form class="schedule-form" method="post" action="{% if editing_work_line %}{% url 'booking:professional_work_line_edit' editing_work_line.id %}{% else %}{% url 'booking:professional_schedule' %}{% endif %}">
+              {% csrf_token %}
+              <input type="hidden" name="form_kind" value="work_line">
+              {% if work_line_form.non_field_errors %}
+                <div class="alert">{{ work_line_form.non_field_errors }}</div>
+              {% endif %}
+              <div class="schedule-form-grid">
+                <div class="field">
+                  {{ work_line_form.line_number.label_tag }}
+                  {{ work_line_form.line_number }}
+                  {{ work_line_form.line_number.errors }}
+                </div>
+                <div class="field">
+                  {{ work_line_form.display_order.label_tag }}
+                  {{ work_line_form.display_order }}
+                  {{ work_line_form.display_order.errors }}
+                </div>
+                <div class="field field--full">
+                  {{ work_line_form.name.label_tag }}
+                  {{ work_line_form.name }}
+                  {{ work_line_form.name.errors }}
+                </div>
+                <div class="service-state-field field--full">
+                  <label class="service-check-row">
+                    {{ work_line_form.is_active }}
+                    <span>
+                      <strong>Disponible para citas</strong>
+                      <small>Solo las líneas activas reciben nuevos huecos.</small>
+                    </span>
+                  </label>
+                  {{ work_line_form.is_active.errors }}
+                </div>
+              </div>
+              <button class="button button--wide" type="submit">
+                {% if editing_work_line %}Guardar línea{% else %}Añadir línea{% endif %}
+              </button>
+            </form>
+          {% else %}
+            <p class="soft-note">Ya están creadas las tres líneas posibles. Puedes editar o pausar una línea cuando no tenga citas futuras confirmadas.</p>
+          {% endif %}
+        </section>
+
+        <section class="schedule-form-panel" aria-label="{% if editing_closure %}Editar cierre{% else %}Añadir cierre{% endif %}">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>{% if editing_closure %}Editar cierre{% else %}Nuevo cierre{% endif %}</span>
+              <h2>{% if editing_closure %}{{ editing_closure_label }}{% else %}Bloquear agenda{% endif %}</h2>
+            </div>
+            {% if editing_closure %}
+              <a class="button button--secondary" href="{% url 'booking:professional_schedule' %}">Nuevo</a>
+            {% endif %}
+          </div>
+
+          <form class="schedule-form" method="post" action="{% if editing_closure %}{% url 'booking:professional_closure_edit' editing_closure.id %}{% else %}{% url 'booking:professional_schedule' %}{% endif %}">
+            {% csrf_token %}
+            <input type="hidden" name="form_kind" value="closure">
+            {% if closure_form.non_field_errors %}
+              <div class="alert">{{ closure_form.non_field_errors }}</div>
+            {% endif %}
+            <div class="schedule-form-grid">
+              <div class="field field--full">
+                {{ closure_form.closure_type.label_tag }}
+                {{ closure_form.closure_type }}
+                {{ closure_form.closure_type.errors }}
+              </div>
+              <div class="field">
+                {{ closure_form.date_from.label_tag }}
+                {{ closure_form.date_from }}
+                {{ closure_form.date_from.errors }}
+              </div>
+              <div class="field">
+                {{ closure_form.date_to.label_tag }}
+                {{ closure_form.date_to }}
+                {{ closure_form.date_to.errors }}
+              </div>
+              <div class="field">
+                {{ closure_form.start_time.label_tag }}
+                {{ closure_form.start_time }}
+                {{ closure_form.start_time.errors }}
+              </div>
+              <div class="field">
+                {{ closure_form.end_time.label_tag }}
+                {{ closure_form.end_time }}
+                {{ closure_form.end_time.errors }}
+              </div>
+              <div class="field field--full">
+                {{ closure_form.work_line.label_tag }}
+                {{ closure_form.work_line }}
+                {{ closure_form.work_line.errors }}
+              </div>
+              <div class="field field--full">
+                {{ closure_form.internal_reason.label_tag }}
+                {{ closure_form.internal_reason }}
+                {{ closure_form.internal_reason.errors }}
+              </div>
+              <div class="service-state-field field--full">
+                <label class="service-check-row">
+                  {{ closure_form.is_active }}
+                  <span>
+                    <strong>Aplicar al calendario</strong>
+                    <small>Si está activo, estas horas dejarán de estar disponibles.</small>
+                  </span>
+                </label>
+                {{ closure_form.is_active.errors }}
+              </div>
+            </div>
+            <button class="button button--wide" type="submit">
+              {% if editing_closure %}Guardar cierre{% else %}Añadir cierre{% endif %}
+            </button>
+          </form>
+        </section>
+      </aside>
+    </div>
+  </section>
+{% endblock %}
