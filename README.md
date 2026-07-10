@@ -131,8 +131,3 @@ También se puede ejecutar por dominios:
 .\.venv\Scripts\python.exe manage.py test apps.customers
 .\.venv\Scripts\python.exe manage.py test apps.accounts apps.businesses apps.dashboards apps.core apps.holidays apps.notifications
 ```
-
-## Alcance limpio
-
-Este repositorio contiene el producto entregable. No incluye recursos internos
-de Codex, bitácoras exploratorias ni contextos visuales internos de trabajo.
