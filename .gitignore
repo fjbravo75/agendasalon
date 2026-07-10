@@ -30,6 +30,8 @@ htmlcov/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+_visual_checks/
+*.log
 
 # OS/editor
 .DS_Store
