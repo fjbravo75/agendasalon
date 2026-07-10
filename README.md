@@ -1,21 +1,21 @@
 # AgendaSalon
 
-AgendaSalon es el entregable tecnico del Proyecto Fin de Master: un SaaS
-Django-first para peluquerias, barberias y pequenos salones de belleza.
+AgendaSalon es el entregable técnico del Proyecto Fin de Máster: un SaaS con
+Django como núcleo para peluquerías, barberías y pequeños salones de belleza.
 
-El MVP se centra en un motor unico de citas optimizadas. El profesional puede
+El MVP se centra en un motor único de citas optimizadas. El profesional puede
 crear citas desde llamadas, WhatsApp o mostrador. En la reserva online, el
 visitante explora servicios y huecos sin cuenta; solo entra o se registra al
-revisar y confirmar la hora elegida. Ambos canales usan la misma logica de
-disponibilidad, scoring y revalidacion.
+revisar y confirmar la hora elegida. Ambos canales usan la misma lógica de
+disponibilidad, puntuación y revalidación.
 
 ## Stack
 
 - Python 3.12
 - Django 5.2 LTS
 - SQLite en desarrollo local
-- Django templates y CSS para la superficie construida
-- React/Vite previsto para dos islas acotadas: agenda profesional y dashboard
+- Plantillas Django y CSS para la superficie construida
+- React/Vite previsto para dos islas acotadas: agenda profesional y panel del
   superadministrador
 
 ## Puesta en marcha local
@@ -33,7 +33,7 @@ python -m venv .venv
 La aplicación queda disponible en `http://127.0.0.1:8000/`. El proyecto usa
 por defecto `config.settings.dev` para desarrollo.
 
-## Accesos demo
+## Accesos de demostración
 
 La semilla local utiliza la contraseña `DemoAgendaSalon2026!` para estas
 cuentas:
@@ -51,56 +51,56 @@ despliegue real.
 
 ## Estado actual
 
-Base Django creada con estructura de settings por entorno, usuario custom
-interno desde el inicio, nucleo inicial de modelos SaaS/agenda y entrada
-autenticada por telefono normalizado.
+Base Django creada con configuración separada por entorno, usuario personalizado
+interno desde el inicio, núcleo de modelos SaaS/agenda y entrada autenticada por
+teléfono normalizado.
 
 Incluye negocios, pertenencias profesionales, servicios, disponibilidad, cierres,
-lineas de trabajo, fichas de cliente, contactos autorizados, citas,
+líneas de trabajo, fichas de cliente, contactos autorizados, citas,
 accesos cliente, servicios dentro de cita, festivos y notificaciones internas
 simuladas.
 
-Tambien incluye login visual, templates base, redireccion por rol y resolucion
+También incluye acceso visual, plantillas base, redirección por rol y resolución
 del negocio activo del profesional autenticado.
 
 La entrada profesional `/profesional/` funciona como agenda operativa de la
-jornada: muestra datos que entiende el profesional, lineas de trabajo, huecos
-recomendados, estado del salon y un vacio accionable cuando no hay citas.
+jornada: muestra datos que entiende el profesional, líneas de trabajo, huecos
+recomendados, estado del salón y un vacío accionable cuando no hay citas.
 
-El motor de citas por duracion total ya existe como servicio de dominio en
-`apps/booking/slot_engine.py`. Calcula disponibilidad diaria por lineas, dias de
-mes con hueco real para una duracion concreta, sugerencias cuando el dia elegido
-no tiene capacidad suficiente y puntuacion inicial para recomendar huecos que
+El motor de citas por duración total ya existe como servicio de dominio en
+`apps/booking/slot_engine.py`. Calcula disponibilidad diaria por líneas, días de
+mes con hueco real para una duración concreta, sugerencias cuando el día elegido
+no tiene capacidad suficiente y puntuación inicial para recomendar huecos que
 compactan la agenda.
 
-La confirmacion de citas pasa por `apps/booking/services.py`, que revalida el
+La confirmación de citas pasa por `apps/booking/services.py`, que revalida el
 hueco justo antes de crear `Appointment` y `AppointmentService`.
 
-La pantalla Django del flujo profesional esta disponible en
+La pantalla Django del flujo profesional está disponible en
 `/profesional/citas/nueva/`. Permite seleccionar cliente, canal, varios
-servicios y dia; calcula la duracion total; muestra calendario mensual,
-disponibilidad por lineas, hueco recomendado y sugerencias. La confirmacion
-final se resuelve mediante POST protegido y revalidacion del hueco.
+servicios y día; calcula la duración total; muestra calendario mensual,
+disponibilidad por líneas, hueco recomendado y sugerencias. La confirmación
+final se resuelve mediante POST protegido y revalidación del hueco.
 
-El acceso cliente final esta disponible en `/clientes/<slug>/entrar/`, con alta
+El acceso cliente final está disponible en `/clientes/<slug>/entrar/`, con alta
 separada en `/clientes/<slug>/registro/`.
 
-La reserva online esta disponible en `/reservar/<slug>/`. Permite al cliente
-elegir servicios, ver duracion, precio y opciones recomendadas sin sesion. Al
+La reserva online está disponible en `/reservar/<slug>/`. Permite al cliente
+elegir servicios, ver duración, precio y opciones recomendadas sin sesión. Al
 elegir una hora guarda un borrador temporal, solicita acceso cliente y recupera
-una revision final antes de confirmar. La cita solo se crea mediante POST
+una revisión final antes de confirmar. La cita solo se crea mediante POST
 protegido, tras revalidar el hueco, y queda vinculada a su ficha de cliente.
 
-Tambien existe una semilla demo reproducible:
+También existe una semilla de demostración reproducible:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py seed_demo
 ```
 
-Por defecto crea la semana demo `2026-07-06`, `Peluquería Mari`, servicios,
-horarios, tres lineas, clientes, accesos cliente, citas, cierres, festivo demo y
-un dia sin hueco para una cita de 180 minutos. El comando puede ejecutarse varias
-veces sin duplicar los registros principales.
+Por defecto crea la semana de demostración `2026-07-06`, `Peluquería Mari`,
+servicios, horarios, tres líneas, clientes, accesos cliente, citas, cierres, un
+festivo de demostración y un día sin hueco para una cita de 180 minutos. El
+comando puede ejecutarse varias veces sin duplicar los registros principales.
 
 ## Rutas principales
 
@@ -115,7 +115,7 @@ veces sin duplicar los registros principales.
 - `/clientes/<slug>/entrar/`: acceso cliente por negocio.
 - `/clientes/<slug>/registro/`: alta cliente por negocio.
 
-Verificacion actual:
+Verificación actual:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py check
@@ -123,8 +123,8 @@ Verificacion actual:
 .\.venv\Scripts\python.exe manage.py test
 ```
 
-La última verificación local completa deja la suite en 104 tests OK. También se
-puede ejecutar por dominios:
+La última verificación local completa deja la batería en 104 pruebas correctas.
+También se puede ejecutar por dominios:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py test apps.booking
@@ -135,4 +135,4 @@ puede ejecutar por dominios:
 ## Alcance limpio
 
 Este repositorio contiene el producto entregable. No incluye recursos internos
-de Codex, bitacoras exploratorias ni system contexts visuales de trabajo.
+de Codex, bitácoras exploratorias ni contextos visuales internos de trabajo.
