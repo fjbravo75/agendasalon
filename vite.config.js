@@ -9,13 +9,16 @@ export default defineConfig({
   build: {
     outDir: "static/react",
     emptyOutDir: true,
-    cssCodeSplit: false,
+    cssCodeSplit: true,
     rollupOptions: {
-      input: resolve("frontend/agenda/main.jsx"),
+      input: {
+        agenda: resolve("frontend/agenda/main.jsx"),
+        dashboard: resolve("frontend/dashboard/main.jsx"),
+      },
       output: {
-        entryFileNames: "agenda.js",
+        entryFileNames: "[name].js",
         chunkFileNames: "chunks/[name]-[hash].js",
-        assetFileNames: "agenda.[ext]",
+        assetFileNames: "[name].[ext]",
       },
     },
   },

@@ -1,17 +1,14 @@
 from datetime import datetime, time, timedelta
 
-from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Q
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.booking.models import Appointment
 from apps.booking.slot_engine import STATUS_CLOSED, get_day_availability, suggest_next_slots
-from apps.businesses.models import Business, BusinessActivityEvent
 from apps.businesses.services import get_primary_business_for_user
-from apps.customers.models import BusinessClient
 
 
 SLOT_REASON_LABELS = {
@@ -271,122 +268,14 @@ def professional_home(request):
 def superadmin_home(request):
     if not request.user.is_superuser:
         return HttpResponseForbidden("No tienes permiso para acceder a este panel.")
-
-    User = get_user_model()
-    now = timezone.now()
-    businesses = list(
-        Business.objects.annotate(
-            active_services_count=Count(
-                "services",
-                filter=Q(services__is_active=True),
-                distinct=True,
-            ),
-            active_lines_count=Count(
-                "work_lines",
-                filter=Q(work_lines__is_active=True),
-                distinct=True,
-            ),
-            active_rules_count=Count(
-                "availability_rules",
-                filter=Q(availability_rules__is_active=True),
-                distinct=True,
-            ),
-            clients_total=Count("clients", filter=Q(clients__is_active=True), distinct=True),
-            appointments_total=Count("appointments", distinct=True),
-            professionals_total=Count(
-                "memberships",
-                filter=Q(memberships__is_active=True),
-                distinct=True,
-            ),
-        ).order_by("commercial_name", "pk")
+    return render(
+        request,
+        "superadmin/home.html",
+        {
+            "dashboard_config": {
+                "dataEndpoint": reverse("dashboards:superadmin_dashboard_data"),
+                "businessListUrl": reverse("businesses:superadmin_business_list"),
+                "businessCreateUrl": reverse("businesses:superadmin_business_create"),
+            }
+        },
     )
-    operational_businesses_count = 0
-    attention_businesses_count = 0
-    for business in businesses:
-        missing_setup = []
-        if not business.active_services_count:
-            missing_setup.append("servicios")
-        if not business.active_lines_count:
-            missing_setup.append("líneas")
-        if not business.active_rules_count:
-            missing_setup.append("horario")
-        if not business.professionals_total:
-            missing_setup.append("acceso profesional")
-
-        if not business.is_active:
-            business.health_label = "Inactivo"
-            business.health_tone = "quiet"
-            business.health_detail = "El negocio no admite nuevas reservas."
-        elif missing_setup:
-            business.health_label = "Completar configuración"
-            business.health_tone = "warning"
-            business.health_detail = f"Falta: {', '.join(missing_setup)}."
-            attention_businesses_count += 1
-        else:
-            business.health_label = "Operativo"
-            business.health_tone = "ready"
-            business.health_detail = "Configuración básica completa."
-            operational_businesses_count += 1
-
-    recent_activity = list(
-        BusinessActivityEvent.objects.select_related("business")
-        .order_by("-id")[:6]
-    )
-
-    status_counts = {
-        item["status"]: item["total"]
-        for item in Appointment.objects.values("status").annotate(total=Count("id"))
-    }
-    channel_counts = {
-        item["manual_channel"]: item["total"]
-        for item in Appointment.objects.values("manual_channel").annotate(total=Count("id"))
-    }
-    pending_closure_query = Appointment.objects.filter(
-        status=Appointment.Status.CONFIRMED,
-        ends_at__lte=now,
-    )
-    pending_closure_count = pending_closure_query.count()
-    businesses_with_pending_closure_count = pending_closure_query.values("business_id").distinct().count()
-    upcoming_confirmed_count = Appointment.objects.filter(
-        status=Appointment.Status.CONFIRMED,
-        ends_at__gt=now,
-    ).count()
-
-    context = {
-        "businesses": businesses,
-        "total_businesses": Business.objects.count(),
-        "active_businesses": Business.objects.filter(is_active=True).count(),
-        "inactive_businesses": Business.objects.filter(is_active=False).count(),
-        "public_booking_businesses_count": Business.objects.filter(
-            is_active=True,
-            public_booking_enabled=True,
-        ).count(),
-        "operational_businesses_count": operational_businesses_count,
-        "attention_businesses_count": attention_businesses_count,
-        "professionals_count": User.objects.filter(
-            business_memberships__is_active=True,
-            business_memberships__business__is_active=True,
-        )
-        .distinct()
-        .count(),
-        "clients_count": BusinessClient.objects.count(),
-        "appointments_count": Appointment.objects.count(),
-        "pending_closure_count": pending_closure_count,
-        "businesses_with_pending_closure_count": businesses_with_pending_closure_count,
-        "recent_activity": recent_activity,
-        "status_summary": [
-            {"label": "Confirmadas próximas", "value": upcoming_confirmed_count},
-            {"label": "Pendientes de cierre", "value": pending_closure_count},
-            {"label": "Atendidas", "value": status_counts.get(Appointment.Status.COMPLETED, 0)},
-            {"label": "No presentadas", "value": status_counts.get(Appointment.Status.NO_SHOW, 0)},
-            {"label": "Canceladas", "value": status_counts.get(Appointment.Status.CANCELLED, 0)},
-        ],
-        "channel_summary": [
-            {"label": "Reserva online", "value": channel_counts.get(Appointment.ManualChannel.PUBLIC_WEB, 0)},
-            {"label": "Teléfono", "value": channel_counts.get(Appointment.ManualChannel.PHONE, 0)},
-            {"label": "Mostrador", "value": channel_counts.get(Appointment.ManualChannel.FRONT_DESK, 0)},
-            {"label": "WhatsApp", "value": channel_counts.get(Appointment.ManualChannel.WHATSAPP, 0)},
-            {"label": "Email", "value": channel_counts.get(Appointment.ManualChannel.EMAIL, 0)},
-        ],
-    }
-    return render(request, "superadmin/home.html", context)
