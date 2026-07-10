@@ -22,6 +22,7 @@
         {% else %}
           <span class="ops-status ops-status--warning">Ajustes por completar</span>
         {% endif %}
+        <a class="button button--secondary" href="{% url 'booking:professional_agenda' %}">Abrir agenda completa</a>
         <a class="button" href="{% url 'booking:appointment_assistant' %}">Nueva cita</a>
       </div>
     </header>

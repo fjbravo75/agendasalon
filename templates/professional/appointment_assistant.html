@@ -89,6 +89,10 @@
         </details>
 
         <form class="assistant-search-form" method="get" aria-label="Buscar huecos para nueva cita">
+          {% if request.GET.selected_work_line_id and request.GET.selected_starts_at %}
+            <input type="hidden" name="selected_work_line_id" value="{{ request.GET.selected_work_line_id }}">
+            <input type="hidden" name="selected_starts_at" value="{{ request.GET.selected_starts_at }}">
+          {% endif %}
           {% if form.non_field_errors %}
             <div class="alert">{{ form.non_field_errors }}</div>
           {% endif %}

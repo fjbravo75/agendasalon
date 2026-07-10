@@ -13,10 +13,11 @@ disponibilidad, puntuación y revalidación.
 
 - Python 3.12
 - Django 5.2 LTS
+- Node.js 20.19 o 22.12 en adelante para compilar el frontend
 - SQLite en desarrollo local
-- Plantillas Django y CSS para la superficie construida
-- React/Vite previsto para dos islas acotadas: agenda profesional y panel del
-  superadministrador
+- Plantillas Django y CSS para la mayor parte del producto
+- React 19 y Vite 8 para islas acotadas; la agenda profesional ya está integrada
+  y el panel del superadministrador permanece como siguiente isla prevista
 
 ## Puesta en marcha local
 
@@ -24,6 +25,8 @@ disponibilidad, puntuación y revalidación.
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+npm.cmd install
+npm.cmd run build
 .\.venv\Scripts\python.exe manage.py migrate
 .\.venv\Scripts\python.exe manage.py seed_demo
 .\.venv\Scripts\python.exe manage.py check
@@ -80,6 +83,20 @@ compactan la agenda.
 La confirmación de citas pasa por `apps/booking/services.py`, que revalida el
 hueco justo antes de crear `Appointment` y `AppointmentService`.
 
+La primera capa JSON para la agenda React profesional está disponible mediante
+dos endpoints de solo lectura. Ambos exigen sesión profesional, resuelven el
+negocio desde la pertenencia activa del usuario y no aceptan un identificador de
+negocio enviado por el navegador. El endpoint diario reúne citas, líneas,
+cierres, festivos, huecos válidos, recomendación, sugerencias y corte temporal;
+el endpoint mensual expone la disponibilidad real para una duración concreta.
+La creación y el cierre de citas continúan en los POST protegidos de Django.
+
+La primera isla React está integrada en `/profesional/agenda/`. Permite cambiar
+la duración, navegar por meses, seleccionar días, leer la jornada por líneas,
+ver citas con altura proporcional, distinguir cierres y festivos, elegir un
+hueco real y continuar en `Nueva cita` conservando la línea y la hora. En móvil
+las líneas se consultan por segmentos para evitar una parrilla comprimida.
+
 La pantalla Django del flujo profesional está disponible en
 `/profesional/citas/nueva/`. Permite seleccionar cliente, canal, varios
 servicios y día; calcula la duración total; muestra calendario mensual,
@@ -125,6 +142,9 @@ comando puede ejecutarse varias veces sin duplicar los registros principales.
 - `/cuenta/entrar/`: acceso de profesionales y superadministración.
 - `/cuenta/desconectado/`: confirmación de cierre de la sesión interna.
 - `/profesional/`: agenda operativa de la jornada.
+- `/profesional/agenda/`: agenda profesional interactiva.
+- `/profesional/agenda/datos/`: datos JSON protegidos de una jornada.
+- `/profesional/agenda/mes/`: disponibilidad mensual JSON protegida.
 - `/profesional/citas/nueva/`: asistente de nueva cita.
 - `/profesional/citas/pendientes/`: revisión completa de citas pendientes de cierre.
 - `/profesional/servicios/`: catálogo profesional.
@@ -148,9 +168,12 @@ Verificación actual:
 .\.venv\Scripts\python.exe manage.py check
 .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
 .\.venv\Scripts\python.exe manage.py test
+npm.cmd run check
 ```
 
-La última verificación local completa deja la batería en 127 pruebas correctas.
+La última verificación local completa deja la batería en 145 pruebas Django y 8
+pruebas frontend correctas. El build de producción y `npm audit` también se han
+verificado sin incidencias ni vulnerabilidades conocidas.
 También se puede ejecutar por dominios:
 
 ```powershell
