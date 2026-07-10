@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}Clientes - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="clients-shell" aria-label="Clientes de {{ business.commercial_name }}">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Clientes</span>
+        <h1 class="page-title page-title--compact">Clientes de {{ business.commercial_name }}</h1>
+        <p>
+          Consulta fichas activas y pausadas, encuentra el historial de cada
+          persona y resuelve cualquier cambio sin perder información.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Agenda</a>
+        <a class="button" href="{% url 'booking:appointment_assistant' %}">Nueva cita</a>
+      </div>
+    </header>
+
+    <div class="clients-toolbar">
+      <form class="client-search-form" method="get" aria-label="Buscar cliente">
+        <input type="hidden" name="status" value="{{ status_filter }}">
+        <div class="field">
+          <label for="client-search">Buscar cliente</label>
+          <input id="client-search" type="search" name="q" value="{{ search }}" placeholder="Nombre o teléfono">
+        </div>
+        <button class="button button--secondary" type="submit">Buscar</button>
+      </form>
+      <div class="clients-toolbar__meta">
+        <span>Resultados</span>
+        <strong>{{ clients_count }}</strong>
+      </div>
+    </div>
+
+    <nav class="client-status-filter" aria-label="Filtrar clientes por estado">
+      <a class="{% if status_filter == 'active' %}is-active{% endif %}" href="?status=active{% if search %}&q={{ search|urlencode }}{% endif %}">Activos <strong>{{ active_clients_count }}</strong></a>
+      <a class="{% if status_filter == 'inactive' %}is-active{% endif %}" href="?status=inactive{% if search %}&q={{ search|urlencode }}{% endif %}">Pausados <strong>{{ inactive_clients_count }}</strong></a>
+      <a class="{% if status_filter == 'all' %}is-active{% endif %}" href="?status=all{% if search %}&q={{ search|urlencode }}{% endif %}">Todos <strong>{{ all_clients_count }}</strong></a>
+    </nav>
+
+    <div class="clients-workspace">
+      <section class="client-list-panel" aria-label="Listado de clientes">
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>Base de clientes</span>
+            <h2>Fichas guardadas</h2>
+          </div>
+        </div>
+
+        <div class="client-list">
+          {% for client in clients %}
+            <article class="client-row{% if not client.is_active %} client-row--paused{% endif %}">
+              <div class="client-row__main">
+                <strong>{{ client.full_name }}</strong>
+                <span>{{ client.phone }}</span>
+                {% if not client.is_active %}<small>Ficha pausada</small>{% endif %}
+              </div>
+              <div class="client-row__meta">
+                <span>{{ client.appointments_total }} citas</span>
+                {% if client.last_appointment_at %}
+                  <small>Última: {{ client.last_appointment_at|date:"j M H:i" }}</small>
+                {% else %}
+                  <small>Sin historial todavía</small>
+                {% endif %}
+              </div>
+              <div class="client-row__actions">
+                <a class="button button--secondary" href="{% url 'customers:professional_client_detail' client.id %}">Ver ficha</a>
+                {% if client.is_active %}
+                  <a class="button" href="{% url 'booking:appointment_assistant' %}?business_client={{ client.id }}">Citar</a>
+                {% endif %}
+              </div>
+            </article>
+          {% empty %}
+            <div class="empty clients-empty">
+              No hay fichas con ese criterio. Cambia el filtro o crea un cliente desde el panel lateral.
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <aside class="client-quick-panel" aria-label="Crear cliente">
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>Alta rápida</span>
+            <h2>Nuevo cliente</h2>
+          </div>
+        </div>
+        <p class="soft-note">
+          Para una llamada o una persona en mostrador. Con nombre y teléfono ya
+          puedes dejar la ficha preparada para agendar.
+        </p>
+
+        <form class="quick-client-card quick-client-card--flat" method="post">
+          {% csrf_token %}
+          {% if quick_form.non_field_errors %}
+            <div class="alert">{{ quick_form.non_field_errors }}</div>
+          {% endif %}
+
+          <div class="field">
+            {{ quick_form.full_name.label_tag }}
+            {{ quick_form.full_name }}
+            {{ quick_form.full_name.errors }}
+          </div>
+          <div class="field">
+            {{ quick_form.phone.label_tag }}
+            {{ quick_form.phone }}
+            {{ quick_form.phone.errors }}
+          </div>
+          <div class="field">
+            {{ quick_form.email.label_tag }}
+            {{ quick_form.email }}
+            {{ quick_form.email.errors }}
+          </div>
+          <div class="field">
+            {{ quick_form.internal_notes.label_tag }}
+            {{ quick_form.internal_notes }}
+            {{ quick_form.internal_notes.errors }}
+          </div>
+
+          <button class="button button--wide" type="submit">Guardar cliente</button>
+        </form>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

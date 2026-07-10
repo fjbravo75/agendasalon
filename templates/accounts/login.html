@@ -5,68 +5,69 @@
 {% block body_class %}login-body{% endblock %}
 
 {% block content %}
-  <main class="login-page">
-    <section class="login-shell">
+  <main class="login-page login-page--internal">
+    <section class="login-shell internal-auth-shell">
       <div class="login-topbar" aria-label="Cabecera">
         <a class="login-brand" href="{% url 'home' %}">
           <strong>AgendaSalon</strong>
           <span>Agenda profesional para belleza y estética</span>
         </a>
-        <nav class="login-micro-nav" aria-label="Secciones principales">
-          <a href="{% url 'home' %}">Agenda</a>
-          <a href="{% url 'home' %}">Servicios</a>
-          <a href="{% url 'home' %}">Clientes</a>
+        <nav class="login-micro-nav" aria-label="Otros accesos">
+          <a href="{% url 'home' %}">Reservas online</a>
         </nav>
       </div>
 
-      <div class="login-hero-copy">
-        <h1>Agenda clara<br>para salones con<br>ritmo propio.</h1>
-        <p>
-          Organiza citas, servicios y clientes desde una pantalla pensada para
-          trabajar con calma, decidir rápido y cuidar cada hueco del día.
-        </p>
-        <div class="login-proof-line" aria-label="Puntos clave">
-          <span>Citas por teléfono o mostrador</span>
-          <span>Servicios con duración real</span>
-          <span>Equipo, cabinas y horarios visibles</span>
-        </div>
-      </div>
-
-      <aside class="login-panel" aria-label="Acceso privado">
-        <div class="login-panel__inner">
-          <h2>Entrar</h2>
-          <p>Accede con el teléfono asociado a tu cuenta profesional.</p>
-          <form method="post" class="login-form-stack" novalidate>
-            {% csrf_token %}
-            {% if form.non_field_errors %}
-              <div class="login-form-error" role="alert">
-                {{ form.non_field_errors }}
-              </div>
-            {% endif %}
-
-            <div class="login-field{% if form.username.errors %} is-error{% endif %}">
-              <label for="{{ form.username.id_for_label }}">TELÉFONO</label>
-              {{ form.username }}
-              {% if form.username.errors %}
-                <div class="login-field-error" role="alert">{{ form.username.errors }}</div>
-              {% endif %}
-            </div>
-
-            <div class="login-field{% if form.password.errors %} is-error{% endif %}">
-              <label for="{{ form.password.id_for_label }}">CONTRASEÑA</label>
-              {{ form.password }}
-              {% if form.password.errors %}
-                <div class="login-field-error" role="alert">{{ form.password.errors }}</div>
-              {% endif %}
-            </div>
-
-            <button class="login-button" type="submit">Entrar en AgendaSalon</button>
-          </form>
-          <div class="login-panel-note">
-            Acceso privado para cuentas registradas.
+      <div class="internal-auth-content">
+        <div class="login-hero-copy internal-auth-copy">
+          <h1>Agenda clara<br>para salones con<br>ritmo propio.</h1>
+          <p>
+            Organiza citas, servicios y clientes desde una pantalla pensada para
+            trabajar con calma, decidir rápido y cuidar cada hueco del día.
+          </p>
+          <div class="login-proof-line" aria-label="Puntos clave">
+            <span>Citas por teléfono o mostrador</span>
+            <span>Servicios con duración real</span>
+            <span>Equipo, cabinas y horarios visibles</span>
           </div>
         </div>
-      </aside>
+
+        <aside class="login-panel internal-auth-panel" aria-label="Acceso privado">
+          <div class="login-panel__inner">
+            <h2 class="visually-hidden">Entrar</h2>
+            <form method="post" class="login-form-stack" novalidate>
+              {% csrf_token %}
+              {% if form.non_field_errors %}
+                <div class="login-form-error" role="alert">
+                  {{ form.non_field_errors }}
+                </div>
+              {% endif %}
+
+              <div class="login-field{% if form.username.errors %} is-error{% endif %}">
+                <label for="{{ form.username.id_for_label }}">TELÉFONO</label>
+                {{ form.username }}
+                {% if form.username.errors %}
+                  <div class="login-field-error" role="alert">{{ form.username.errors }}</div>
+                {% endif %}
+              </div>
+
+              <div class="login-field{% if form.password.errors %} is-error{% endif %}">
+                <label for="{{ form.password.id_for_label }}">CONTRASEÑA</label>
+                {{ form.password }}
+                {% if form.password.errors %}
+                  <div class="login-field-error" role="alert">{{ form.password.errors }}</div>
+                {% endif %}
+              </div>
+
+              <button class="login-button" type="submit">Entrar en AgendaSalon</button>
+            </form>
+            <div class="login-panel-note">
+              Acceso privado para cuentas registradas.
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="internal-auth-image-space" aria-hidden="true"></div>
     </section>
   </main>
 {% endblock %}

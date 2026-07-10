@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}{% if editing_contact %}Editar autorización{% else %}Nueva persona autorizada{% endif %} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="client-management-shell" aria-label="Gestionar persona autorizada">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Personas autorizadas</span>
+        <h1 class="page-title page-title--compact">{% if editing_contact %}Editar autorización{% else %}Nueva persona autorizada{% endif %}</h1>
+        <p>Indica quién puede pedir una cita en nombre de {{ business_client.full_name }}.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'customers:professional_client_detail' business_client.id %}">Volver a la ficha</a>
+      </div>
+    </header>
+
+    <div class="client-management-grid">
+      <section class="client-form-panel">
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>{% if editing_contact %}Actualizar datos{% else %}Añadir a la ficha{% endif %}</span>
+            <h2>{% if editing_contact %}{{ editing_contact.full_name }}{% else %}Datos de la persona{% endif %}</h2>
+          </div>
+        </div>
+
+        <form class="client-edit-form" method="post">
+          {% csrf_token %}
+          {% if contact_form.non_field_errors %}<div class="alert">{{ contact_form.non_field_errors }}</div>{% endif %}
+          <div class="client-form-grid">
+            <div class="field">
+              {{ contact_form.full_name.label_tag }}
+              {{ contact_form.full_name }}
+              {{ contact_form.full_name.errors }}
+            </div>
+            <div class="field">
+              {{ contact_form.phone.label_tag }}
+              {{ contact_form.phone }}
+              {{ contact_form.phone.errors }}
+            </div>
+            <div class="field field--full">
+              {{ contact_form.relationship_label.label_tag }}
+              {{ contact_form.relationship_label }}
+              {{ contact_form.relationship_label.errors }}
+            </div>
+            <div class="field field--full">
+              {{ contact_form.notes.label_tag }}
+              {{ contact_form.notes }}
+              {{ contact_form.notes.errors }}
+            </div>
+            <label class="client-primary-check field--full">
+              {{ contact_form.is_primary_contact }}
+              <span>
+                <strong>Contacto principal</strong>
+                <small>Será la primera persona de referencia dentro de esta ficha.</small>
+              </span>
+            </label>
+          </div>
+          <button class="button button--wide" type="submit">{% if editing_contact %}Guardar cambios{% else %}Añadir persona autorizada{% endif %}</button>
+        </form>
+      </section>
+
+      <aside class="client-guidance-panel" aria-label="Contexto de la autorización">
+        <div>
+          <span>Ficha vinculada</span>
+          <h2>{{ business_client.full_name }}</h2>
+          <p>{{ business_client.phone }}</p>
+        </div>
+        <div class="client-guidance-list">
+          <div>
+            <strong>Qué permite</strong>
+            <p>Esta persona podrá pedir una cita en nombre del cliente cuando contacte con el salón.</p>
+          </div>
+          <div>
+            <strong>Qué no permite</strong>
+            <p>No crea una cuenta online ni da acceso al historial del cliente.</p>
+          </div>
+          <div>
+            <strong>Un principal</strong>
+            <p>Al marcar este contacto como principal, sustituirá al principal anterior.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

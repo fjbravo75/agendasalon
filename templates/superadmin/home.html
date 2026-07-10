@@ -3,38 +3,136 @@
 {% block title %}Dashboard superadministrador - AgendaSalon{% endblock %}
 
 {% block content %}
-  <section>
-    <h1 class="page-title page-title--compact">Salud del SaaS</h1>
-    <p class="lede">
-      Pulso general de negocios, profesionales, clientes y citas dentro de
-      AgendaSalon.
-    </p>
+  <section class="saas-dashboard" aria-label="Panel de administración de AgendaSalon">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Control de AgendaSalon</span>
+        <h1 class="page-title page-title--compact">Negocios y actividad</h1>
+        <p>Revisa qué negocios pueden trabajar con normalidad y dónde hace falta intervenir.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        {% if attention_businesses_count or overdue_appointments_count %}
+          <span class="ops-status ops-status--warning">Necesita atención</span>
+        {% else %}
+          <span class="ops-status ops-status--ready">Todo en orden</span>
+        {% endif %}
+      </div>
+    </header>
 
-    <div class="status-grid">
-      <div class="metric">
-        <strong>{{ active_businesses }}</strong>
-        <span>Negocios activos</span>
-      </div>
-      <div class="metric">
-        <strong>{{ inactive_businesses }}</strong>
-        <span>Negocios inactivos</span>
-      </div>
-      <div class="metric">
-        <strong>{{ professionals_count }}</strong>
-        <span>Profesionales vinculados</span>
-      </div>
-      <div class="metric">
-        <strong>{{ clients_count }}</strong>
-        <span>Fichas de cliente</span>
-      </div>
-      <div class="metric">
+    <div class="saas-metric-grid" aria-label="Resumen general">
+      <article class="saas-metric saas-metric--primary">
+        <span>Negocios operativos</span>
+        <strong>{{ operational_businesses_count }}</strong>
+        <p>De {{ active_businesses }} negocios activos.</p>
+      </article>
+      <article class="saas-metric{% if attention_businesses_count %} saas-metric--warning{% endif %}">
+        <span>Por configurar</span>
+        <strong>{{ attention_businesses_count }}</strong>
+        <p>Negocios activos que aún no pueden agendar.</p>
+      </article>
+      <article class="saas-metric{% if overdue_appointments_count %} saas-metric--warning{% endif %}">
+        <span>Citas por cerrar</span>
+        <strong>{{ overdue_appointments_count }}</strong>
+        <p>Siguen confirmadas después de su hora de fin.</p>
+      </article>
+      <article class="saas-metric">
+        <span>Actividad acumulada</span>
         <strong>{{ appointments_count }}</strong>
-        <span>Citas registradas</span>
-      </div>
-      <div class="metric">
-        <strong>{{ total_businesses }}</strong>
-        <span>Negocios totales</span>
-      </div>
+        <p>{{ clients_count }} clientes · {{ professionals_count }} profesional{% if professionals_count != 1 %}es{% endif %}.</p>
+      </article>
+    </div>
+
+    <div class="saas-workspace">
+      <section class="saas-business-panel" aria-labelledby="saas-businesses-title">
+        <div class="ops-section-head">
+          <div>
+            <span>Estado por negocio</span>
+            <h2 id="saas-businesses-title">Negocios</h2>
+            <p>Configuración esencial, uso y acceso público de cada cuenta.</p>
+          </div>
+          <strong>{{ total_businesses }}</strong>
+        </div>
+
+        <div class="saas-business-list">
+          {% for business in businesses %}
+            <article class="saas-business-row">
+              <div class="saas-business-row__identity">
+                <span>{{ forloop.counter|stringformat:"02d" }}</span>
+                <div>
+                  <h3>{{ business.commercial_name }}</h3>
+                  <p>{{ business.city|default:"Sin localidad indicada" }} · {{ business.professionals_total }} profesional{% if business.professionals_total != 1 %}es{% endif %}</p>
+                </div>
+              </div>
+              <div class="saas-business-row__figures" aria-label="Datos de {{ business.commercial_name }}">
+                <span><strong>{{ business.active_services_count }}</strong> servicios</span>
+                <span><strong>{{ business.active_lines_count }}</strong> líneas</span>
+                <span><strong>{{ business.active_rules_count }}</strong> tramos</span>
+                <span><strong>{{ business.clients_total }}</strong> clientes</span>
+                <span><strong>{{ business.appointments_total }}</strong> citas</span>
+              </div>
+              <div class="saas-business-row__state">
+                <span class="saas-health saas-health--{{ business.health_tone }}">{{ business.health_label }}</span>
+                <small>{{ business.health_detail }}</small>
+              </div>
+              {% if business.is_active %}
+                <a class="appointment-inline-link" href="{% url 'customers:client_access' business.slug %}">Abrir reserva</a>
+              {% endif %}
+            </article>
+          {% empty %}
+            <p class="soft-note">Todavía no hay negocios dados de alta.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <aside class="saas-side-stack" aria-label="Actividad y distribución de citas">
+        <section class="saas-side-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Últimos registros</span>
+              <h2>Actividad reciente</h2>
+            </div>
+          </div>
+          <div class="saas-activity-list">
+            {% for appointment in recent_appointments %}
+              <div>
+                <time>{{ appointment.local_starts_at|date:"j M · H:i" }}</time>
+                <strong>{{ appointment.business.commercial_name }}</strong>
+                <span>{{ appointment.business_client.full_name }} · {{ appointment.get_status_display }}</span>
+              </div>
+            {% empty %}
+              <p class="soft-note">Aún no hay citas registradas.</p>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="saas-side-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Lectura rápida</span>
+              <h2>Estado de las citas</h2>
+            </div>
+          </div>
+          <div class="saas-breakdown-list">
+            {% for item in status_summary %}
+              <div><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="saas-side-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Origen acumulado</span>
+              <h2>Cómo llegan las citas</h2>
+            </div>
+          </div>
+          <div class="saas-breakdown-list">
+            {% for item in channel_summary %}
+              <div><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div>
+            {% endfor %}
+          </div>
+        </section>
+      </aside>
     </div>
   </section>
 {% endblock %}

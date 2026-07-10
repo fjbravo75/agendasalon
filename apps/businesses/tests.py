@@ -17,7 +17,7 @@ class BusinessModelTests(TestCase):
             full_name="Mari Profesional",
         )
         self.business = Business.objects.create(
-            commercial_name="Peluqueria Mari",
+            commercial_name="Peluquería Mari",
             slug="peluqueria-mari",
             is_active=True,
         )
@@ -59,7 +59,7 @@ class BusinessAccessServiceTests(TestCase):
             full_name="Mari Profesional",
         )
         business = Business.objects.create(
-            commercial_name="Peluqueria Mari",
+            commercial_name="Peluquería Mari",
             slug="peluqueria-mari",
             is_active=True,
         )
@@ -78,7 +78,7 @@ class BusinessAccessServiceTests(TestCase):
             full_name="Mari Profesional",
         )
         business = Business.objects.create(
-            commercial_name="Peluqueria Mari",
+            commercial_name="Peluquería Mari",
             slug="peluqueria-mari",
             is_active=True,
         )

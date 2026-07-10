@@ -87,7 +87,7 @@ class LoginRoutingTests(TestCase):
             full_name="Mari Profesional",
         )
         business = Business.objects.create(
-            commercial_name="Peluqueria Mari",
+            commercial_name="Peluquería Mari",
             slug="peluqueria-mari",
         )
         BusinessMembership.objects.create(business=business, user=user)

@@ -3,26 +3,45 @@
 {% block title %}AgendaSalon{% endblock %}
 
 {% block content %}
-  <section class="page-grid">
-    <div>
-      <h1 class="page-title">AgendaSalon</h1>
-      <p class="lede">
-        Agenda clara para peluquerias y salones de belleza que necesitan
-        ordenar citas, servicios y clientes sin perder el ritmo del dia.
-      </p>
-      <div class="actions">
-        <a class="button" href="{% url 'accounts:login' %}">Entrar</a>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="panel__body">
-        <h2 class="panel__title">Pensada para el trabajo real</h2>
-        <div class="empty">
-          Citas que llegan por telefono, WhatsApp o mostrador. Servicios con
-          duracion clara. Una agenda preparada para decidir rapido y atender
-          mejor.
+  <section class="access-hub" aria-labelledby="access-hub-title">
+    <header class="access-hub__intro">
+      <span>AgendaSalon</span>
+      <h1 id="access-hub-title">¿A dónde quieres entrar?</h1>
+      <p>Elige tu salón para gestionar una reserva o accede al área profesional.</p>
+    </header>
+
+    <div class="access-hub__layout">
+      <section class="access-hub__businesses" aria-labelledby="business-access-title">
+        <div class="access-hub__section-head">
+          <div>
+            <span>Zona cliente</span>
+            <h2 id="business-access-title">Tu salón</h2>
+          </div>
+          <strong>{{ public_businesses|length }}</strong>
         </div>
-      </div>
+
+        <div class="access-business-list">
+          {% for business in public_businesses %}
+            <a class="access-business-row" href="{% url 'customers:client_access' business.slug %}">
+              <span class="access-business-row__index">0{{ forloop.counter }}</span>
+              <div>
+                <strong>{{ business.commercial_name }}</strong>
+                <small>{{ business.city|default:"Reserva online" }}{% if business.public_description %} · {{ business.public_description }}{% endif %}</small>
+              </div>
+              <span class="access-business-row__action">Entrar</span>
+            </a>
+          {% empty %}
+            <p class="soft-note">No hay salones disponibles para reserva online en este momento.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <aside class="access-hub__professional" aria-labelledby="professional-access-title">
+        <span>Área privada</span>
+        <h2 id="professional-access-title">Gestión profesional</h2>
+        <p>Acceso para profesionales y administración de AgendaSalon.</p>
+        <a class="button button--wide" href="{% url 'accounts:login' %}">Entrar al panel</a>
+      </aside>
     </div>
   </section>
 {% endblock %}

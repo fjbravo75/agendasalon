@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Editar {{ business_client.full_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="client-management-shell" aria-label="Editar ficha de cliente">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Datos del cliente</span>
+        <h1 class="page-title page-title--compact">Editar {{ business_client.full_name }}</h1>
+        <p>Corrige los datos que utiliza el equipo sin alterar citas ni historial.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'customers:professional_client_detail' business_client.id %}">Volver a la ficha</a>
+      </div>
+    </header>
+
+    <div class="client-management-grid">
+      <section class="client-form-panel">
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>Información principal</span>
+            <h2>Datos de contacto</h2>
+          </div>
+        </div>
+
+        <form class="client-edit-form" method="post">
+          {% csrf_token %}
+          {% if edit_form.non_field_errors %}<div class="alert">{{ edit_form.non_field_errors }}</div>{% endif %}
+          <div class="client-form-grid">
+            <div class="field">
+              {{ edit_form.full_name.label_tag }}
+              {{ edit_form.full_name }}
+              {{ edit_form.full_name.errors }}
+            </div>
+            <div class="field">
+              {{ edit_form.phone.label_tag }}
+              {{ edit_form.phone }}
+              {{ edit_form.phone.errors }}
+            </div>
+            <div class="field field--full">
+              {{ edit_form.email.label_tag }}
+              {{ edit_form.email }}
+              {{ edit_form.email.errors }}
+            </div>
+            <div class="field field--full">
+              {{ edit_form.internal_notes.label_tag }}
+              {{ edit_form.internal_notes }}
+              {{ edit_form.internal_notes.errors }}
+            </div>
+          </div>
+          <button class="button button--wide" type="submit">Guardar cambios</button>
+        </form>
+      </section>
+
+      <aside class="client-guidance-panel" aria-label="Consecuencias del cambio">
+        <div>
+          <span>Ficha actual</span>
+          <h2>{{ business_client.full_name }}</h2>
+          <p>{{ business_client.phone }}</p>
+        </div>
+        <div class="client-guidance-list">
+          <div>
+            <strong>Historial protegido</strong>
+            <p>Las citas anteriores y futuras siguen vinculadas a esta misma ficha.</p>
+          </div>
+          <div>
+            <strong>Teléfono sincronizado</strong>
+            {% if client_access %}
+              <p>Si cambias el teléfono, también cambiará el usado para entrar en su cuenta online.</p>
+            {% else %}
+              <p>El teléfono quedará preparado para identificar la ficha cuando se registre online.</p>
+            {% endif %}
+          </div>
+          <div>
+            <strong>Notas internas</strong>
+            <p>Solo son visibles para el equipo profesional.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

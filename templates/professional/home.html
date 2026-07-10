@@ -3,34 +3,243 @@
 {% block title %}{{ business.commercial_name }} - AgendaSalon{% endblock %}
 
 {% block content %}
-  <section>
-    <h1 class="page-title page-title--compact">{{ business.commercial_name }}</h1>
-    <p class="lede">
-      Un resumen rapido para saber como esta preparado el salon antes de empezar
-      a colocar citas en la agenda.
-    </p>
+  <section class="professional-dashboard" aria-label="Panel profesional de {{ business.commercial_name }}">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Agenda profesional</span>
+        <h1 class="page-title page-title--compact">{{ business.commercial_name }}</h1>
+        <p>
+          Jornada de {{ today|date:"l j \\d\\e F" }}. Mira qué pasa hoy,
+          qué hueco puedes ofrecer y crea la siguiente cita cuando entre una
+          llamada o una petición.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        {% if overdue_appointments_count %}
+          <span class="ops-status ops-status--warning">{{ overdue_appointments_count }} por cerrar</span>
+        {% elif is_operational %}
+          <span class="ops-status ops-status--ready">Listo para agendar</span>
+        {% else %}
+          <span class="ops-status ops-status--warning">Ajustes por completar</span>
+        {% endif %}
+        <a class="button" href="{% url 'booking:appointment_assistant' %}">Nueva cita</a>
+      </div>
+    </header>
 
-    <div class="status-grid">
-      <div class="metric">
-        <strong>{{ services_count }}</strong>
-        <span>Servicios activos</span>
-      </div>
-      <div class="metric">
-        <strong>{{ work_lines_count }}</strong>
-        <span>Lineas activas</span>
-      </div>
-      <div class="metric">
-        <strong>{{ appointments_count }}</strong>
-        <span>Citas registradas</span>
-      </div>
+    {% if overdue_appointments_count %}
+      <section class="ops-attention" aria-labelledby="pending-appointments-title">
+        <div class="ops-attention__head">
+          <div>
+            <span>Necesita tu revisión</span>
+            <h2 id="pending-appointments-title">Citas pasadas aún confirmadas</h2>
+            <p>Márcalas como completadas o canceladas para que el historial refleje lo que ocurrió.</p>
+          </div>
+          <strong>{{ overdue_appointments_count }}</strong>
+        </div>
+        <div class="ops-attention__list">
+          {% for appointment in overdue_appointments %}
+            <a href="{% url 'booking:professional_appointment_detail' appointment.id %}">
+              <time>{{ appointment.local_starts_at|date:"j M · H:i" }}</time>
+              <span>{{ appointment.business_client.full_name }}</span>
+              <small>{{ appointment.service_summary_snapshot|default:"Cita pendiente de revisar" }}</small>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <div class="ops-summary-grid" aria-label="Resumen operativo">
+      <article class="ops-summary-card ops-summary-card--primary">
+        <span>Jornada de hoy</span>
+        <strong>{{ today_summary_label }}</strong>
+        <p>{{ today_summary_text }}</p>
+      </article>
+      <article class="ops-summary-card">
+        <span>Próxima cita</span>
+        {% if next_appointment %}
+          <strong>{{ next_appointment.local_starts_at|date:"H:i" }}</strong>
+          <p>
+            {{ next_appointment.business_client.full_name }} ·
+            {{ next_appointment.local_starts_at|date:"j M" }} ·
+            {{ next_appointment.work_line.name|default:"línea asignada" }}
+          </p>
+        {% else %}
+          <strong>Sin cita futura</strong>
+          <p>No hay citas confirmadas por delante.</p>
+        {% endif %}
+      </article>
+      <article class="ops-summary-card">
+        <span>Primer hueco útil</span>
+        {% if recommended_slots %}
+          {% with slot=recommended_slots.0 %}
+            <strong>{{ slot.starts_at|date:"H:i" }}</strong>
+            <p>
+              {% if default_service %}{{ default_service.name }} · {% endif %}
+              {{ slot.starts_at|date:"j M" }} · {{ slot.work_line_name }}
+            </p>
+          {% endwith %}
+        {% else %}
+          <strong>Sin hueco</strong>
+          <p>Revisa servicios, líneas y horario para calcular opciones.</p>
+        {% endif %}
+      </article>
+      <article class="ops-summary-card">
+        <span>Salón preparado</span>
+        <strong>{{ salon_status_label }}</strong>
+        <p>{{ salon_status_text }}</p>
+      </article>
     </div>
 
-    <div class="chip-row">
-      {% if is_operational %}
-        <span class="chip">Listo para agendar</span>
-      {% else %}
-        <span class="chip chip--editorial">Ajustes por completar</span>
-      {% endif %}
+    <div class="professional-workspace">
+      <section class="ops-day-board" aria-label="Agenda de hoy por líneas">
+        <div class="ops-section-head">
+          <div>
+            <span>{{ day_status_label }}</span>
+            <h2>Agenda de hoy</h2>
+            <p>
+              {% if availability_rules %}
+                {% for rule in availability_rules %}
+                  {{ rule.start_time|time:"H:i" }}-{{ rule.end_time|time:"H:i" }}{% if not forloop.last %} · {% endif %}
+                {% endfor %}
+              {% else %}
+                No hay horario activo para esta jornada.
+              {% endif %}
+            </p>
+          </div>
+          <strong>{{ today_total_count }} citas</strong>
+        </div>
+
+        {% if line_boards %}
+          {% if today_total_count %}
+            <div class="ops-line-grid">
+              {% for board in line_boards %}
+                <article class="ops-line-panel">
+                  <div class="ops-line-panel__head">
+                    <div>
+                      <span>Línea {{ board.line.line_number }}</span>
+                      <h3>{{ board.line.name|default:"Línea de trabajo" }}</h3>
+                    </div>
+                    <strong>{{ board.confirmed_count }}</strong>
+                  </div>
+
+                  <div class="ops-line-timeline">
+                    {% for appointment in board.appointments %}
+                      <div class="ops-appointment ops-appointment--{{ appointment.status }}">
+                        <time>
+                          {{ appointment.local_starts_at|date:"H:i" }}-{{ appointment.local_ends_at|date:"H:i" }}
+                        </time>
+                        <strong>{{ appointment.business_client.full_name }}</strong>
+                        <span>{{ appointment.service_summary_snapshot|default:"Servicio pendiente de revisar" }}</span>
+                        <small>{{ appointment.get_status_display }} · {{ appointment.total_duration_minutes }} min</small>
+                        <a class="appointment-inline-link" href="{% url 'booking:professional_appointment_detail' appointment.id %}">Gestionar</a>
+                      </div>
+                    {% empty %}
+                      <p class="ops-empty-line">Libre para nuevas citas hoy.</p>
+                    {% endfor %}
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="ops-empty-day">
+              <div>
+                <span>Sin citas en la jornada</span>
+                <h3>La agenda está despejada.</h3>
+                <p>
+                  Usa los huecos recomendados para responder rápido cuando entre
+                  una llamada, un WhatsApp atendido a mano o una petición en el
+                  mostrador.
+                </p>
+              </div>
+              <a class="button button--secondary" href="{% url 'booking:appointment_assistant' %}">Crear cita</a>
+            </div>
+
+            <div class="ops-line-status-grid" aria-label="Estado de líneas de trabajo">
+              {% for board in line_boards %}
+                <article class="ops-line-status">
+                  <span>Línea {{ board.line.line_number }}</span>
+                  <h3>{{ board.line.name|default:"Línea de trabajo" }}</h3>
+                  <strong>{{ board.status_label }}</strong>
+                  <p>{{ board.status_text }}</p>
+                </article>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="empty">
+            Aún no hay líneas activas. Crea al menos una línea de trabajo para
+            poder organizar la agenda del salón.
+          </div>
+        {% endif %}
+      </section>
+
+      <aside class="ops-side-stack" aria-label="Contexto de trabajo">
+        <section class="ops-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Para ofrecer ahora</span>
+              <h2>Huecos recomendados</h2>
+            </div>
+          </div>
+
+          {% if default_service %}
+            <p class="soft-note">
+              Primeras opciones para {{ default_service.name }} ·
+              {{ default_service.duration_minutes }} min.
+            </p>
+          {% endif %}
+
+          <div class="ops-slot-list">
+            {% for item in recommended_slot_cards %}
+              {% with slot=item.slot %}
+              <div class="ops-slot">
+                <strong>{{ slot.starts_at|date:"H:i" }}</strong>
+                <span>{{ slot.starts_at|date:"j M" }} · {{ slot.work_line_name }}</span>
+                <small>{{ item.reason_label }}</small>
+              </div>
+              {% endwith %}
+            {% empty %}
+              <p class="ops-empty-line">No hay huecos recomendados ahora mismo. Revisa horario, servicios o cierres.</p>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="ops-panel">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Configuración esencial</span>
+              <h2>Preparado para agendar</h2>
+            </div>
+          </div>
+
+          <div class="ops-check-list">
+            {% for item in setup_items %}
+              <div class="ops-check {% if item.ready %}is-ready{% else %}is-missing{% endif %}">
+                <span></span>
+                <p>{{ item.label }}</p>
+                <strong>{{ item.value }}</strong>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="ops-panel ops-panel--quiet">
+          <div class="ops-mini-grid">
+            <div>
+              <span>Clientes</span>
+              <strong>{{ clients_count }}</strong>
+            </div>
+            <div>
+              <span>Cuentas online</span>
+              <strong>{{ client_accesses_count }}</strong>
+            </div>
+            <div>
+              <span>Cierres hoy</span>
+              <strong>{{ today_closures_count }}</strong>
+            </div>
+          </div>
+        </section>
+      </aside>
     </div>
   </section>
 {% endblock %}

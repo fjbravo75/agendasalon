@@ -1,0 +1,392 @@
+{% extends "base.html" %}
+
+{% block title %}Nueva cita - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="assistant-shell">
+    <div class="assistant-hero">
+      <div class="assistant-hero__copy">
+        <span class="assistant-kicker">Gestión de citas</span>
+        <h1 class="page-title page-title--compact">Nueva cita</h1>
+        <p class="lede">
+          Elige cliente, servicios y día. Verás las horas disponibles para
+          decidir y confirmar la cita con todos los datos delante.
+        </p>
+      </div>
+
+      <aside class="assistant-hero__aside" aria-label="Negocio activo">
+        <span>Agenda activa</span>
+        <strong>{{ business.commercial_name }}</strong>
+        <small>La disponibilidad también se actualiza para la reserva online.</small>
+        <div class="assistant-hero__actions">
+          <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Volver a agenda</a>
+          <a class="button button--secondary" href="{% url 'customers:professional_client_list' %}">Clientes</a>
+        </div>
+      </aside>
+    </div>
+
+    <div class="assistant-workbench">
+      <aside class="assistant-form" aria-label="Preparar nueva cita">
+        <header class="assistant-card-head">
+          <span>1</span>
+          <div>
+            <h2>Preparar la cita</h2>
+            <p>Completa los datos para consultar las horas que siguen libres.</p>
+          </div>
+        </header>
+
+        <details class="quick-client-disclosure"{% if quick_client_form.errors %} open{% endif %}>
+          <summary>
+            <span>Cliente nuevo</span>
+            <strong>Crear ficha rápida</strong>
+          </summary>
+          <form class="quick-client-card" method="post" aria-label="Crear ficha rápida de cliente">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="quick_client">
+            <input type="hidden" name="manual_channel" value="{{ form.manual_channel.value|default:'' }}">
+            <input type="hidden" name="target_date" value="{{ form.target_date.value|default:'' }}">
+            <input type="hidden" name="adjusted_duration_minutes" value="{{ form.adjusted_duration_minutes.value|default:'' }}">
+            <input type="hidden" name="duration_adjustment_reason" value="{{ form.duration_adjustment_reason.value|default:'' }}">
+            {% for service_id in form.services.value %}
+              <input type="hidden" name="services" value="{{ service_id }}">
+            {% endfor %}
+
+            <p>
+              Para una llamada o mostrador: guarda nombre y teléfono, y sigue con la
+              cita con la ficha ya seleccionada.
+            </p>
+
+            {% if quick_client_form.non_field_errors %}
+              <div class="alert">{{ quick_client_form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="quick-client-grid">
+              <div class="field">
+                {{ quick_client_form.full_name.label_tag }}
+                {{ quick_client_form.full_name }}
+                {{ quick_client_form.full_name.errors }}
+              </div>
+              <div class="field">
+                {{ quick_client_form.phone.label_tag }}
+                {{ quick_client_form.phone }}
+                {{ quick_client_form.phone.errors }}
+              </div>
+              <div class="field">
+                {{ quick_client_form.email.label_tag }}
+                {{ quick_client_form.email }}
+                {{ quick_client_form.email.errors }}
+              </div>
+            </div>
+
+            <div class="field">
+              {{ quick_client_form.internal_notes.label_tag }}
+              {{ quick_client_form.internal_notes }}
+              {{ quick_client_form.internal_notes.errors }}
+            </div>
+
+            <button class="button button--secondary button--wide" type="submit">Guardar cliente</button>
+          </form>
+        </details>
+
+        <form class="assistant-search-form" method="get" aria-label="Buscar huecos para nueva cita">
+          {% if form.non_field_errors %}
+            <div class="alert">{{ form.non_field_errors }}</div>
+          {% endif %}
+
+        <div class="form-section">
+          <h3>Cliente y canal</h3>
+          <div class="assistant-field-grid">
+            <div class="field">
+              {{ form.business_client.label_tag }}
+              {{ form.business_client }}
+              {{ form.business_client.errors }}
+            </div>
+
+            <div class="field">
+              {{ form.manual_channel.label_tag }}
+              {{ form.manual_channel }}
+              {{ form.manual_channel.errors }}
+            </div>
+
+            <div class="field">
+              {{ form.target_date.label_tag }}
+              {{ form.target_date }}
+              {{ form.target_date.errors }}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title-row">
+            <h3>Servicios</h3>
+            <span>Duración real</span>
+          </div>
+          {{ form.services.errors }}
+          <div class="service-choice-list">
+            {% for choice in form.services %}
+              <label class="service-choice">
+                <span class="service-choice__dot" aria-hidden="true"></span>
+                {{ choice.tag }}
+                <span class="service-choice__label">{{ choice.choice_label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title-row">
+            <h3>Duración</h3>
+            <span>Opcional</span>
+          </div>
+          <div class="duration-adjust-grid">
+            <div class="field">
+              {{ form.adjusted_duration_minutes.label_tag }}
+              {{ form.adjusted_duration_minutes }}
+              {{ form.adjusted_duration_minutes.errors }}
+            </div>
+            <div class="field">
+              {{ form.duration_adjustment_reason.label_tag }}
+              {{ form.duration_adjustment_reason }}
+              {{ form.duration_adjustment_reason.errors }}
+            </div>
+          </div>
+        </div>
+
+          <button class="button button--wide" type="submit">Buscar huecos</button>
+        </form>
+      </aside>
+
+      <div class="assistant-results">
+        {% if has_search and search_is_valid %}
+          <section class="decision-strip decision-strip--professional" aria-label="Resumen de la cita preparada">
+            <div class="decision-strip__main">
+              <span>Duración total</span>
+              <strong>{{ duration_minutes }} min</strong>
+              <small>
+                {% for service in selected_services %}
+                  {{ service.name }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+              </small>
+            </div>
+            <div>
+              <span>Cliente</span>
+              <strong>{{ selected_client.full_name }}</strong>
+              <small><a href="{% url 'customers:professional_client_detail' selected_client.id %}">Ver ficha</a></small>
+            </div>
+            <div>
+              <span>Día elegido</span>
+              <strong>{{ selected_date|date:"j F" }}</strong>
+            </div>
+            <div>
+              {% if recommended_slot %}
+                {% if day_availability.has_slots %}
+                  <span>{% if slot_was_selected %}Hora elegida{% else %}Recomendada{% endif %}</span>
+                {% else %}
+                  <span>Primera hora disponible</span>
+                {% endif %}
+                <strong>{{ recommended_slot.starts_at|date:"H:i" }}</strong>
+                <small>Línea {{ recommended_slot.work_line_number }}</small>
+              {% else %}
+                <span>Resultado</span>
+                <strong>Sin hueco</strong>
+              {% endif %}
+            </div>
+          </section>
+
+          {% if duration_was_adjusted %}
+            <p class="soft-note">La duración se ha ajustado para esta búsqueda.</p>
+          {% endif %}
+
+          <div class="availability-grid">
+            <section class="availability-month">
+              <header class="section-card-head">
+                <div>
+                  <span>Mapa del mes</span>
+                  <h2>{{ selected_date|date:"F Y" }}</h2>
+                </div>
+                <p>Los días marcados incluyen al menos un hueco completo.</p>
+              </header>
+
+              <div class="month-grid">
+                {% for day in month_days %}
+                  <div class="month-day{% if day.date == selected_date %} is-selected{% endif %}{% if day.status == 'available' %} is-available{% elif day.status == 'closed' %} is-closed{% elif day.status == 'past' %} is-past{% endif %}">
+                    <span>{{ day.date|date:"j" }}</span>
+                    {% if day.first_slot %}
+                      <strong>{{ day.first_slot.starts_at|date:"H:i" }}</strong>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </section>
+
+            <section class="preview-band">
+              <header class="section-card-head">
+                <div>
+                  <span>Decisión</span>
+                  <h2>Previsualización</h2>
+                </div>
+              </header>
+
+              {% if recommended_slot %}
+                <div class="preview-card">
+                  <span>{% if slot_was_selected %}Hora elegida{% elif day_availability.has_slots %}Recomendada{% else %}Alternativa sugerida{% endif %}</span>
+                  <strong>{{ recommended_slot.starts_at|date:"l j H:i" }}</strong>
+                  <small>Línea {{ recommended_slot.work_line_number }} · bloque completo de {{ duration_minutes }} min</small>
+                  <form class="slot-confirm-form" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="business_client" value="{{ confirm_payload.business_client }}">
+                    <input type="hidden" name="manual_channel" value="{{ confirm_payload.manual_channel }}">
+                    <input type="hidden" name="target_date" value="{{ confirm_payload.target_date }}">
+                    <input type="hidden" name="adjusted_duration_minutes" value="{{ confirm_payload.adjusted_duration_minutes }}">
+                    <input type="hidden" name="duration_adjustment_reason" value="{{ confirm_payload.duration_adjustment_reason }}">
+                    <input type="hidden" name="selected_work_line_id" value="{{ recommended_slot.work_line_id }}">
+                    <input type="hidden" name="selected_starts_at" value="{{ recommended_slot.starts_at|date:'c' }}">
+                    {% for service in selected_services %}
+                      <input type="hidden" name="services" value="{{ service.id }}">
+                    {% endfor %}
+                    <button class="button button--wide" type="submit">Confirmar cita</button>
+                  </form>
+                </div>
+              {% else %}
+                <p class="soft-note">No hay sugerencias disponibles con la configuración actual.</p>
+              {% endif %}
+
+              {% if suggestions %}
+                <div class="suggestion-list">
+                  <h3>Otros huecos posibles</h3>
+                  {% for slot in suggestions %}
+                    <form class="suggestion-row suggestion-row--form" method="get">
+                      <input type="hidden" name="business_client" value="{{ confirm_payload.business_client }}">
+                      <input type="hidden" name="manual_channel" value="{{ confirm_payload.manual_channel }}">
+                      <input type="hidden" name="target_date" value="{{ slot.starts_at|date:'Y-m-d' }}">
+                      <input type="hidden" name="adjusted_duration_minutes" value="{{ confirm_payload.adjusted_duration_minutes }}">
+                      <input type="hidden" name="duration_adjustment_reason" value="{{ confirm_payload.duration_adjustment_reason }}">
+                      <input type="hidden" name="selected_work_line_id" value="{{ slot.work_line_id }}">
+                      <input type="hidden" name="selected_starts_at" value="{{ slot.starts_at|date:'c' }}">
+                      {% for service in selected_services %}
+                        <input type="hidden" name="services" value="{{ service.id }}">
+                      {% endfor %}
+                      <strong>{{ slot.starts_at|date:"l j H:i" }}</strong>
+                      <span>Línea {{ slot.work_line_number }}</span>
+                      <button class="button button--secondary" type="submit">Revisar hora</button>
+                    </form>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </section>
+          </div>
+
+          <section class="day-board">
+            <div class="day-board__head">
+              <div>
+                <span>Agenda del día</span>
+                <h2>{{ selected_date|date:"l j" }}</h2>
+                {% if day_availability.has_slots %}
+                  <p>Hay huecos completos para {{ duration_minutes }} min.</p>
+                {% else %}
+                  <p>No hay hueco suficiente para {{ duration_minutes }} min este día.</p>
+                {% endif %}
+              </div>
+              {% if day_availability.calculated_from %}
+                <span class="chip">Desde {{ day_availability.calculated_from|date:"H:i" }}</span>
+              {% endif %}
+            </div>
+
+            <div class="line-board-grid">
+              {% for board in line_boards %}
+                <article class="line-board">
+                  <header class="line-board__header">
+                    <h3>Línea {{ board.line.line_number }}</h3>
+                    <span>{{ board.slots|length }} huecos</span>
+                  </header>
+
+                  <div class="line-board__block">
+                    <h4>Citas</h4>
+                    {% if board.appointments %}
+                      {% for appointment in board.appointments %}
+                        <div class="appointment-pill">
+                          <strong>{{ appointment.starts_at|date:"H:i" }}-{{ appointment.ends_at|date:"H:i" }}</strong>
+                          <span>{{ appointment.business_client.full_name }}</span>
+                          <small>{{ appointment.total_duration_minutes }} min - {{ appointment.get_status_display }}</small>
+                          <a class="appointment-inline-link" href="{% url 'booking:professional_appointment_detail' appointment.id %}">Gestionar</a>
+                        </div>
+                      {% endfor %}
+                    {% else %}
+                      <p class="soft-note">Sin citas en esta línea.</p>
+                    {% endif %}
+                  </div>
+
+                  <div class="line-board__block">
+                    <h4>Huecos válidos</h4>
+                    {% if board.slots %}
+                      {% for slot in board.slots|slice:":6" %}
+                        <form class="slot-choice-form" method="get">
+                          <input type="hidden" name="business_client" value="{{ confirm_payload.business_client }}">
+                          <input type="hidden" name="manual_channel" value="{{ confirm_payload.manual_channel }}">
+                          <input type="hidden" name="target_date" value="{{ confirm_payload.target_date }}">
+                          <input type="hidden" name="adjusted_duration_minutes" value="{{ confirm_payload.adjusted_duration_minutes }}">
+                          <input type="hidden" name="duration_adjustment_reason" value="{{ confirm_payload.duration_adjustment_reason }}">
+                          <input type="hidden" name="selected_work_line_id" value="{{ slot.work_line_id }}">
+                          <input type="hidden" name="selected_starts_at" value="{{ slot.starts_at|date:'c' }}">
+                          {% for service in selected_services %}
+                            <input type="hidden" name="services" value="{{ service.id }}">
+                          {% endfor %}
+                          <button class="slot-pill slot-pill--choice{% if recommended_slot and slot.work_line_id == recommended_slot.work_line_id and slot.starts_at == recommended_slot.starts_at %} is-selected{% endif %}" type="submit">
+                            <strong>{{ slot.starts_at|date:"H:i" }}</strong>
+                            <span>{{ slot.ends_at|date:"H:i" }}</span>
+                            <small>{% if recommended_slot and slot.work_line_id == recommended_slot.work_line_id and slot.starts_at == recommended_slot.starts_at %}Elegida{% else %}Elegir{% endif %}</small>
+                          </button>
+                        </form>
+                      {% endfor %}
+                    {% else %}
+                      <p class="soft-note">Sin hueco completo.</p>
+                    {% endif %}
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          </section>
+        {% elif has_search %}
+          <section class="empty assistant-empty assistant-empty--guided">
+            <div class="assistant-empty__inner">
+              <span>Falta algún dato</span>
+              <h2>Revisa la cita antes de buscar huecos</h2>
+              <p>
+                Cuando cliente, día y servicios estén completos, verás las horas
+                que continúan disponibles antes de confirmar.
+              </p>
+            </div>
+          </section>
+        {% else %}
+          <section class="empty assistant-empty assistant-empty--guided">
+            <div class="assistant-empty__inner">
+              <span>Sin búsqueda activa</span>
+              <h2>Prepara la cita y consulta las horas libres</h2>
+              <p>
+                Selecciona cliente, servicios y día. Podrás comparar las opciones
+                y revisar la agenda por líneas antes de confirmar.
+              </p>
+              <div class="assistant-empty__steps" aria-label="Flujo de búsqueda">
+                <div>
+                  <strong>1</strong>
+                  <span>Cliente</span>
+                  <small>Ficha existente o alta rápida.</small>
+                </div>
+                <div>
+                  <strong>2</strong>
+                  <span>Servicios</span>
+                  <small>Duración real del trabajo.</small>
+                </div>
+                <div>
+                  <strong>3</strong>
+                  <span>Hueco</span>
+                  <small>Horas libres por línea.</small>
+                </div>
+              </div>
+            </div>
+          </section>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}
