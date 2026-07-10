@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Historial de {{ business.commercial_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="saas-dashboard">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Trazabilidad del negocio</span>
+        <h1 class="page-title page-title--compact">Historial de movimientos</h1>
+        <p>{{ business.commercial_name }} · Acciones que han modificado citas, configuración, accesos o estado de plataforma.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'businesses:superadmin_business_detail' business.id %}#actividad">Volver al negocio</a>
+      </div>
+    </header>
+
+    <section class="saas-side-panel business-activity-panel" aria-labelledby="business-activity-history-title">
+      <div class="ops-section-head business-activity-panel__head">
+        <div>
+          <span>Registro acumulativo</span>
+          <h2 id="business-activity-history-title">Movimientos registrados</h2>
+          <p>Solo se guardan acciones con consecuencias reales; no se registran páginas visitadas ni clics sin cambios.</p>
+        </div>
+      </div>
+
+      <nav class="saas-segmented-filter" aria-label="Filtrar historial">
+        {% for value, label in activity_filters %}
+          <a href="?activity={{ value }}"{% if activity_category == value %} aria-current="page" class="is-active"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+
+      <div class="business-activity-list business-activity-list--history">
+        {% for event in activity_events %}
+          <article class="business-activity-event business-activity-event--{{ event.category }}">
+            <div class="business-activity-event__time">
+              <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"d/m/Y · H:i" }}</time>
+              <span>{{ event.get_category_display }}</span>
+            </div>
+            <div class="business-activity-event__body">
+              <strong>{{ event.summary }}</strong>
+              <small>{{ event.actor_label }} · {{ event.get_origin_display }}</small>
+            </div>
+          </article>
+        {% empty %}
+          <div class="business-activity-empty">
+            <strong>No hay movimientos para este filtro.</strong>
+            <p>Prueba otra categoría o vuelve cuando el negocio haya registrado nuevas acciones.</p>
+          </div>
+        {% endfor %}
+      </div>
+
+      {% if has_more_activity %}
+        <a class="button button--secondary business-activity-panel__more" href="?activity={{ activity_category }}&amp;before={{ next_activity_cursor }}">Mostrar movimientos anteriores</a>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}

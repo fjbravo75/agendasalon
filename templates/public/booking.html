@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load l10n %}
+{% load core_extras l10n %}
 
 {% block title %}Reservar en {{ business.commercial_name }} - AgendaSalon{% endblock %}
 {% block body_class %}public-booking-body public-booking-body--{{ client_auth_theme }}{% endblock %}
@@ -7,9 +7,9 @@
 {% block app_header %}
   <header class="app-header app-header--public-booking">
     <div class="app-header__inner">
-      <a class="brand" href="{% url 'home' %}">
+      <a class="brand" href="{% url 'public_booking' business.slug %}">
         <span class="brand__mark">AgendaSalon</span>
-        <span class="brand__tag">Reservas online para profesionales de belleza</span>
+        <span class="brand__tag">Reserva tu cita en este salón</span>
       </a>
       <nav class="nav" aria-label="Accesos">
         {% if client_access %}
@@ -17,7 +17,6 @@
         {% else %}
           <a href="{% url 'customers:client_access' business.slug %}">Ya tengo cuenta</a>
         {% endif %}
-        <a href="{% url 'accounts:login' %}">Acceso profesional</a>
       </nav>
     </div>
   </header>
@@ -40,7 +39,7 @@
         <aside class="client-account-note" aria-label="Cuenta cliente activa">
           <span>Reservas como</span>
           <strong>{{ client_access.business_client.full_name }}</strong>
-          <small>{{ client_access.phone }}</small>
+          <small>{{ client_access.phone|format_phone }}</small>
           <form method="post" action="{% url 'customers:client_logout' business.slug %}">
             {% csrf_token %}
             <button class="text-action" type="submit">Salir de esta cuenta</button>
@@ -101,7 +100,7 @@
           <div>
             <span>Cliente</span>
             <strong>{{ client_access.business_client.full_name }}</strong>
-            <small>{{ client_access.phone }}</small>
+            <small>{{ client_access.phone|format_phone }}</small>
           </div>
         </div>
 

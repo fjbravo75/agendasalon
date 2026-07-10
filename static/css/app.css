@@ -172,6 +172,15 @@ a {
   border-color: var(--color-line);
 }
 
+.nav a.is-active {
+  color: var(--color-accent-strong);
+  background: var(--color-surface-soft);
+  border-color: var(--color-line);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+
 .app-main {
   flex: 1;
   padding: 44px 0 56px;
@@ -247,6 +256,28 @@ a {
   color: var(--color-text);
   background: var(--color-surface);
   font: inherit;
+}
+
+.field small {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.field--checkbox {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.field--checkbox input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--color-accent);
+}
+
+.field--checkbox small,
+.field--checkbox .errorlist {
+  grid-column: 2;
 }
 
 .field textarea {
@@ -674,6 +705,19 @@ a {
   border-color: rgba(101, 113, 107, 0.22);
   border-left-color: #65716b;
   background: rgba(245, 238, 231, 0.72);
+}
+
+.ops-appointment--no_presentada {
+  opacity: 0.82;
+  border-color: rgba(101, 113, 107, 0.22);
+  border-left-color: #65716b;
+  background: rgba(245, 238, 231, 0.72);
+}
+
+.ops-appointment--pending-closure {
+  border-color: rgba(185, 81, 67, 0.32);
+  border-left-color: var(--color-editorial);
+  background: linear-gradient(135deg, rgba(253, 232, 225, 0.78), rgba(255, 253, 249, 0.96));
 }
 
 .ops-appointment time {
@@ -2020,6 +2064,16 @@ a {
   background: rgba(245, 238, 231, 0.82);
 }
 
+.appointment-action-card--no_presentada {
+  border-left: 3px solid #65716b;
+  background: rgba(245, 238, 231, 0.82);
+}
+
+.appointment-action-card--pending-closure {
+  border-left: 3px solid var(--color-editorial);
+  background: linear-gradient(135deg, rgba(253, 232, 225, 0.74), rgba(255, 253, 249, 0.94));
+}
+
 .assistant-shell {
   display: grid;
   gap: 24px;
@@ -2644,12 +2698,18 @@ a {
 }
 
 .suggestion-row--form {
-  grid-template-columns: minmax(150px, 1fr) minmax(140px, 0.85fr) minmax(150px, 0.85fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
 }
 
 .suggestion-row--form .field {
-  min-width: 150px;
+  min-width: 0;
+}
+
+.suggestion-row--form > span,
+.suggestion-row--form > small {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .public-booking {
@@ -3638,6 +3698,20 @@ a {
   gap: 0;
 }
 
+.required-fields-note {
+  margin: 0;
+  color: rgba(255, 253, 249, 0.72);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.login-field > small {
+  margin-top: 5px;
+  color: rgba(255, 253, 249, 0.72);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .login-field label {
   position: absolute;
   width: 1px;
@@ -4232,24 +4306,80 @@ a {
   gap: 8px;
 }
 
-.ops-attention__list a {
+.ops-attention--full {
+  grid-template-columns: minmax(240px, 0.55fr) minmax(0, 1.45fr);
+}
+
+.ops-attention__list--single {
+  grid-template-columns: 1fr;
+}
+
+.ops-attention__item {
   display: grid;
-  gap: 3px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
   border: 1px solid rgba(185, 81, 67, 0.18);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   background: rgba(255, 253, 249, 0.82);
 }
 
-.ops-attention__list a:hover {
+.ops-attention__item:focus-within,
+.ops-attention__item:hover {
   border-color: rgba(185, 81, 67, 0.48);
   background: var(--color-surface);
+}
+
+.ops-attention__item input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
+}
+
+.ops-attention__item label {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.ops-attention__item > a {
+  color: var(--color-accent-strong);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .ops-attention__list time,
 .ops-attention__list small {
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.ops-attention__form {
+  display: grid;
+  gap: 10px;
+}
+
+.ops-attention__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ops-attention__more {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ops-attention__more a {
+  color: var(--color-accent-strong);
+  font-weight: 800;
 }
 
 .slot-choice-form {
@@ -4321,150 +4451,36 @@ a {
   line-height: 1.5;
 }
 
-.access-hub {
+.saas-dashboard {
   display: grid;
-  gap: 34px;
-  padding: clamp(18px, 4vw, 52px) 0 28px;
+  gap: 22px;
 }
 
-.access-hub__intro {
-  max-width: 720px;
+.logout-confirmation {
+  width: min(620px, 100%);
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+  margin: 8vh auto 0;
+  border: 1px solid var(--color-line);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+  padding: clamp(24px, 5vw, 48px);
+  background: linear-gradient(135deg, rgba(217, 244, 237, 0.54), rgba(255, 253, 249, 0.98));
+  box-shadow: var(--shadow-sm);
 }
 
-.access-hub__intro > span,
-.access-hub__section-head span,
-.access-hub__professional > span {
-  color: var(--color-accent);
-  font-size: 11px;
+.logout-confirmation > span {
+  color: var(--color-accent-strong);
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.access-hub__intro h1 {
-  margin: 8px 0 0;
-  font-family: var(--font-display);
-  font-size: clamp(40px, 6vw, 72px);
-  line-height: 0.98;
-}
-
-.access-hub__intro p {
-  max-width: 610px;
-  margin: 16px 0 0;
+.logout-confirmation p {
+  margin: 0;
   color: var(--color-text-muted);
-  font-size: 17px;
-  line-height: 1.55;
-}
-
-.access-hub__layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.55fr);
-  gap: 24px;
-  align-items: start;
-}
-
-.access-hub__businesses,
-.access-hub__professional {
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-lg);
-  background: rgba(255, 253, 249, 0.92);
-  box-shadow: var(--shadow-xs);
-}
-
-.access-hub__businesses {
-  overflow: hidden;
-}
-
-.access-hub__section-head {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid var(--color-line);
-  padding: 20px;
-}
-
-.access-hub__section-head h2,
-.access-hub__professional h2 {
-  margin: 5px 0 0;
-  font-family: var(--font-display);
-  font-size: 28px;
-}
-
-.access-hub__section-head > strong {
-  font-family: var(--font-display);
-  font-size: 34px;
-}
-
-.access-business-list {
-  display: grid;
-}
-
-.access-business-row {
-  min-height: 90px;
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: center;
-  border-bottom: 1px solid var(--color-line);
-  padding: 16px 20px;
-  transition: background 150ms ease, border-color 150ms ease;
-}
-
-.access-business-row:last-child {
-  border-bottom: 0;
-}
-
-.access-business-row:hover {
-  background: var(--color-accent-soft);
-}
-
-.access-business-row__index {
-  color: var(--color-text-soft);
-  font-family: var(--font-display);
-  font-size: 18px;
-}
-
-.access-business-row div {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.access-business-row strong {
-  font-size: 17px;
-}
-
-.access-business-row small {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.access-business-row__action {
-  color: var(--color-accent-strong);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.access-hub__professional {
-  display: grid;
-  gap: 10px;
-  border-top: 3px solid var(--color-accent);
-  padding: 22px;
-}
-
-.access-hub__professional p {
-  margin: 0 0 12px;
-  color: var(--color-text-muted);
-  line-height: 1.5;
-}
-
-.saas-dashboard {
-  display: grid;
-  gap: 22px;
+  font-size: 16px;
 }
 
 .saas-metric-grid {
@@ -4669,8 +4685,266 @@ a {
   font-size: 13px;
 }
 
+.saas-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.45fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.saas-business-row--management {
+  grid-template-columns: minmax(210px, 0.9fr) minmax(260px, 1.1fr) minmax(170px, 0.7fr) auto;
+}
+
+.saas-management-form {
+  display: grid;
+  gap: 18px;
+}
+
+.saas-management-form .field input:not([type="checkbox"]),
+.saas-management-form .field select {
+  height: var(--control-height-md);
+  min-height: var(--control-height-md);
+}
+
+.saas-management-form .field--wide {
+  grid-column: 1 / -1;
+}
+
+.saas-management-form .field--business-description textarea {
+  min-height: 120px;
+}
+
+.saas-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.saas-form-grid--compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.saas-management-form__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.business-activity-panel {
+  gap: 18px;
+}
+
+.business-activity-panel__head {
+  align-items: end;
+}
+
+.business-activity-panel__head p {
+  max-width: 760px;
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.business-activity-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.business-activity-summary > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  align-items: center;
+  border: 1px solid var(--color-line);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: rgba(255, 253, 249, 0.82);
+}
+
+.business-activity-summary span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.business-activity-summary strong {
+  grid-row: span 2;
+  font-family: var(--font-display);
+  font-size: 30px;
+}
+
+.business-activity-summary small {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.saas-segmented-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.saas-segmented-filter a {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 999px;
+  padding: 0 13px;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.saas-segmented-filter a:hover,
+.saas-segmented-filter a.is-active {
+  border-color: var(--color-accent);
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+}
+
+.business-activity-list {
+  display: grid;
+  border-top: 1px solid var(--color-line);
+}
+
+.business-activity-event {
+  display: grid;
+  grid-template-columns: minmax(155px, 0.28fr) minmax(0, 1fr);
+  gap: 18px;
+  border-bottom: 1px solid var(--color-line);
+  border-left: 3px solid var(--color-line-strong);
+  padding: 14px 16px;
+  background: rgba(255, 253, 249, 0.62);
+}
+
+.business-activity-event--appointments {
+  border-left-color: var(--color-accent);
+}
+
+.business-activity-event--configuration {
+  border-left-color: #5c77c8;
+}
+
+.business-activity-event--access {
+  border-left-color: #b9822f;
+}
+
+.business-activity-event--platform {
+  border-left-color: #9c625a;
+}
+
+.business-activity-event__time,
+.business-activity-event__body {
+  display: grid;
+  gap: 5px;
+}
+
+.business-activity-event__time time {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.business-activity-event__time span {
+  color: var(--color-accent-strong);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.business-activity-event__body strong {
+  line-height: 1.35;
+}
+
+.business-activity-event__body small {
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.business-activity-empty {
+  display: grid;
+  gap: 5px;
+  padding: 22px 16px;
+  text-align: center;
+}
+
+.business-activity-empty p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.business-activity-panel__more {
+  justify-self: start;
+}
+
+.saas-fact-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-line);
+}
+
+.saas-fact-list > div {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.45fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 11px 12px;
+  background: var(--color-surface);
+}
+
+.saas-fact-list dt,
+.saas-fact-list dd {
+  margin: 0;
+}
+
+.saas-fact-list dt {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.saas-fact-list dd {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.saas-control-list,
+.saas-membership-list {
+  display: grid;
+  gap: 10px;
+}
+
+.saas-control-list > div,
+.saas-membership-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--color-surface);
+}
+
+.saas-control-list > div > div,
+.saas-membership-list article > div {
+  display: grid;
+  gap: 3px;
+}
+
+.saas-control-list small,
+.saas-membership-list small {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
 @media (max-width: 1040px) {
-  .access-hub__layout,
   .saas-workspace {
     grid-template-columns: 1fr;
   }
@@ -4681,6 +4955,10 @@ a {
 
   .saas-business-row {
     grid-template-columns: minmax(190px, 0.9fr) minmax(250px, 1.1fr) minmax(180px, 0.8fr);
+  }
+
+  .saas-business-row--management {
+    grid-template-columns: minmax(190px, 0.9fr) minmax(230px, 1.1fr) minmax(160px, 0.7fr);
   }
 
   .saas-business-row > .appointment-inline-link {
@@ -4716,39 +4994,62 @@ a {
     min-width: 0;
   }
 
-  .access-hub {
-    gap: 24px;
-    padding-top: 10px;
-  }
-
-  .access-hub__intro h1 {
-    font-size: 42px;
-  }
-
-  .access-business-row {
-    grid-template-columns: 30px minmax(0, 1fr) auto;
-    padding: 14px;
-  }
-
-  .access-business-row small {
-    white-space: normal;
-  }
-
   .saas-metric-grid {
     grid-template-columns: 1fr;
   }
 
+  .saas-filter-bar,
+  .saas-form-grid,
+  .saas-form-grid--compact {
+    grid-template-columns: 1fr;
+  }
+
+  .business-activity-summary,
+  .business-activity-event {
+    grid-template-columns: 1fr;
+  }
+
+  .business-activity-event {
+    gap: 9px;
+  }
+
+  .saas-filter-bar .button,
+  .saas-management-form__actions .button {
+    width: 100%;
+  }
+
+  .saas-fact-list > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .saas-control-list > div,
+  .saas-membership-list article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .saas-control-list .button,
+  .saas-membership-list .button {
+    width: 100%;
+  }
+
+  .ops-attention__actions {
+    position: sticky;
+    z-index: 3;
+    top: 8px;
+    border: 1px solid rgba(185, 81, 67, 0.18);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+    background: rgba(255, 253, 249, 0.96);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .ops-attention__actions .button {
+    flex: 1 1 145px;
+  }
+
   .saas-business-row > .appointment-inline-link {
     grid-column: auto;
-  }
-}
-
-@media (max-width: 480px) {
-  .access-business-row {
-    grid-template-columns: 24px minmax(0, 1fr);
-  }
-
-  .access-business-row__action {
-    grid-column: 2;
   }
 }

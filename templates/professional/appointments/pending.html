@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Citas pendientes de cierre - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="professional-dashboard" aria-labelledby="pending-page-title">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Gestión de citas</span>
+        <h1 id="pending-page-title" class="page-title page-title--compact">Pendientes de cierre</h1>
+        <p>Registra el resultado real de las citas que ya terminaron. Ninguna se cierra automáticamente.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <span class="ops-status ops-status--warning">{{ appointments|length }} pendientes</span>
+        <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Volver a la agenda</a>
+      </div>
+    </header>
+
+    {% if appointments %}
+      <section class="ops-attention ops-attention--full" aria-labelledby="pending-list-title">
+        <div class="ops-attention__head">
+          <div>
+            <span>Revisión operativa</span>
+            <h2 id="pending-list-title">Todas las citas pendientes</h2>
+            <p>Selecciona únicamente las citas cuyo resultado conoces.</p>
+          </div>
+          <strong>{{ appointments|length }}</strong>
+        </div>
+        <form class="ops-attention__form" method="post" action="{% url 'booking:professional_appointments_bulk_close' %}" data-confirm-message="Vas a registrar el mismo resultado para todas las citas seleccionadas. ¿Quieres continuar?">
+          {% csrf_token %}
+          <input type="hidden" name="return_to" value="pending">
+          <div class="ops-attention__actions">
+            <button class="button" type="submit" name="outcome" value="completada">Marcar atendidas</button>
+            <button class="button button--secondary" type="submit" name="outcome" value="no_presentada">No se presentaron</button>
+          </div>
+          <div class="ops-attention__list ops-attention__list--single">
+            {% for appointment in appointments %}
+              <article class="ops-attention__item">
+                <input id="pending-page-appointment-{{ appointment.id }}" type="checkbox" name="appointment_ids" value="{{ appointment.id }}">
+                <label for="pending-page-appointment-{{ appointment.id }}">
+                  <time>{{ appointment.local_starts_at|date:"j M · H:i" }}-{{ appointment.local_ends_at|date:"H:i" }}</time>
+                  <strong>{{ appointment.business_client.full_name }}</strong>
+                  <small>{{ appointment.service_summary_snapshot|default:"Cita pendiente de revisar" }}</small>
+                </label>
+                <a href="{% url 'booking:professional_appointment_detail' appointment.id %}">Revisar</a>
+              </article>
+            {% endfor %}
+          </div>
+        </form>
+      </section>
+    {% else %}
+      <div class="empty">No hay citas pendientes de cierre. La agenda está al día.</div>
+    {% endif %}
+  </section>
+{% endblock %}

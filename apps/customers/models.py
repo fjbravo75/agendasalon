@@ -26,9 +26,9 @@ class BusinessClient(models.Model):
         max_length=180,
         editable=False,
     )
-    phone = models.CharField("telefono", max_length=32)
+    phone = models.CharField("teléfono", max_length=32)
     phone_normalized = models.CharField(
-        "telefono normalizado",
+        "teléfono normalizado",
         max_length=32,
         editable=False,
     )
@@ -42,8 +42,8 @@ class BusinessClient(models.Model):
     is_active = models.BooleanField("activo", default=True)
     internal_notes = models.TextField("notas internas", blank=True)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
-    updated_at = models.DateTimeField("ultima actualizacion", auto_now=True)
-    last_activity_at = models.DateTimeField("ultima actividad", null=True, blank=True)
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
+    last_activity_at = models.DateTimeField("última actividad", null=True, blank=True)
 
     class Meta:
         verbose_name = "ficha de cliente"
@@ -67,7 +67,7 @@ class BusinessClient(models.Model):
         if not self.full_name.strip():
             raise ValidationError({"full_name": "El nombre completo es obligatorio."})
         if not self.phone.strip():
-            raise ValidationError({"phone": "El telefono es obligatorio."})
+            raise ValidationError({"phone": "El teléfono es obligatorio."})
         self.full_name_normalized = normalize_search_text(self.full_name)
         self.phone_normalized = normalize_phone(self.phone)
 
@@ -105,14 +105,14 @@ class BusinessClientAuthorizedContact(models.Model):
         verbose_name="ficha de cliente",
     )
     full_name = models.CharField("nombre completo", max_length=160)
-    phone = models.CharField("telefono", max_length=32)
+    phone = models.CharField("teléfono", max_length=32)
     phone_normalized = models.CharField(
-        "telefono normalizado",
+        "teléfono normalizado",
         max_length=32,
         editable=False,
     )
     relationship_label = models.CharField(
-        "relacion",
+        "relación",
         max_length=40,
         choices=Relationship.choices,
         default=Relationship.OTHER,
@@ -121,7 +121,7 @@ class BusinessClientAuthorizedContact(models.Model):
     notes = models.TextField("notas", blank=True)
     is_active = models.BooleanField("activo", default=True)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
-    updated_at = models.DateTimeField("ultima actualizacion", auto_now=True)
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
 
     class Meta:
         verbose_name = "contacto autorizado"
@@ -149,7 +149,7 @@ class BusinessClientAuthorizedContact(models.Model):
         if not self.full_name.strip():
             raise ValidationError({"full_name": "El nombre completo es obligatorio."})
         if not self.phone.strip():
-            raise ValidationError({"phone": "El telefono es obligatorio."})
+            raise ValidationError({"phone": "El teléfono es obligatorio."})
         self.phone_normalized = normalize_phone(self.phone)
 
     def save(self, *args, **kwargs):
@@ -177,17 +177,17 @@ class BusinessClientAccess(models.Model):
         related_name="access",
         verbose_name="ficha de cliente",
     )
-    phone = models.CharField("telefono", max_length=32)
+    phone = models.CharField("teléfono", max_length=32)
     phone_normalized = models.CharField(
-        "telefono normalizado",
+        "teléfono normalizado",
         max_length=32,
         editable=False,
     )
-    password_hash = models.CharField("hash de contrasena", max_length=128)
+    password_hash = models.CharField("hash de contraseña", max_length=128)
     is_active = models.BooleanField("activo", default=True)
-    last_login_at = models.DateTimeField("ultimo acceso", null=True, blank=True)
+    last_login_at = models.DateTimeField("último acceso", null=True, blank=True)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
-    updated_at = models.DateTimeField("ultima actualizacion", auto_now=True)
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
 
     class Meta:
         verbose_name = "acceso de cliente"
@@ -218,7 +218,7 @@ class BusinessClientAccess(models.Model):
                     {"business_client": "La ficha debe pertenecer al mismo negocio que el acceso."}
                 )
         if not self.phone.strip():
-            raise ValidationError({"phone": "El telefono es obligatorio."})
+            raise ValidationError({"phone": "El teléfono es obligatorio."})
         self.phone_normalized = normalize_phone(self.phone)
 
     def save(self, *args, **kwargs):

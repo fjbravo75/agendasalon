@@ -9,6 +9,8 @@ from django.utils import timezone
 
 from apps.booking.models import Appointment, AppointmentService, Service, WorkLine
 from apps.booking.slot_engine import get_day_availability
+from apps.businesses.activity import record_business_activity
+from apps.businesses.models import BusinessActivityEvent
 from apps.customers.models import BusinessClient
 
 
@@ -96,6 +98,28 @@ def confirm_appointment(draft: AppointmentDraft) -> Appointment:
         item.save()
 
     appointment.full_clean()
+    is_public_booking = draft.channel == Appointment.ManualChannel.PUBLIC_WEB
+    record_business_activity(
+        business=draft.business,
+        category=BusinessActivityEvent.Category.APPOINTMENTS,
+        event_type=BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+        origin=draft.channel,
+        summary=(
+            f"Reserva online creada para {_appointment_moment(appointment)}."
+            if is_public_booking
+            else f"Cita creada por el equipo para {_appointment_moment(appointment)}."
+        ),
+        actor=draft.created_by,
+        actor_type=(BusinessActivityEvent.ActorType.CUSTOMER if is_public_booking else None),
+        actor_label=("Cliente online" if is_public_booking else None),
+        entity=appointment,
+        entity_type="appointment",
+        changes={
+            "status": appointment.status,
+            "origin": appointment.manual_channel,
+            "starts_at": appointment.starts_at.isoformat(),
+        },
+    )
     return appointment
 
 
@@ -122,19 +146,31 @@ def cancel_appointment(appointment: Appointment, *, cancelled_by, reason: str) -
             "updated_at",
         ]
     )
+    record_business_activity(
+        business=appointment.business,
+        category=BusinessActivityEvent.Category.APPOINTMENTS,
+        event_type=BusinessActivityEvent.EventType.APPOINTMENT_CANCELLED,
+        origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+        summary=f"Cita cancelada para {_appointment_moment(appointment)}.",
+        actor=cancelled_by,
+        entity=appointment,
+        entity_type="appointment",
+        changes={"status": appointment.status},
+    )
     return appointment
 
 
 @transaction.atomic
-def complete_appointment(appointment: Appointment, *, completed_by) -> Appointment:
+def complete_appointment(appointment: Appointment, *, completed_by, at=None) -> Appointment:
+    at = at or timezone.now()
     if appointment.status != Appointment.Status.CONFIRMED:
         raise ValidationError("Solo se puede completar una cita confirmada.")
-    if appointment.starts_at > timezone.now():
+    if appointment.starts_at > at:
         raise ValidationError("No se puede completar una cita que todavía no ha empezado.")
 
     appointment.status = Appointment.Status.COMPLETED
     appointment.completed_by = completed_by
-    appointment.completed_at = timezone.now()
+    appointment.completed_at = at
     appointment.full_clean()
     appointment.save(
         update_fields=[
@@ -144,4 +180,69 @@ def complete_appointment(appointment: Appointment, *, completed_by) -> Appointme
             "updated_at",
         ]
     )
+    record_business_activity(
+        business=appointment.business,
+        category=BusinessActivityEvent.Category.APPOINTMENTS,
+        event_type=BusinessActivityEvent.EventType.APPOINTMENT_COMPLETED,
+        origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+        summary=f"Cita marcada como atendida para {_appointment_moment(appointment)}.",
+        actor=completed_by,
+        entity=appointment,
+        entity_type="appointment",
+        changes={"status": appointment.status},
+    )
     return appointment
+
+
+@transaction.atomic
+def mark_appointment_no_show(appointment: Appointment, *, marked_by, at=None) -> Appointment:
+    at = at or timezone.now()
+    if appointment.status != Appointment.Status.CONFIRMED:
+        raise ValidationError("Solo se puede registrar la ausencia de una cita confirmada.")
+    if appointment.starts_at > at:
+        raise ValidationError("No se puede registrar la ausencia antes de que empiece la cita.")
+
+    appointment.status = Appointment.Status.NO_SHOW
+    appointment.no_show_marked_by = marked_by
+    appointment.no_show_marked_at = at
+    appointment.full_clean()
+    appointment.save(
+        update_fields=[
+            "status",
+            "no_show_marked_by",
+            "no_show_marked_at",
+            "updated_at",
+        ]
+    )
+    record_business_activity(
+        business=appointment.business,
+        category=BusinessActivityEvent.Category.APPOINTMENTS,
+        event_type=BusinessActivityEvent.EventType.APPOINTMENT_NO_SHOW,
+        origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+        summary=f"Ausencia registrada para la cita de {_appointment_moment(appointment)}.",
+        actor=marked_by,
+        entity=appointment,
+        entity_type="appointment",
+        changes={"status": appointment.status},
+    )
+    return appointment
+
+
+@transaction.atomic
+def close_appointments(appointments, *, outcome, closed_by, at=None) -> int:
+    at = at or timezone.now()
+    appointments = tuple(appointments)
+    if outcome not in {Appointment.Status.COMPLETED, Appointment.Status.NO_SHOW}:
+        raise ValidationError("El resultado elegido no es válido.")
+
+    for appointment in appointments:
+        if outcome == Appointment.Status.COMPLETED:
+            complete_appointment(appointment, completed_by=closed_by, at=at)
+        else:
+            mark_appointment_no_show(appointment, marked_by=closed_by, at=at)
+    return len(appointments)
+
+
+def _appointment_moment(appointment):
+    starts_at = timezone.localtime(appointment.starts_at)
+    return starts_at.strftime("%d/%m/%Y a las %H:%M")

@@ -9,7 +9,6 @@
         <span>Catálogo operativo</span>
         <h1 class="page-title page-title--compact">Servicios de {{ business.commercial_name }}</h1>
         <p>
-          Define qué se puede reservar, cuánto dura y en qué orden debe aparecer.
           Define qué se puede reservar, cuánto dura y en qué orden aparece. Estas
           duraciones permiten calcular horas reales para el equipo y la reserva online.
         </p>
@@ -80,12 +79,12 @@
                 {% else %}
                   <span>Sin precio</span>
                 {% endif %}
-                <small>{{ service.appointments_total }} citas vinculadas</small>
+                <small>{{ service.appointments_total }} cita{% if service.appointments_total != 1 %}s{% endif %} vinculada{% if service.appointments_total != 1 %}s{% endif %}</small>
               </div>
 
               <div class="service-row__actions">
                 <a class="button button--secondary" href="{% url 'booking:professional_service_edit' service.id %}">Editar</a>
-                <form method="post" action="{% url 'booking:professional_service_toggle' service.id %}">
+                <form method="post" action="{% url 'booking:professional_service_toggle' service.id %}" data-confirm-message="Vas a cambiar si este servicio puede reservarse. ¿Quieres continuar?">
                   {% csrf_token %}
                   {% if service.is_active %}
                     <button class="button button--secondary" type="submit">Pausar</button>

@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.booking.models import Appointment
-from apps.businesses.models import Business
+from apps.businesses.models import Business, BusinessActivityEvent
 
 
 class ProfessionalAppointmentManagementTests(TestCase):
@@ -73,6 +73,14 @@ class ProfessionalAppointmentManagementTests(TestCase):
             appointment.cancellation_reason,
             "Cliente avisa por teléfono que no puede venir.",
         )
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=appointment.id,
+                event_type=BusinessActivityEvent.EventType.APPOINTMENT_CANCELLED,
+                actor_user=self.professional,
+            ).exists()
+        )
 
     def test_cancel_requires_reason_and_keeps_confirmed_status(self):
         self.client.force_login(self.professional)
@@ -104,6 +112,98 @@ class ProfessionalAppointmentManagementTests(TestCase):
         self.assertEqual(appointment.status, Appointment.Status.COMPLETED)
         self.assertEqual(appointment.completed_by, self.professional)
         self.assertIsNotNone(appointment.completed_at)
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=appointment.id,
+                event_type=BusinessActivityEvent.EventType.APPOINTMENT_COMPLETED,
+            ).exists()
+        )
+
+    def test_professional_can_mark_started_appointment_as_no_show(self):
+        self.client.force_login(self.professional)
+        appointment = self._create_appointment(
+            starts_at=timezone.now() - timedelta(hours=2),
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_appointment_no_show", args=[appointment.id])
+        )
+
+        self.assertEqual(response.status_code, 302)
+        appointment.refresh_from_db()
+        self.assertEqual(appointment.status, Appointment.Status.NO_SHOW)
+        self.assertEqual(appointment.no_show_marked_by, self.professional)
+        self.assertIsNotNone(appointment.no_show_marked_at)
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=appointment.id,
+                event_type=BusinessActivityEvent.EventType.APPOINTMENT_NO_SHOW,
+            ).exists()
+        )
+
+    def test_future_appointment_cannot_be_marked_as_no_show(self):
+        self.client.force_login(self.professional)
+        appointment = self._create_appointment(
+            starts_at=timezone.now() + timedelta(days=2),
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_appointment_no_show", args=[appointment.id]),
+            follow=True,
+        )
+
+        appointment.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(appointment.status, Appointment.Status.CONFIRMED)
+        self.assertContains(response, "antes de que empiece")
+
+    def test_professional_can_close_multiple_pending_appointments_as_attended(self):
+        self.client.force_login(self.professional)
+        first = self._create_appointment(starts_at=timezone.now() - timedelta(days=100))
+        second = self._create_appointment(starts_at=timezone.now() - timedelta(days=99))
+
+        response = self.client.post(
+            reverse("booking:professional_appointments_bulk_close"),
+            {
+                "appointment_ids": [first.id, second.id],
+                "outcome": Appointment.Status.COMPLETED,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "2 citas quedan registradas como atendidas")
+        self.assertEqual(
+            Appointment.objects.filter(
+                pk__in=[first.id, second.id],
+                status=Appointment.Status.COMPLETED,
+            ).count(),
+            2,
+        )
+
+    def test_bulk_close_ignores_appointments_from_another_business(self):
+        self.client.force_login(self.professional)
+        own_appointment = self._create_appointment(starts_at=timezone.now() - timedelta(days=100))
+        other_appointment = self._create_appointment(
+            business=self.other_business,
+            starts_at=timezone.now() - timedelta(days=99),
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_appointments_bulk_close"),
+            {
+                "appointment_ids": [own_appointment.id, other_appointment.id],
+                "outcome": Appointment.Status.NO_SHOW,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        own_appointment.refresh_from_db()
+        other_appointment.refresh_from_db()
+        self.assertEqual(own_appointment.status, Appointment.Status.NO_SHOW)
+        self.assertEqual(other_appointment.status, Appointment.Status.CONFIRMED)
 
     def test_future_appointment_cannot_be_completed(self):
         self.client.force_login(self.professional)

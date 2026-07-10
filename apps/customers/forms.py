@@ -67,7 +67,13 @@ class ClientRegistrationForm(forms.Form):
     )
     password = forms.CharField(
         label="Contraseña",
-        widget=forms.PasswordInput(attrs={"autocomplete": "new-password", "placeholder": "Crea tu contraseña"}),
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Crea tu contraseña",
+                "aria-describedby": "password-requirements",
+            }
+        ),
     )
     password_confirm = forms.CharField(
         label="Repite la contraseña",

@@ -6,7 +6,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.booking.models import Service
-from apps.businesses.models import Business
+from apps.businesses.models import Business, BusinessActivityEvent
 
 
 class ProfessionalServiceManagementTests(TestCase):
@@ -60,6 +60,14 @@ class ProfessionalServiceManagementTests(TestCase):
         self.assertEqual(service.duration_minutes, 15)
         self.assertEqual(service.color_hex, "#5079BD")
         self.assertTrue(service.is_active)
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=service.id,
+                event_type=BusinessActivityEvent.EventType.SERVICE_CREATED,
+                actor_user=self.professional,
+            ).exists()
+        )
 
     def test_service_form_rejects_duration_outside_slot_interval(self):
         self.client.force_login(self.professional)
@@ -108,6 +116,13 @@ class ProfessionalServiceManagementTests(TestCase):
         self.assertEqual(service.name, "Corte completo")
         self.assertEqual(service.duration_minutes, 45)
         self.assertEqual(service.price_amount.to_eng_string(), "22.00")
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=service.id,
+                event_type=BusinessActivityEvent.EventType.SERVICE_UPDATED,
+            ).exists()
+        )
 
     def test_professional_cannot_edit_service_from_another_business(self):
         self.client.force_login(self.professional)
@@ -130,6 +145,13 @@ class ProfessionalServiceManagementTests(TestCase):
         self.assertEqual(response.status_code, 302)
         service.refresh_from_db()
         self.assertFalse(service.is_active)
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=service.id,
+                event_type=BusinessActivityEvent.EventType.SERVICE_PAUSED,
+            ).exists()
+        )
 
         response = self.client.get(reverse("booking:appointment_assistant"))
 

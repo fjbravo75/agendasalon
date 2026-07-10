@@ -16,7 +16,7 @@ from apps.booking.models import (
     WorkLine,
 )
 from apps.booking.slot_engine import get_day_availability, suggest_next_slots
-from apps.businesses.models import Business, BusinessMembership
+from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 from apps.customers.models import BusinessClient, BusinessClientAccess, BusinessClientAuthorizedContact
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 from apps.notifications.models import InternalNotification
@@ -39,6 +39,8 @@ class SeedDemoCommandTests(TestCase):
         barberia = Business.objects.get(slug="barberia-norte")
         self.assertTrue(business.is_operational_for_agenda())
         self.assertTrue(barberia.is_operational_for_agenda())
+        self.assertTrue(business.public_booking_enabled)
+        self.assertTrue(barberia.public_booking_enabled)
         self.assertEqual(Business.objects.filter(slug="barberia-norte-demo").count(), 0)
         self.assertEqual(Business.objects.filter(is_active=True).count(), 2)
         self.assertTrue(
@@ -66,14 +68,23 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(OfficialHoliday.objects.filter(name="Fiesta nacional").count(), 1)
         self.assertEqual(HolidaySyncRun.objects.filter(source_name="Calendario local AgendaSalon").count(), 1)
         self.assertEqual(InternalNotification.objects.filter(business=business).count(), 4)
+        self.assertEqual(BusinessActivityEvent.objects.filter(business=business).count(), 3)
+        self.assertEqual(BusinessActivityEvent.objects.filter(business=barberia).count(), 2)
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=business,
+                origin=BusinessActivityEvent.Origin.PUBLIC_WEB,
+            ).exists()
+        )
 
         self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.CONFIRMED).exists())
         self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.CANCELLED).exists())
         self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.COMPLETED).exists())
+        self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.NO_SHOW).exists())
 
         combined = Appointment.objects.get(
             business=business,
-            business_client__full_name="Lucia Gomez",
+            business_client__full_name="Lucía Gómez",
             starts_at=datetime(2026, 7, 6, 16, 0, tzinfo=MADRID),
         )
         self.assertEqual(combined.total_duration_minutes, 180)
@@ -137,4 +148,5 @@ class SeedDemoCommandTests(TestCase):
             "appointments": Appointment.objects.count(),
             "appointment_services": AppointmentService.objects.count(),
             "notifications": InternalNotification.objects.count(),
+            "activity_events": BusinessActivityEvent.objects.count(),
         }

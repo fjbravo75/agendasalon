@@ -473,7 +473,7 @@ def _slots_from_free_intervals(
     slots = []
     duration = timedelta(minutes=duration_minutes)
     step = timedelta(minutes=slot_interval)
-    line_name = line.name or f"Linea {line.line_number}"
+    line_name = line.name or f"Línea {line.line_number}"
 
     for free_start, free_end in free_intervals:
         starts_at = _ceil_to_slot(free_start, slot_interval)

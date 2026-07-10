@@ -4,16 +4,13 @@
 {% block body_class %}login-body client-auth-body{% endblock %}
 
 {% block content %}
-  <main class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}">
+  <div class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}">
     <section class="login-shell client-auth-shell">
       <div class="login-topbar" aria-label="Cabecera">
-        <a class="login-brand" href="{% url 'home' %}">
+        <a class="login-brand" href="{% url 'public_booking' business.slug %}">
           <strong>{{ business.commercial_name }}</strong>
           <span>Reserva online con AgendaSalon</span>
         </a>
-        <nav class="login-micro-nav" aria-label="Accesos">
-          <a href="{% url 'accounts:login' %}">Acceso profesional</a>
-        </nav>
       </div>
 
       <div class="client-auth-content">
@@ -82,5 +79,5 @@
 
       <div class="client-auth-image-space" aria-hidden="true"></div>
     </section>
-  </main>
+  </div>
 {% endblock %}

@@ -48,7 +48,7 @@ class SlotEngineTests(TestCase):
         )
         self.client = BusinessClient.objects.create(
             business=self.business,
-            full_name="Lucia Gomez",
+            full_name="Lucía Gómez",
             phone="600111333",
         )
         self.line_1 = WorkLine.objects.create(

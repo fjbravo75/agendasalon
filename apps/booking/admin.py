@@ -98,8 +98,9 @@ class AppointmentAdmin(admin.ModelAdmin):
         "created_by",
         "cancelled_by",
         "completed_by",
+        "no_show_marked_by",
     )
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "updated_at", "no_show_marked_at")
     inlines = [AppointmentServiceInline]
 
 

@@ -25,6 +25,7 @@ urlpatterns = [
     path("cuenta/", include("apps.accounts.urls")),
     path("clientes/", include("apps.customers.urls")),
     path("profesional/", include("apps.booking.urls")),
+    path("superadmin/negocios/", include("apps.businesses.urls")),
     path("reservar/<slug:slug>/", public_booking, name="public_booking"),
     path("", include("apps.dashboards.urls")),
     path("admin/", admin.site.urls),

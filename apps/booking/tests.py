@@ -26,7 +26,7 @@ class BookingModelTests(TestCase):
         )
         self.client = BusinessClient.objects.create(
             business=self.business,
-            full_name="Lucia Gomez",
+            full_name="Lucía Gómez",
             phone="600111333",
         )
         self.work_line = WorkLine.objects.create(

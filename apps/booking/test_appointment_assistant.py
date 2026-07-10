@@ -13,7 +13,7 @@ from django.utils import timezone
 from apps.booking.models import Appointment, Service
 from apps.booking.public_booking_drafts import PUBLIC_BOOKING_DRAFTS_SESSION_KEY
 from apps.booking.slot_engine import CHANNEL_PUBLIC, get_booking_options, get_day_availability
-from apps.businesses.models import Business
+from apps.businesses.models import Business, BusinessActivityEvent
 
 
 class AppointmentAssistantTests(TestCase):
@@ -53,11 +53,13 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotContains(response, "Web publica")
         self.assertNotContains(response, "BusinessClient")
         self.assertNotContains(response, "MVP")
+        self.assertContains(response, "Selecciona un cliente")
+        self.assertEqual(response.context["form"]["business_client"].value(), None)
 
     def test_long_combined_appointment_shows_no_capacity_and_suggestions(self):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
-        client_id = self.business.clients.get(full_name="Lucia Gomez").id
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
 
         response = self.client.get(
             reverse("booking:appointment_assistant"),
@@ -76,11 +78,14 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "No hay hueco suficiente para 180 min este día.")
         self.assertContains(response, "Otros huecos posibles")
         self.assertContains(response, "Línea")
+        self.assertContains(response, "Primera alternativa")
+        suggested_date = response.context["recommended_slot"].starts_at
+        self.assertContains(response, date_filter(suggested_date, "j F · H:i"))
 
     def test_available_day_shows_slots_by_work_line(self):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
-        client_id = self.business.clients.get(full_name="Lucia Gomez").id
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
 
         response = self.client.get(
             reverse("booking:appointment_assistant"),
@@ -98,10 +103,28 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Recomendada")
         self.assertContains(response, "Confirmar cita")
 
+    def test_holiday_explains_why_the_selected_day_is_closed(self):
+        self.client.force_login(self.professional)
+        service_ids = self._combined_service_ids()
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {
+                "business_client": client_id,
+                "manual_channel": "telefono",
+                "services": service_ids,
+                "target_date": "2026-07-10",
+            },
+        )
+
+        self.assertContains(response, "Este día es festivo nacional y la agenda está cerrada.")
+        self.assertNotContains(response, "Desde 17:15")
+
     def test_professional_can_preview_an_alternative_available_slot(self):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
-        business_client = self.business.clients.get(full_name="Lucia Gomez")
+        business_client = self.business.clients.get(full_name="Lucía Gómez")
         availability = get_day_availability(
             business=self.business,
             target_date=self._target_date(),
@@ -131,7 +154,7 @@ class AppointmentAssistantTests(TestCase):
     def test_professional_can_confirm_recommended_slot(self):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
-        business_client = self.business.clients.get(full_name="Lucia Gomez")
+        business_client = self.business.clients.get(full_name="Lucía Gómez")
         availability = get_day_availability(
             business=self.business,
             target_date=self._target_date(),
@@ -160,6 +183,22 @@ class AppointmentAssistantTests(TestCase):
                 status=Appointment.Status.CONFIRMED,
             ).exists()
         )
+        appointment = Appointment.objects.get(
+            business=self.business,
+            business_client=business_client,
+            starts_at=slot.starts_at,
+            status=Appointment.Status.CONFIRMED,
+        )
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_type="appointment",
+                entity_id=appointment.id,
+                event_type=BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                origin=BusinessActivityEvent.Origin.PHONE,
+                actor_user=self.professional,
+            ).exists()
+        )
 
     def test_public_booking_allows_anonymous_service_and_slot_exploration(self):
         service_ids = self._combined_service_ids()
@@ -174,9 +213,14 @@ class AppointmentAssistantTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Consulta las horas disponibles sin registrarte")
+        self.assertContains(
+            response,
+            f'href="{reverse("public_booking", args=[self.business.slug])}"',
+        )
+        self.assertNotContains(response, "Acceso profesional")
         self.assertContains(response, "Elegir esta hora")
         self.assertContains(response, "100,00 €")
-        self.assertNotContains(response, "Maria Lopez")
+        self.assertNotContains(response, "María López")
         self.assertNotContains(response, "600111201")
         self.assertNotContains(response, "Línea")
 
@@ -196,8 +240,8 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Reserva online")
         self.assertContains(response, "Elegir esta hora")
         self.assertContains(response, "Reservas como")
-        self.assertContains(response, "Maria Lopez")
-        self.assertEqual(response.content.decode().count("Maria Lopez"), 2)
+        self.assertContains(response, "María López")
+        self.assertEqual(response.content.decode().count("María López"), 2)
         self.assertNotContains(response, "Tu nombre")
         self.assertNotContains(response, "Teléfono")
         self.assertNotContains(response, "Línea")
@@ -279,13 +323,13 @@ class AppointmentAssistantTests(TestCase):
 
         self.assertEqual(review_response.status_code, 200)
         self.assertContains(review_response, "Revisa y confirma")
-        self.assertContains(review_response, "Maria Lopez")
+        self.assertContains(review_response, "María López")
         self.assertContains(review_response, "100,00 €")
         self.assertContains(review_response, "Confirmar cita")
         self.assertFalse(
             Appointment.objects.filter(
                 business=self.business,
-                business_client__full_name="Maria Lopez",
+                business_client__full_name="María López",
                 starts_at=slot.starts_at,
                 manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
             ).exists()
@@ -300,12 +344,27 @@ class AppointmentAssistantTests(TestCase):
         self.assertTrue(
             Appointment.objects.filter(
                 business=self.business,
-                business_client__full_name="Maria Lopez",
+                business_client__full_name="María López",
                 starts_at=slot.starts_at,
                 manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
                 status=Appointment.Status.CONFIRMED,
             ).exists()
         )
+        public_appointment = Appointment.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+            starts_at=slot.starts_at,
+            manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+        )
+        public_event = BusinessActivityEvent.objects.get(
+            business=self.business,
+            entity_type="appointment",
+            entity_id=public_appointment.id,
+            event_type=BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+        )
+        self.assertEqual(public_event.actor_type, BusinessActivityEvent.ActorType.CUSTOMER)
+        self.assertEqual(public_event.origin, BusinessActivityEvent.Origin.PUBLIC_WEB)
+        self.assertNotIn("María López", public_event.summary)
         self.assertNotIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
 
     def test_authenticated_selection_still_requires_explicit_confirmation(self):
@@ -323,7 +382,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertFalse(
             Appointment.objects.filter(
                 business=self.business,
-                business_client__full_name="Maria Lopez",
+                business_client__full_name="María López",
                 starts_at=slot.starts_at,
                 manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
             ).exists()
@@ -353,7 +412,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertFalse(
             Appointment.objects.filter(
                 business=self.business,
-                business_client__full_name="Maria Lopez",
+                business_client__full_name="María López",
                 starts_at=slot.starts_at,
                 manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
             ).exists()
@@ -366,7 +425,7 @@ class AppointmentAssistantTests(TestCase):
         self._choose_public_slot(slot, service_ids)
         Appointment.objects.create(
             business=self.business,
-            business_client=self.business.clients.get(full_name="Lucia Gomez"),
+            business_client=self.business.clients.get(full_name="Lucía Gómez"),
             work_line_id=slot.work_line_id,
             starts_at=slot.starts_at,
             ends_at=slot.starts_at + timedelta(minutes=180),
@@ -388,7 +447,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertFalse(
             Appointment.objects.filter(
                 business=self.business,
-                business_client__full_name="Maria Lopez",
+                business_client__full_name="María López",
                 starts_at=slot.starts_at,
                 manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
             ).exists()

@@ -5,16 +5,13 @@
 {% block body_class %}login-body{% endblock %}
 
 {% block content %}
-  <main class="login-page login-page--internal">
+  <div class="login-page login-page--internal">
     <section class="login-shell internal-auth-shell">
       <div class="login-topbar" aria-label="Cabecera">
-        <a class="login-brand" href="{% url 'home' %}">
+        <a class="login-brand" href="{% url 'accounts:login' %}">
           <strong>AgendaSalon</strong>
           <span>Agenda profesional para belleza y estética</span>
         </a>
-        <nav class="login-micro-nav" aria-label="Otros accesos">
-          <a href="{% url 'home' %}">Reservas online</a>
-        </nav>
       </div>
 
       <div class="internal-auth-content">
@@ -27,7 +24,7 @@
           <div class="login-proof-line" aria-label="Puntos clave">
             <span>Citas por teléfono o mostrador</span>
             <span>Servicios con duración real</span>
-            <span>Equipo, cabinas y horarios visibles</span>
+            <span>Líneas de trabajo y horarios visibles</span>
           </div>
         </div>
 
@@ -69,5 +66,5 @@
 
       <div class="internal-auth-image-space" aria-hidden="true"></div>
     </section>
-  </main>
+  </div>
 {% endblock %}

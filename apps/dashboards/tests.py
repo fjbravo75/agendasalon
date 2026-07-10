@@ -6,9 +6,10 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.booking.models import Appointment, AvailabilityRule, Service, WorkLine
-from apps.businesses.models import Business, BusinessMembership
+from apps.booking.models import Appointment, AvailabilityRule, BusinessCalendarSettings, Service, WorkLine
+from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 from apps.customers.models import BusinessClient
+from apps.holidays.models import OfficialHoliday
 
 
 class DashboardAccessTests(TestCase):
@@ -158,6 +159,59 @@ class DashboardAccessTests(TestCase):
         self.assertContains(response, "Crear cita")
         self.assertNotContains(response, "Sin citas en esta línea para hoy.")
 
+    def test_professional_home_uses_slot_engine_holiday_state(self):
+        user = get_user_model().objects.create_user(
+            normalized_phone="+34600111016",
+            password="test-pass-123",
+            full_name="Mari Profesional",
+        )
+        business = Business.objects.create(
+            commercial_name="Peluquería Mari",
+            slug="peluqueria-mari-festivo",
+        )
+        BusinessMembership.objects.create(business=business, user=user)
+        Service.objects.create(
+            business=business,
+            name="Corte",
+            duration_minutes=30,
+            is_active=True,
+        )
+        WorkLine.objects.create(
+            business=business,
+            line_number=1,
+            name="Línea 1",
+            is_active=True,
+        )
+        today = timezone.localdate()
+        AvailabilityRule.objects.create(
+            business=business,
+            weekday=today.weekday(),
+            start_time=time(9, 0),
+            end_time=time(20, 0),
+            is_active=True,
+        )
+        BusinessCalendarSettings.objects.create(
+            business=business,
+            slot_interval_minutes=15,
+            apply_national_holidays=True,
+        )
+        OfficialHoliday.objects.create(
+            date=today,
+            year=today.year,
+            name="Fiesta nacional",
+            scope=OfficialHoliday.Scope.NATIONAL,
+            source_name="Prueba local",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("dashboards:professional_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Festivo nacional hoy")
+        self.assertContains(response, "La jornada está cerrada por festivo nacional.")
+        self.assertContains(response, "Jornada cerrada")
+        self.assertNotContains(response, "Libre hoy")
+
     def test_professional_home_surfaces_past_confirmed_appointments(self):
         user = get_user_model().objects.create_user(
             normalized_phone="+34600111007",
@@ -212,7 +266,10 @@ class DashboardAccessTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "1 por cerrar")
-        self.assertContains(response, "Citas pasadas aún confirmadas")
+        self.assertContains(response, "Citas pendientes de cierre")
+        self.assertContains(response, "El reloj no decide el resultado")
+        self.assertContains(response, "Marcar atendidas")
+        self.assertContains(response, "No se presentaron")
         self.assertContains(response, "Carmen Ruiz")
         self.assertContains(response, "Con tareas")
 
@@ -239,6 +296,35 @@ class DashboardAccessTests(TestCase):
         response = self.client.get(reverse("dashboards:superadmin_home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Negocios y actividad")
-        self.assertContains(response, "Estado por negocio")
+        self.assertContains(response, "Estado de AgendaSalon")
+        self.assertContains(response, "Resumen por negocio")
         self.assertContains(response, "Actividad reciente")
+        self.assertContains(response, "Reserva online activa")
+        self.assertNotContains(response, "Actividad acumulada")
+        self.assertNotContains(response, "Abrir reserva")
+
+    def test_superadmin_recent_activity_does_not_expose_client_names(self):
+        user = get_user_model().objects.create_superuser(
+            normalized_phone="+34600111014",
+            password="test-pass-123",
+            full_name="Vera Admin",
+        )
+        business = Business.objects.create(
+            commercial_name="Peluquería Mari",
+            slug="peluqueria-mari-privacidad",
+        )
+        BusinessActivityEvent.objects.create(
+            business=business,
+            actor_type=BusinessActivityEvent.ActorType.PROFESSIONAL,
+            actor_label="Equipo",
+            category=BusinessActivityEvent.Category.APPOINTMENTS,
+            event_type=BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+            origin=BusinessActivityEvent.Origin.PHONE,
+            summary="Cita creada para Carmen Ruiz.",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("dashboards:superadmin_home"))
+
+        self.assertContains(response, "Cita creada")
+        self.assertNotContains(response, "Carmen Ruiz")

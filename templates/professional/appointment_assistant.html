@@ -181,10 +181,11 @@
               {% if recommended_slot %}
                 {% if day_availability.has_slots %}
                   <span>{% if slot_was_selected %}Hora elegida{% else %}Recomendada{% endif %}</span>
+                  <strong>{{ recommended_slot.starts_at|date:"H:i" }}</strong>
                 {% else %}
-                  <span>Primera hora disponible</span>
+                  <span>Primera alternativa</span>
+                  <strong>{{ recommended_slot.starts_at|date:"j F · H:i" }}</strong>
                 {% endif %}
-                <strong>{{ recommended_slot.starts_at|date:"H:i" }}</strong>
                 <small>Línea {{ recommended_slot.work_line_number }}</small>
               {% else %}
                 <span>Resultado</span>
@@ -284,10 +285,10 @@
                 {% if day_availability.has_slots %}
                   <p>Hay huecos completos para {{ duration_minutes }} min.</p>
                 {% else %}
-                  <p>No hay hueco suficiente para {{ duration_minutes }} min este día.</p>
+                  <p>{{ day_unavailable_message }}</p>
                 {% endif %}
               </div>
-              {% if day_availability.calculated_from %}
+              {% if day_availability.calculated_from and day_availability.status != 'closed' %}
                 <span class="chip">Desde {{ day_availability.calculated_from|date:"H:i" }}</span>
               {% endif %}
             </div>

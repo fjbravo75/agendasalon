@@ -68,7 +68,7 @@ def register_client_access(*, business, full_name: str, phone: str, password: st
         business=business,
         phone_normalized=phone_normalized,
     ).exists():
-        raise ValidationError("Ya existe una cuenta cliente con ese telefono.")
+        raise ValidationError("Ya existe una cuenta cliente con ese teléfono.")
 
     client = (
         BusinessClient.objects.filter(
