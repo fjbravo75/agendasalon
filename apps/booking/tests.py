@@ -21,7 +21,7 @@ class BookingModelTests(TestCase):
             full_name="Mari Profesional",
         )
         self.business = Business.objects.create(
-            commercial_name="Peluqueria Mari",
+            commercial_name="Peluquería Mari",
             slug="peluqueria-mari",
         )
         self.client = BusinessClient.objects.create(
