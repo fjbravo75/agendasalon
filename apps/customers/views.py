@@ -1,7 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Min, Q
 from django.forms import ValidationError as FormValidationError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -69,10 +69,21 @@ def professional_client_list(request):
             | Q(phone_normalized__icontains=search)
         )
 
+    now = timezone.now()
     clients = (
         clients.annotate(
             appointments_total=Count("appointments", distinct=True),
-            last_appointment_at=Max("appointments__starts_at"),
+            last_appointment_at=Max(
+                "appointments__starts_at",
+                filter=Q(appointments__starts_at__lt=now),
+            ),
+            next_appointment_at=Min(
+                "appointments__starts_at",
+                filter=Q(
+                    appointments__starts_at__gte=now,
+                    appointments__status=Appointment.Status.CONFIRMED,
+                ),
+            ),
         )
         .order_by("full_name", "pk")
     )
@@ -266,13 +277,19 @@ def _professional_client_context(business, business_client):
         status=Appointment.Status.CONFIRMED,
         starts_at__gte=now,
     ).order_by("starts_at", "pk")[:5]
-    history_appointments = (
+    history_appointments = list(
         appointments.exclude(
             status=Appointment.Status.CONFIRMED,
             starts_at__gte=now,
         )
         .order_by("-starts_at", "-pk")[:12]
     )
+    for appointment in history_appointments:
+        appointment.operational_status_label = (
+            "Pendiente de cierre"
+            if appointment.is_pending_closure()
+            else appointment.get_status_display()
+        )
 
     client_access = getattr(business_client, "access", None)
     return {
@@ -340,7 +357,12 @@ def _validation_message(exc):
 
 
 def client_access(request, slug):
-    business = get_object_or_404(Business, slug=slug, is_active=True)
+    business = get_object_or_404(
+        Business,
+        slug=slug,
+        is_active=True,
+        public_booking_enabled=True,
+    )
     next_url = _safe_next_url(request, business)
     auth_theme = get_business_visual_theme(business)
     has_pending_booking = get_public_booking_draft(request, business) is not None
@@ -371,7 +393,12 @@ def client_access(request, slug):
 
 
 def client_register(request, slug):
-    business = get_object_or_404(Business, slug=slug, is_active=True)
+    business = get_object_or_404(
+        Business,
+        slug=slug,
+        is_active=True,
+        public_booking_enabled=True,
+    )
     next_url = _safe_next_url(request, business)
     auth_theme = get_business_visual_theme(business)
     has_pending_booking = get_public_booking_draft(request, business) is not None

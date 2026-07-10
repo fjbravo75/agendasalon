@@ -1,6 +1,4 @@
-from django.shortcuts import redirect, render
-
-from apps.businesses.models import Business
+from django.shortcuts import redirect
 
 
 def home(request):
@@ -9,5 +7,4 @@ def home(request):
 
         return redirect(get_post_login_redirect_url(request.user))
 
-    public_businesses = Business.objects.filter(is_active=True).order_by("commercial_name", "pk")
-    return render(request, "public/home.html", {"public_businesses": public_businesses})
+    return redirect("accounts:login")

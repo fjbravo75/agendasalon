@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}{% if editing %}Editar {{ business.commercial_name }}{% else %}Nuevo negocio{% endif %} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="saas-dashboard">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Administración de la plataforma</span>
+        <h1 class="page-title page-title--compact">{% if editing %}Editar negocio{% else %}Nuevo negocio{% endif %}</h1>
+        <p>{% if editing %}Actualiza la identidad y configuración de {{ business.commercial_name }}.{% else %}Crea el negocio y su primer acceso profesional en una sola operación.{% endif %}</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% if editing %}{% url 'businesses:superadmin_business_detail' business.id %}{% else %}{% url 'businesses:superadmin_business_list' %}{% endif %}">Cancelar</a>
+      </div>
+    </header>
+
+    <form class="saas-management-form" method="post">
+      {% csrf_token %}
+      <section class="saas-side-panel">
+        <div class="ops-section-head ops-section-head--compact"><div><span>Negocio</span><h2>Identidad y contacto</h2></div></div>
+        {{ business_form.non_field_errors }}
+        <div class="saas-form-grid">
+          {% for field in business_form %}
+            <div class="field{% if field.field.widget.input_type == 'checkbox' %} field--checkbox{% endif %}{% if field.name == 'address' or field.name == 'public_description' %} field--wide{% endif %}{% if field.name == 'public_description' %} field--business-description{% endif %}">
+              {% if field.field.widget.input_type == 'checkbox' %}{{ field }}{{ field.label_tag }}{% else %}{{ field.label_tag }}{{ field }}{% endif %}
+              {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+              {{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      {% if professional_form %}
+        <section class="saas-side-panel">
+          <div class="ops-section-head ops-section-head--compact"><div><span>Primer acceso</span><h2>Profesional responsable</h2></div></div>
+          {{ professional_form.non_field_errors }}
+          <div class="saas-form-grid saas-form-grid--compact">
+            {% for field in professional_form %}
+              <div class="field">{{ field.label_tag }}{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      <div class="saas-management-form__actions"><button class="button" type="submit">{% if editing %}Guardar cambios{% else %}Dar de alta el negocio{% endif %}</button></div>
+    </form>
+  </section>
+{% endblock %}

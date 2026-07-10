@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load core_extras %}
 
 {% block title %}{% if editing_contact %}Editar autorización{% else %}Nueva persona autorizada{% endif %} - AgendaSalon{% endblock %}
 
@@ -64,7 +65,7 @@
         <div>
           <span>Ficha vinculada</span>
           <h2>{{ business_client.full_name }}</h2>
-          <p>{{ business_client.phone }}</p>
+          <p>{{ business_client.phone|format_phone }}</p>
         </div>
         <div class="client-guidance-list">
           <div>

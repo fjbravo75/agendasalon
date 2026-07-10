@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load core_extras %}
 
 {% block title %}Clientes - AgendaSalon{% endblock %}
 
@@ -54,12 +55,14 @@
             <article class="client-row{% if not client.is_active %} client-row--paused{% endif %}">
               <div class="client-row__main">
                 <strong>{{ client.full_name }}</strong>
-                <span>{{ client.phone }}</span>
+                <span>{{ client.phone|format_phone }}</span>
                 {% if not client.is_active %}<small>Ficha pausada</small>{% endif %}
               </div>
               <div class="client-row__meta">
-                <span>{{ client.appointments_total }} citas</span>
-                {% if client.last_appointment_at %}
+                <span>{{ client.appointments_total }} cita{% if client.appointments_total != 1 %}s{% endif %}</span>
+                {% if client.next_appointment_at %}
+                  <small>Próxima: {{ client.next_appointment_at|date:"j M H:i" }}</small>
+                {% elif client.last_appointment_at %}
                   <small>Última: {{ client.last_appointment_at|date:"j M H:i" }}</small>
                 {% else %}
                   <small>Sin historial todavía</small>

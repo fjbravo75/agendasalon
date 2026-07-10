@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Sesión cerrada - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="logout-confirmation" aria-labelledby="logout-title">
+    <span>Sesión cerrada</span>
+    <h1 id="logout-title" class="page-title page-title--compact">Has salido de AgendaSalon.</h1>
+    <p>Tu sesión privada se ha cerrado correctamente.</p>
+    <a class="button" href="{% url 'accounts:login' %}">Volver a entrar</a>
+  </section>
+{% endblock %}

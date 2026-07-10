@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Negocios - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="saas-dashboard" aria-label="Gestión de negocios">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Administración de la plataforma</span>
+        <h1 class="page-title page-title--compact">Negocios</h1>
+        <p>Da de alta, pausa y configura los salones que trabajan con AgendaSalon.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'dashboards:superadmin_home' %}">Dashboard</a>
+        <a class="button" href="{% url 'businesses:superadmin_business_create' %}">Nuevo negocio</a>
+      </div>
+    </header>
+
+    <section class="saas-business-panel">
+      <form class="saas-filter-bar" method="get">
+        <div class="field">
+          <label for="business-search">Buscar</label>
+          <input id="business-search" type="search" name="q" value="{{ query }}" placeholder="Nombre, localidad o teléfono">
+        </div>
+        <div class="field">
+          <label for="business-status">Estado</label>
+          <select id="business-status" name="status">
+            <option value="all"{% if status == "all" %} selected{% endif %}>Todos</option>
+            <option value="active"{% if status == "active" %} selected{% endif %}>Activos</option>
+            <option value="inactive"{% if status == "inactive" %} selected{% endif %}>Pausados</option>
+            <option value="public"{% if status == "public" %} selected{% endif %}>Reserva pública activa</option>
+            <option value="private"{% if status == "private" %} selected{% endif %}>Reserva pública pausada</option>
+          </select>
+        </div>
+        <button class="button" type="submit">Filtrar</button>
+      </form>
+
+      <div class="ops-section-head">
+        <div><span>Resultado</span><h2>{{ result_count }} negocio{% if result_count != 1 %}s{% endif %}</h2></div>
+      </div>
+
+      <div class="saas-business-list">
+        {% for business in businesses %}
+          <article class="saas-business-row saas-business-row--management">
+            <div class="saas-business-row__identity">
+              <span>{{ forloop.counter|stringformat:"02d" }}</span>
+              <div><h3>{{ business.commercial_name }}</h3><p>{{ business.city|default:"Sin localidad" }} · {{ business.slug }}</p></div>
+            </div>
+            <div class="saas-business-row__figures">
+              <span><strong>{{ business.professionals_total }}</strong> profesional{% if business.professionals_total != 1 %}es{% endif %}</span>
+              <span><strong>{{ business.services_total }}</strong> servicio{% if business.services_total != 1 %}s{% endif %}</span>
+              <span><strong>{{ business.clients_total }}</strong> cliente{% if business.clients_total != 1 %}s{% endif %}</span>
+              <span><strong>{{ business.appointments_total }}</strong> cita{% if business.appointments_total != 1 %}s{% endif %}</span>
+            </div>
+            <div class="saas-business-row__state">
+              <span class="saas-health saas-health--{% if business.is_active %}ready{% else %}quiet{% endif %}">{% if business.is_active %}Activo{% else %}Pausado{% endif %}</span>
+              <small>{% if business.public_booking_enabled and business.is_active %}Reserva pública activa{% else %}Reserva pública pausada{% endif %}</small>
+            </div>
+            <a class="button button--secondary" href="{% url 'businesses:superadmin_business_detail' business.id %}">Gestionar</a>
+          </article>
+        {% empty %}
+          <div class="empty">No hay negocios que coincidan con estos filtros.</div>
+        {% endfor %}
+      </div>
+    </section>
+  </section>
+{% endblock %}

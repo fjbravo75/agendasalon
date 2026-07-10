@@ -8,8 +8,8 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 
 from apps.booking.models import Appointment
-from apps.booking.slot_engine import suggest_next_slots
-from apps.businesses.models import Business
+from apps.booking.slot_engine import STATUS_CLOSED, get_day_availability, suggest_next_slots
+from apps.businesses.models import Business, BusinessActivityEvent
 from apps.businesses.services import get_primary_business_for_user
 from apps.customers.models import BusinessClient
 
@@ -31,6 +31,12 @@ def _day_bounds(target_date):
 def _decorate_appointment(appointment):
     appointment.local_starts_at = timezone.localtime(appointment.starts_at)
     appointment.local_ends_at = timezone.localtime(appointment.ends_at)
+    if appointment.is_pending_closure():
+        appointment.operational_status_label = "Pendiente de cierre"
+        appointment.operational_status_css = "pending-closure"
+    else:
+        appointment.operational_status_label = appointment.get_status_display()
+        appointment.operational_status_css = appointment.status
     return appointment
 
 
@@ -107,21 +113,26 @@ def professional_home(request):
     if next_appointment is not None:
         _decorate_appointment(next_appointment)
 
-    overdue_appointments = list(
+    overdue_appointments_queryset = (
         business.appointments.select_related("business_client", "work_line")
         .filter(status=Appointment.Status.CONFIRMED, ends_at__lte=now)
-        .order_by("ends_at", "pk")[:4]
+        .order_by("ends_at", "pk")
     )
+    overdue_appointments = list(overdue_appointments_queryset[:5])
     for appointment in overdue_appointments:
         _decorate_appointment(appointment)
-    overdue_appointments_count = business.appointments.filter(
-        status=Appointment.Status.CONFIRMED,
-        ends_at__lte=now,
-    ).count()
+    overdue_appointments_count = overdue_appointments_queryset.count()
 
     default_service = active_services.first()
+    day_availability = None
     recommended_slots = []
     if default_service is not None:
+        day_availability = get_day_availability(
+            business=business,
+            target_date=today,
+            duration_minutes=default_service.duration_minutes,
+            now=now,
+        )
         recommended_slots = list(
             suggest_next_slots(
                 business=business,
@@ -150,12 +161,31 @@ def professional_home(request):
         end_time__isnull=True,
     ).exists()
 
-    if has_full_closure:
+    day_is_closed = bool(day_availability and day_availability.status == STATUS_CLOSED)
+    day_reason = day_availability.reason if day_availability else ""
+    if day_reason == "festivo_nacional":
+        day_status_label = "Festivo nacional hoy"
+        day_status_text = "La jornada está cerrada por festivo nacional."
+    elif day_reason == "negocio_inactivo":
+        day_status_label = "Negocio pausado"
+        day_status_text = "El negocio no admite nuevas citas mientras siga pausado."
+    elif has_full_closure or day_reason == "cierre_negocio":
         day_status_label = "Cierre completo hoy"
+        day_status_text = "Hay un cierre completo registrado para esta jornada."
+    elif day_reason == "sin_lineas_activas":
+        day_status_label = "Sin capacidad activa"
+        day_status_text = "Activa al menos una línea para poder ofrecer citas."
     elif availability_rules:
         day_status_label = "Horario activo hoy"
+        day_status_text = "El horario de hoy está disponible para organizar citas."
     else:
         day_status_label = "Sin horario para hoy"
+        day_status_text = "No hay horario activo para esta jornada."
+
+    if day_is_closed:
+        for board in line_boards:
+            board["status_label"] = "No disponible hoy"
+            board["status_text"] = day_status_text
 
     services_count = active_services.count()
     work_lines_count = len(active_work_lines)
@@ -163,7 +193,10 @@ def professional_home(request):
     client_accesses_count = business.client_accesses.filter(is_active=True).count()
     is_operational = business.is_operational_for_agenda()
 
-    if today_confirmed_count == 0:
+    if day_is_closed and today_confirmed_count == 0:
+        today_summary_label = "Jornada cerrada"
+        today_summary_text = day_status_text
+    elif today_confirmed_count == 0:
         today_summary_label = "0 citas"
         today_summary_text = "La agenda está libre por ahora."
     elif today_confirmed_count == 1:
@@ -180,7 +213,10 @@ def professional_home(request):
             if overdue_appointments_count == 1
             else f"{overdue_appointments_count} citas pasadas pendientes de cerrar."
         )
-    elif has_full_closure:
+    elif day_reason == "festivo_nacional":
+        salon_status_label = "Cerrado hoy"
+        salon_status_text = "La jornada está cerrada por festivo nacional."
+    elif has_full_closure or day_reason == "cierre_negocio":
         salon_status_label = "Cerrado hoy"
         salon_status_text = "Hay un cierre completo registrado para la jornada."
     elif not availability_rules:
@@ -209,14 +245,17 @@ def professional_home(request):
         "next_appointment": next_appointment,
         "overdue_appointments": overdue_appointments,
         "overdue_appointments_count": overdue_appointments_count,
+        "overdue_appointments_hidden_count": max(overdue_appointments_count - len(overdue_appointments), 0),
         "default_service": default_service,
         "recommended_slots": recommended_slots,
         "recommended_slot_cards": recommended_slot_cards,
         "availability_rules": availability_rules,
         "day_status_label": day_status_label,
+        "day_status_text": day_status_text,
+        "day_is_closed": day_is_closed,
         "salon_status_label": salon_status_label,
         "salon_status_text": salon_status_text,
-        "today_closures_count": today_closures.count(),
+        "today_closures_count": today_closures.count() + (1 if day_reason == "festivo_nacional" else 0),
         "clients_count": clients_count,
         "client_accesses_count": client_accesses_count,
         "setup_items": [
@@ -271,6 +310,8 @@ def superadmin_home(request):
             missing_setup.append("líneas")
         if not business.active_rules_count:
             missing_setup.append("horario")
+        if not business.professionals_total:
+            missing_setup.append("acceso profesional")
 
         if not business.is_active:
             business.health_label = "Inactivo"
@@ -284,15 +325,13 @@ def superadmin_home(request):
         else:
             business.health_label = "Operativo"
             business.health_tone = "ready"
-            business.health_detail = "Puede gestionar citas y reservas online."
+            business.health_detail = "Configuración básica completa."
             operational_businesses_count += 1
 
-    recent_appointments = list(
-        Appointment.objects.select_related("business", "business_client", "work_line")
-        .order_by("-created_at", "-pk")[:6]
+    recent_activity = list(
+        BusinessActivityEvent.objects.select_related("business")
+        .order_by("-id")[:6]
     )
-    for appointment in recent_appointments:
-        _decorate_appointment(appointment)
 
     status_counts = {
         item["status"]: item["total"]
@@ -302,9 +341,15 @@ def superadmin_home(request):
         item["manual_channel"]: item["total"]
         for item in Appointment.objects.values("manual_channel").annotate(total=Count("id"))
     }
-    overdue_appointments_count = Appointment.objects.filter(
+    pending_closure_query = Appointment.objects.filter(
         status=Appointment.Status.CONFIRMED,
         ends_at__lte=now,
+    )
+    pending_closure_count = pending_closure_query.count()
+    businesses_with_pending_closure_count = pending_closure_query.values("business_id").distinct().count()
+    upcoming_confirmed_count = Appointment.objects.filter(
+        status=Appointment.Status.CONFIRMED,
+        ends_at__gt=now,
     ).count()
 
     context = {
@@ -312,6 +357,10 @@ def superadmin_home(request):
         "total_businesses": Business.objects.count(),
         "active_businesses": Business.objects.filter(is_active=True).count(),
         "inactive_businesses": Business.objects.filter(is_active=False).count(),
+        "public_booking_businesses_count": Business.objects.filter(
+            is_active=True,
+            public_booking_enabled=True,
+        ).count(),
         "operational_businesses_count": operational_businesses_count,
         "attention_businesses_count": attention_businesses_count,
         "professionals_count": User.objects.filter(
@@ -322,11 +371,14 @@ def superadmin_home(request):
         .count(),
         "clients_count": BusinessClient.objects.count(),
         "appointments_count": Appointment.objects.count(),
-        "overdue_appointments_count": overdue_appointments_count,
-        "recent_appointments": recent_appointments,
+        "pending_closure_count": pending_closure_count,
+        "businesses_with_pending_closure_count": businesses_with_pending_closure_count,
+        "recent_activity": recent_activity,
         "status_summary": [
-            {"label": "Confirmadas", "value": status_counts.get(Appointment.Status.CONFIRMED, 0)},
-            {"label": "Completadas", "value": status_counts.get(Appointment.Status.COMPLETED, 0)},
+            {"label": "Confirmadas próximas", "value": upcoming_confirmed_count},
+            {"label": "Pendientes de cierre", "value": pending_closure_count},
+            {"label": "Atendidas", "value": status_counts.get(Appointment.Status.COMPLETED, 0)},
+            {"label": "No presentadas", "value": status_counts.get(Appointment.Status.NO_SHOW, 0)},
             {"label": "Canceladas", "value": status_counts.get(Appointment.Status.CANCELLED, 0)},
         ],
         "channel_summary": [

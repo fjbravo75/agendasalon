@@ -1,0 +1,149 @@
+from django import forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.utils.text import slugify
+
+from apps.businesses.models import Business, BusinessMembership
+from apps.core.phone import normalize_phone
+
+
+class BusinessForm(forms.ModelForm):
+    slug = forms.SlugField(
+        label="Identificador público",
+        max_length=180,
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": "Se genera desde el nombre si lo dejas vacío",
+                "title": "Se usa en la dirección pública del negocio.",
+            }
+        ),
+    )
+
+    class Meta:
+        model = Business
+        fields = (
+            "commercial_name",
+            "slug",
+            "public_phone",
+            "public_email",
+            "address",
+            "city",
+            "province",
+            "public_description",
+            "is_active",
+            "public_booking_enabled",
+        )
+        labels = {
+            "commercial_name": "Nombre comercial",
+            "slug": "Identificador público",
+            "public_phone": "Teléfono público",
+            "public_email": "Correo público",
+            "address": "Dirección",
+            "city": "Localidad",
+            "province": "Provincia",
+            "public_description": "Descripción pública",
+            "is_active": "Negocio activo",
+            "public_booking_enabled": "Reserva pública activa",
+        }
+        widgets = {
+            "commercial_name": forms.TextInput(
+                attrs={"autocomplete": "organization", "placeholder": "Ej. Peluquería Mari"}
+            ),
+            "public_phone": forms.TelInput(
+                attrs={"autocomplete": "tel", "placeholder": "Ej. 600 111 001"}
+            ),
+            "public_email": forms.EmailInput(
+                attrs={"autocomplete": "email", "placeholder": "Ej. hola@negocio.es"}
+            ),
+            "address": forms.TextInput(
+                attrs={"autocomplete": "street-address", "placeholder": "Ej. Calle Mayor 12"}
+            ),
+            "city": forms.TextInput(
+                attrs={"autocomplete": "address-level2", "placeholder": "Ej. Madrid"}
+            ),
+            "province": forms.TextInput(
+                attrs={"autocomplete": "address-level1", "placeholder": "Ej. Madrid"}
+            ),
+            "public_description": forms.Textarea(
+                attrs={
+                    "rows": 5,
+                    "placeholder": "Describe brevemente el negocio para sus clientes.",
+                }
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.instance.pk and not self.is_bound:
+            self.initial.setdefault("is_active", True)
+            self.initial.setdefault("public_booking_enabled", False)
+
+    def clean_slug(self):
+        slug = slugify(self.cleaned_data.get("slug") or self.cleaned_data.get("commercial_name") or "")
+        if not slug:
+            raise ValidationError("Indica un nombre comercial válido.")
+        duplicates = Business.objects.filter(slug=slug)
+        if self.instance.pk:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise ValidationError("Ya existe un negocio con este identificador público.")
+        return slug
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("public_booking_enabled") and not cleaned_data.get("is_active"):
+            self.add_error(
+                "public_booking_enabled",
+                "Activa primero el negocio para poder abrir su reserva pública.",
+            )
+        return cleaned_data
+
+
+class ProfessionalCreateForm(forms.Form):
+    full_name = forms.CharField(label="Nombre del profesional", max_length=150)
+    phone = forms.CharField(
+        label="Teléfono de acceso",
+        max_length=32,
+        help_text="Será su identificador para entrar en AgendaSalon.",
+    )
+    email = forms.EmailField(label="Correo electrónico", required=False)
+    password = forms.CharField(
+        label="Contraseña temporal",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+        help_text="Debe tener al menos 8 caracteres y no ser demasiado común.",
+    )
+
+    def clean_phone(self):
+        phone = self.cleaned_data["phone"]
+        try:
+            normalized_phone = normalize_phone(phone)
+        except ValidationError as exc:
+            raise forms.ValidationError(exc.messages) from exc
+        if get_user_model().objects.filter(normalized_phone=normalized_phone).exists():
+            raise forms.ValidationError("Ya existe una cuenta interna con este teléfono.")
+        self.normalized_phone = normalized_phone
+        return phone
+
+    def clean_password(self):
+        password = self.cleaned_data["password"]
+        validate_password(password)
+        return password
+
+    def create_professional(self, *, business):
+        user = get_user_model().objects.create_user(
+            normalized_phone=self.normalized_phone,
+            phone=self.cleaned_data["phone"],
+            password=self.cleaned_data["password"],
+            full_name=self.cleaned_data["full_name"],
+            email=self.cleaned_data["email"],
+        )
+        BusinessMembership.objects.create(
+            business=business,
+            user=user,
+            role=BusinessMembership.Role.PROFESSIONAL_ADMIN,
+            is_active=True,
+        )
+        return user

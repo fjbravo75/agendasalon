@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Nuevo profesional en {{ business.commercial_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="saas-dashboard">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Acceso profesional</span>
+        <h1 class="page-title page-title--compact">Añadir profesional</h1>
+        <p>Crea una cuenta interna vinculada a {{ business.commercial_name }}.</p>
+      </div>
+      <div class="professional-dashboard__actions"><a class="button button--secondary" href="{% url 'businesses:superadmin_business_detail' business.id %}">Volver</a></div>
+    </header>
+    <form class="saas-management-form" method="post">
+      {% csrf_token %}
+      <section class="saas-side-panel">
+        {{ professional_form.non_field_errors }}
+        <div class="saas-form-grid saas-form-grid--compact">
+          {% for field in professional_form %}
+            <div class="field">{{ field.label_tag }}{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>
+          {% endfor %}
+        </div>
+      </section>
+      <div class="saas-management-form__actions"><button class="button" type="submit">Crear acceso profesional</button></div>
+    </form>
+  </section>
+{% endblock %}

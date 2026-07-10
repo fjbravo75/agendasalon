@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load core_extras %}
 
 {% block title %}{{ business_client.full_name }} - AgendaSalon{% endblock %}
 
@@ -29,7 +30,7 @@
           <strong>No aparece al crear nuevas citas</strong>
           <p>El historial sigue disponible y puedes reactivarla cuando vuelva a ser necesaria.</p>
         </div>
-        <form method="post" action="{% url 'customers:professional_client_toggle' business_client.id %}">
+        <form method="post" action="{% url 'customers:professional_client_toggle' business_client.id %}" data-confirm-message="Vas a reactivar esta ficha de cliente. ¿Quieres continuar?">
           {% csrf_token %}
           <button class="button" type="submit">Reactivar ficha</button>
         </form>
@@ -42,7 +43,7 @@
         <div>
           <span>Contacto principal</span>
           <h2>{{ business_client.full_name }}</h2>
-          <p>{{ business_client.phone }}</p>
+          <p>{{ business_client.phone|format_phone }}</p>
           {% if business_client.email %}
             <p>{{ business_client.email }}</p>
           {% endif %}
@@ -81,14 +82,14 @@
         <div class="client-account-control">
           <span>Cuenta online</span>
           {% if client_access %}
-            <strong>{{ client_access.phone }}</strong>
+            <strong>{{ client_access.phone|format_phone }}</strong>
             {% if client_access.last_login_at %}
               <small>Último acceso: {{ client_access.last_login_at|date:"j M Y H:i" }}</small>
             {% else %}
               <small>Todavía no ha iniciado sesión.</small>
             {% endif %}
             {% if business_client.is_active %}
-              <form method="post" action="{% url 'customers:professional_client_access_toggle' business_client.id %}">
+              <form method="post" action="{% url 'customers:professional_client_access_toggle' business_client.id %}" data-confirm-message="Vas a cambiar el acceso de esta cuenta online. ¿Quieres continuar?">
                 {% csrf_token %}
                 {% if client_access.is_active %}
                   <button class="button button--secondary" type="submit">Pausar cuenta online</button>
@@ -115,7 +116,7 @@
             {% else %}
               <strong>Activa</strong>
               <small>Si ya no debe aparecer al agendar, puedes pausarla sin borrar su historial.</small>
-              <form method="post" action="{% url 'customers:professional_client_toggle' business_client.id %}">
+              <form method="post" action="{% url 'customers:professional_client_toggle' business_client.id %}" data-confirm-message="La ficha dejará de aparecer al crear nuevas citas, pero conservará su historial. ¿Quieres continuar?">
                 {% csrf_token %}
                 <button class="button button--danger" type="submit">Pausar ficha</button>
               </form>
@@ -160,7 +161,7 @@
               <article class="appointment-history-card appointment-history-card--{{ appointment.status }}">
                 <time>{{ appointment.starts_at|date:"j M Y H:i" }}</time>
                 <strong>{{ appointment.service_summary_snapshot|default:"Servicios de la cita" }}</strong>
-                <span>{{ appointment.get_status_display }} · {{ appointment.total_duration_minutes }} min · {{ appointment.get_manual_channel_display }}</span>
+                <span>{{ appointment.operational_status_label }} · {{ appointment.total_duration_minutes }} min · {{ appointment.get_manual_channel_display }}</span>
                 <a class="appointment-inline-link" href="{% url 'booking:professional_appointment_detail' appointment.id %}">Ver cita</a>
               </article>
             {% empty %}
@@ -192,14 +193,14 @@
                   <span class="client-state">Pausada</span>
                 {% endif %}
               </div>
-              <span>{{ contact.get_relationship_label_display }} · {{ contact.phone }}</span>
+              <span>{{ contact.get_relationship_label_display }} · {{ contact.phone|format_phone }}</span>
               {% if contact.is_primary_contact %}
                 <small>Contacto principal</small>
               {% endif %}
               {% if contact.notes %}<p>{{ contact.notes }}</p>{% endif %}
               <div class="authorized-contact__actions">
                 <a class="appointment-inline-link" href="{% url 'customers:professional_contact_edit' business_client.id contact.id %}">Editar</a>
-                <form method="post" action="{% url 'customers:professional_contact_toggle' business_client.id contact.id %}">
+                <form method="post" action="{% url 'customers:professional_contact_toggle' business_client.id contact.id %}" data-confirm-message="Vas a cambiar si esta persona puede pedir citas para la ficha. ¿Quieres continuar?">
                   {% csrf_token %}
                   <button class="text-action" type="submit">{% if contact.is_active %}Pausar{% else %}Reactivar{% endif %}</button>
                 </form>

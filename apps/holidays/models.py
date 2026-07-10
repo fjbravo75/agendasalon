@@ -7,13 +7,13 @@ class OfficialHoliday(models.Model):
 
     class Scope(models.TextChoices):
         NATIONAL = "nacional", "Nacional"
-        REGIONAL = "autonomico", "Autonomico"
+        REGIONAL = "autonomico", "Autonómico"
         LOCAL = "local", "Local"
 
     date = models.DateField("fecha")
     name = models.CharField("nombre", max_length=180)
-    scope = models.CharField("ambito", max_length=40, choices=Scope.choices)
-    year = models.PositiveSmallIntegerField("anio")
+    scope = models.CharField("ámbito", max_length=40, choices=Scope.choices)
+    year = models.PositiveSmallIntegerField("año")
     source_name = models.CharField("fuente", max_length=160)
     source_url = models.URLField("url fuente", blank=True)
     official_reference = models.CharField("referencia oficial", max_length=180, blank=True)
@@ -46,7 +46,7 @@ class HolidaySyncRun(models.Model):
         FAILED = "failed", "Fallida"
         PARTIAL = "partial", "Parcial"
 
-    year = models.PositiveSmallIntegerField("anio")
+    year = models.PositiveSmallIntegerField("año")
     source_name = models.CharField("fuente", max_length=160)
     source_url = models.URLField("url fuente", blank=True)
     status = models.CharField("estado", max_length=20, choices=Status.choices)

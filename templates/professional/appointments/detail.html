@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load core_extras %}
 
 {% block title %}Cita de {{ appointment.business_client.full_name }} - AgendaSalon{% endblock %}
 
@@ -23,7 +24,7 @@
     <div class="appointment-metric-grid" aria-label="Resumen de la cita">
       <article class="appointment-metric appointment-metric--primary">
         <span>Estado</span>
-        <strong>{{ appointment.get_status_display }}</strong>
+        <strong>{% if is_pending_closure %}Pendiente de cierre{% else %}{{ appointment.get_status_display }}{% endif %}</strong>
         <p>{{ appointment.get_manual_channel_display }} como canal de entrada.</p>
       </article>
       <article class="appointment-metric">
@@ -61,7 +62,7 @@
             </div>
             <div>
               <dt>Teléfono</dt>
-              <dd>{{ appointment.business_client.phone }}</dd>
+              <dd>{{ appointment.business_client.phone|format_phone }}</dd>
             </div>
             <div>
               <dt>Canal</dt>
@@ -142,10 +143,20 @@
 
             {% if appointment.completed_at %}
               <article>
-                <span>Completada</span>
+                <span>Atendida</span>
                 <strong>{{ appointment.completed_at|date:"j M Y H:i" }}</strong>
                 {% if appointment.completed_by %}
                   <small>Por {{ appointment.completed_by.full_name|default:appointment.completed_by.normalized_phone }}</small>
+                {% endif %}
+              </article>
+            {% endif %}
+
+            {% if appointment.no_show_marked_at %}
+              <article>
+                <span>No se presentó</span>
+                <strong>{{ appointment.no_show_marked_at|date:"j M Y H:i" }}</strong>
+                {% if appointment.no_show_marked_by %}
+                  <small>Por {{ appointment.no_show_marked_by.full_name|default:appointment.no_show_marked_by.normalized_phone }}</small>
                 {% endif %}
               </article>
             {% endif %}
@@ -154,13 +165,17 @@
       </div>
 
       <aside class="appointment-action-stack" aria-label="Acciones de cita">
-        <section class="appointment-action-card appointment-action-card--state appointment-action-card--{{ appointment.status }}">
+        <section class="appointment-action-card appointment-action-card--state appointment-action-card--{% if is_pending_closure %}pending-closure{% else %}{{ appointment.status }}{% endif %}">
           <span>Estado actual</span>
-          <h2>{{ appointment.get_status_display }}</h2>
-          {% if appointment.status == "confirmada" %}
+          <h2>{% if is_pending_closure %}Pendiente de cierre{% else %}{{ appointment.get_status_display }}{% endif %}</h2>
+          {% if is_pending_closure %}
+            <p>La hora ya pasó. Registra lo que ocurrió para cerrar el historial.</p>
+          {% elif appointment.status == "confirmada" %}
             <p>La cita sigue ocupando hueco en la agenda.</p>
           {% elif appointment.status == "cancelada" %}
             <p>El hueco vuelve a estar disponible para nuevas citas.</p>
+          {% elif appointment.status == "no_presentada" %}
+            <p>La ausencia queda registrada sin contar la cita como atendida.</p>
           {% else %}
             <p>La cita queda cerrada en el historial del cliente.</p>
           {% endif %}
@@ -169,12 +184,16 @@
         {% if can_cancel %}
           <section class="appointment-action-card">
             <span>Cierre de atención</span>
-            <h2>Completar cita</h2>
+            <h2>Resolver cita</h2>
             {% if can_complete %}
-              <p>Usa esta acción cuando el servicio ya se haya realizado.</p>
-              <form method="post" action="{% url 'booking:professional_appointment_complete' appointment.id %}">
+              <p>Elige el resultado real. Pasar la hora no marca la cita automáticamente.</p>
+          <form method="post" action="{% url 'booking:professional_appointment_complete' appointment.id %}" data-confirm-message="La cita quedará registrada como atendida. ¿Quieres continuar?">
                 {% csrf_token %}
-                <button class="button button--wide" type="submit">Completar cita</button>
+                <button class="button button--wide" type="submit">Marcar como atendida</button>
+              </form>
+          <form method="post" action="{% url 'booking:professional_appointment_no_show' appointment.id %}" data-confirm-message="La cita quedará registrada como no presentada. ¿Quieres continuar?">
+                {% csrf_token %}
+                <button class="button button--secondary button--wide" type="submit">No se presentó</button>
               </form>
             {% else %}
               <p>{{ complete_blocked_reason }}</p>

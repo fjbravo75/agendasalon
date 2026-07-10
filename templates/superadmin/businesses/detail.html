@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}{{ business.commercial_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="saas-dashboard" aria-label="Gestión de {{ business.commercial_name }}">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Negocio de AgendaSalon</span>
+        <h1 class="page-title page-title--compact">{{ business.commercial_name }}</h1>
+        <p>Gestiona su estado, la reserva pública y los accesos profesionales sin borrar el historial.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'businesses:superadmin_business_list' %}">Negocios</a>
+        <a class="button" href="{% url 'businesses:superadmin_business_edit' business.id %}">Editar datos</a>
+      </div>
+    </header>
+
+    <div class="saas-metric-grid">
+      <article class="saas-metric saas-metric--primary"><span>Estado del negocio</span><strong>{% if business.is_active %}Activo{% else %}Pausado{% endif %}</strong><p>El historial se conserva en ambos estados.</p></article>
+      <article class="saas-metric"><span>Reserva pública</span><strong>{% if business.public_booking_enabled and business.is_active %}Activa{% else %}Pausada{% endif %}</strong><p>Control independiente del acceso profesional.</p></article>
+      <article class="saas-metric{% if pending_closure_count %} saas-metric--warning{% endif %}"><span>Pendientes de cierre</span><strong>{{ pending_closure_count }}</strong><p>Las resuelve el equipo profesional del negocio.</p></article>
+      <article class="saas-metric"><span>Próximas citas</span><strong>{{ upcoming_count }}</strong><p>{{ business.appointments_total }} cita{% if business.appointments_total != 1 %}s{% endif %} acumulada{% if business.appointments_total != 1 %}s{% endif %}.</p></article>
+    </div>
+
+    <div class="saas-workspace">
+      <div class="saas-side-stack">
+        <section class="saas-side-panel">
+          <div class="ops-section-head ops-section-head--compact"><div><span>Identidad</span><h2>Datos del negocio</h2></div></div>
+          <dl class="saas-fact-list">
+            <div><dt>Identificador</dt><dd>{{ business.slug }}</dd></div>
+            <div><dt>Teléfono</dt><dd>{{ business.public_phone|default:"No indicado" }}</dd></div>
+            <div><dt>Correo</dt><dd>{{ business.public_email|default:"No indicado" }}</dd></div>
+            <div><dt>Ubicación</dt><dd>{{ business.address|default:"" }}{% if business.address and business.city %} · {% endif %}{{ business.city|default:"No indicada" }}</dd></div>
+          </dl>
+        </section>
+
+        <section class="saas-side-panel">
+          <div class="ops-section-head ops-section-head--compact"><div><span>Ciclo reversible</span><h2>Estado y reservas</h2></div></div>
+          <div class="saas-control-list">
+            <div>
+              <div><strong>Acceso profesional</strong><small>{% if business.is_active %}Los profesionales pueden entrar.{% else %}El negocio está pausado.{% endif %}</small></div>
+              <form method="post" action="{% url 'businesses:superadmin_business_toggle' business.id %}" data-confirm-message="Vas a cambiar el acceso profesional de todo el negocio. ¿Quieres continuar?">{% csrf_token %}<button class="button {% if business.is_active %}button--danger{% endif %}" type="submit">{% if business.is_active %}Pausar negocio{% else %}Reactivar negocio{% endif %}</button></form>
+            </div>
+            <div>
+              <div><strong>Reserva pública</strong><small>{% if business.public_booking_enabled and business.is_active %}Los clientes pueden reservar.{% else %}No admite nuevas reservas online.{% endif %}</small></div>
+              <form method="post" action="{% url 'businesses:superadmin_public_booking_toggle' business.id %}" data-confirm-message="Vas a cambiar la disponibilidad de la reserva online. ¿Quieres continuar?">{% csrf_token %}<button class="button button--secondary" type="submit">{% if business.public_booking_enabled %}Pausar reserva pública{% else %}Activar reserva pública{% endif %}</button></form>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="saas-side-stack">
+        <section class="saas-side-panel">
+          <div class="ops-section-head ops-section-head--compact"><div><span>Accesos internos</span><h2>Profesionales</h2></div><a class="appointment-inline-link" href="{% url 'businesses:superadmin_professional_create' business.id %}">Añadir</a></div>
+          <div class="saas-membership-list">
+            {% for membership in memberships %}
+              <article>
+                <div><strong>{{ membership.user.full_name }}</strong><small>{{ membership.user.normalized_phone|format_phone }} · {% if membership.is_active %}Acceso activo{% else %}Acceso pausado{% endif %}</small></div>
+                <form method="post" action="{% url 'businesses:superadmin_membership_toggle' business.id membership.id %}" data-confirm-message="Vas a cambiar el acceso de este profesional. ¿Quieres continuar?">{% csrf_token %}<button class="button button--secondary" type="submit">{% if membership.is_active %}Pausar{% else %}Reactivar{% endif %}</button></form>
+              </article>
+            {% empty %}
+              <p class="soft-note">Este negocio todavía no tiene acceso profesional.</p>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="saas-side-panel">
+          <div class="ops-section-head ops-section-head--compact"><div><span>Actividad</span><h2>Volumen actual</h2></div></div>
+          <div class="saas-breakdown-list">
+            <div><span>Profesionales activos</span><strong>{{ business.professionals_total }}</strong></div>
+            <div><span>Servicios activos</span><strong>{{ business.services_total }}</strong></div>
+            <div><span>Clientes activos</span><strong>{{ business.clients_total }}</strong></div>
+            <div><span>Citas acumuladas</span><strong>{{ business.appointments_total }}</strong></div>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <section class="saas-side-panel business-activity-panel" id="actividad" aria-labelledby="business-activity-title">
+      <div class="ops-section-head business-activity-panel__head">
+        <div>
+          <span>Trazabilidad del negocio</span>
+          <h2 id="business-activity-title">Actividad reciente</h2>
+          <p>Acciones que han cambiado citas, configuración, accesos o estado de la plataforma.</p>
+        </div>
+        <a class="appointment-inline-link" href="{% url 'businesses:superadmin_business_activity' business.id %}">Ver historial completo</a>
+      </div>
+
+      <div class="business-activity-summary" aria-label="Origen de las citas">
+        <div><span>Creadas por el equipo</span><strong>{{ professional_appointments_count }}</strong><small>Teléfono, WhatsApp, correo o mostrador.</small></div>
+        <div><span>Reservas online</span><strong>{{ online_appointments_count }}</strong><small>Confirmadas desde el enlace público del negocio.</small></div>
+      </div>
+
+      <nav class="saas-segmented-filter" aria-label="Filtrar actividad reciente">
+        {% for value, label in activity_filters %}
+          <a href="?activity={{ value }}#actividad"{% if activity_category == value %} aria-current="page" class="is-active"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+
+      <div class="business-activity-list">
+        {% for event in activity_events %}
+          <article class="business-activity-event business-activity-event--{{ event.category }}">
+            <div class="business-activity-event__time">
+              <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"d/m/Y · H:i" }}</time>
+              <span>{{ event.get_category_display }}</span>
+            </div>
+            <div class="business-activity-event__body">
+              <strong>{{ event.summary }}</strong>
+              <small>{{ event.actor_label }} · {{ event.get_origin_display }}</small>
+            </div>
+          </article>
+        {% empty %}
+          <div class="business-activity-empty">
+            <strong>Aún no hay movimientos en esta categoría.</strong>
+            <p>El historial comienza cuando se realiza una acción que cambia el estado del negocio.</p>
+          </div>
+        {% endfor %}
+      </div>
+
+      {% if activity_total > 8 %}
+        <a class="button button--secondary business-activity-panel__more" href="{% url 'businesses:superadmin_business_activity' business.id %}?activity={{ activity_category }}">Consultar {{ activity_total }} movimientos</a>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}

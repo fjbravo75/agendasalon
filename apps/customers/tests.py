@@ -35,7 +35,7 @@ class CustomerModelTests(TestCase):
     def test_active_client_identity_is_unique_inside_business(self):
         BusinessClient.objects.create(
             business=self.business,
-            full_name="Maria Lopez",
+            full_name="María López",
             phone="600111222",
         )
 
@@ -53,14 +53,14 @@ class CustomerModelTests(TestCase):
         )
         client = BusinessClient.objects.create(
             business=self.business,
-            full_name="Lucia Gomez",
+            full_name="Lucía Gómez",
             phone="600111333",
         )
 
         contact = BusinessClientAuthorizedContact(
             business=other_business,
             business_client=client,
-            full_name="Ana Gomez",
+            full_name="Ana Gómez",
             phone="600111444",
         )
 
@@ -70,13 +70,13 @@ class CustomerModelTests(TestCase):
     def test_only_one_active_primary_contact_per_client(self):
         client = BusinessClient.objects.create(
             business=self.business,
-            full_name="Lucia Gomez",
+            full_name="Lucía Gómez",
             phone="600111333",
         )
         BusinessClientAuthorizedContact.objects.create(
             business=self.business,
             business_client=client,
-            full_name="Ana Gomez",
+            full_name="Ana Gómez",
             phone="600111444",
             is_primary_contact=True,
         )
@@ -93,13 +93,13 @@ class CustomerModelTests(TestCase):
     def test_client_access_reuses_existing_client_file(self):
         client = BusinessClient.objects.create(
             business=self.business,
-            full_name="Maria Lopez",
+            full_name="María López",
             phone="600111222",
         )
 
         access = register_client_access(
             business=self.business,
-            full_name="Maria Lopez",
+            full_name="María López",
             phone="600111222",
             password="ClienteDemo2026!",
         )
@@ -110,7 +110,7 @@ class CustomerModelTests(TestCase):
     def test_client_access_phone_is_unique_inside_business(self):
         client = BusinessClient.objects.create(
             business=self.business,
-            full_name="Maria Lopez",
+            full_name="María López",
             phone="600111222",
         )
         access = BusinessClientAccess(
@@ -160,6 +160,11 @@ class ClientAccessViewTests(TestCase):
         self.assertContains(response, "client-auth-content")
         self.assertContains(response, "client-auth-image-space")
         self.assertContains(response, "client-auth-page--salon")
+        self.assertContains(
+            response,
+            f'href="{reverse("public_booking", args=[self.business.slug])}"',
+        )
+        self.assertNotContains(response, "Acceso profesional")
         self.assertNotContains(response, 'name="full_name"')
         self.assertNotContains(response, "Crear cuenta y revisar reserva")
         self.assertNotContains(response, "Acceso privado para cuentas registradas.")
@@ -179,6 +184,11 @@ class ClientAccessViewTests(TestCase):
         self.assertContains(response, "Entra para reservar")
         self.assertContains(response, "client-auth-register-page")
         self.assertContains(response, "client-auth-page--salon")
+        self.assertContains(
+            response,
+            f'href="{reverse("public_booking", args=[self.business.slug])}"',
+        )
+        self.assertNotContains(response, "Acceso profesional")
         self.assertNotContains(response, "Entrar y revisar reserva")
 
     def test_barberia_business_uses_masculine_visual_theme(self):
@@ -311,9 +321,9 @@ class ProfessionalClientViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Clientes de Peluquería Mari")
-        self.assertContains(response, "Maria Lopez")
+        self.assertContains(response, "María López")
         self.assertContains(response, "Guardar cliente")
-        self.assertNotContains(response, "Javier Martin")
+        self.assertNotContains(response, "Javier Martín")
 
     def test_professional_can_create_client_from_client_list(self):
         self.client.force_login(self.professional)
@@ -336,14 +346,14 @@ class ProfessionalClientViewTests(TestCase):
 
     def test_professional_client_detail_is_scoped_to_business(self):
         self.client.force_login(self.professional)
-        client = BusinessClient.objects.get(business=self.business, full_name="Lucia Gomez")
-        other_client = BusinessClient.objects.get(business=self.other_business, full_name="Javier Martin")
+        client = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
+        other_client = BusinessClient.objects.get(business=self.other_business, full_name="Javier Martín")
 
         response = self.client.get(reverse("customers:professional_client_detail", args=[client.id]))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Ficha de cliente")
-        self.assertContains(response, "Lucia Gomez")
+        self.assertContains(response, "Lucía Gómez")
         self.assertContains(response, "Próximas citas")
         self.assertContains(response, "Historial")
         self.assertContains(response, "Personas autorizadas")
@@ -375,7 +385,7 @@ class ProfessionalClientViewTests(TestCase):
         self.client.force_login(self.professional)
         business_client = BusinessClient.objects.get(
             business=self.business,
-            full_name="Maria Lopez",
+            full_name="María López",
         )
 
         response = self.client.get(
@@ -383,21 +393,21 @@ class ProfessionalClientViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'value="Maria Lopez"')
+        self.assertContains(response, 'value="María López"')
         self.assertContains(response, 'value="600111201"')
 
     def test_professional_can_edit_client_and_sync_online_phone(self):
         self.client.force_login(self.professional)
         business_client = BusinessClient.objects.get(
             business=self.business,
-            full_name="Maria Lopez",
+            full_name="María López",
         )
         appointments_before = business_client.appointments.count()
 
         response = self.client.post(
             reverse("customers:professional_client_edit", args=[business_client.id]),
             {
-                "full_name": "Maria Lopez Romero",
+                "full_name": "María López Romero",
                 "phone": "600 333 444",
                 "email": "maria@example.local",
                 "internal_notes": "Prefiere las primeras horas.",
@@ -410,15 +420,15 @@ class ProfessionalClientViewTests(TestCase):
         )
         business_client.refresh_from_db()
         business_client.access.refresh_from_db()
-        self.assertEqual(business_client.full_name, "Maria Lopez Romero")
+        self.assertEqual(business_client.full_name, "María López Romero")
         self.assertEqual(business_client.phone_normalized, "+34600333444")
         self.assertEqual(business_client.access.phone_normalized, "+34600333444")
         self.assertEqual(business_client.appointments.count(), appointments_before)
 
     def test_professional_edit_rejects_phone_used_by_other_online_account(self):
         self.client.force_login(self.professional)
-        maria = BusinessClient.objects.get(business=self.business, full_name="Maria Lopez")
-        lucia = BusinessClient.objects.get(business=self.business, full_name="Lucia Gomez")
+        maria = BusinessClient.objects.get(business=self.business, full_name="María López")
+        lucia = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
 
         response = self.client.post(
             reverse("customers:professional_client_edit", args=[maria.id]),
@@ -497,7 +507,7 @@ class ProfessionalClientViewTests(TestCase):
         self.client.force_login(self.professional)
         business_client = BusinessClient.objects.get(
             business=self.business,
-            full_name="Lucia Gomez",
+            full_name="Lucía Gómez",
         )
         previous_primary = business_client.authorized_contacts.get(is_primary_contact=True)
 
@@ -530,20 +540,20 @@ class ProfessionalClientViewTests(TestCase):
         self.client.force_login(self.professional)
         business_client = BusinessClient.objects.get(
             business=self.business,
-            full_name="Lucia Gomez",
+            full_name="Lucía Gómez",
         )
-        contact = business_client.authorized_contacts.get(full_name="Ana Gomez")
+        contact = business_client.authorized_contacts.get(full_name="Ana Gómez")
         edit_url = reverse(
             "customers:professional_contact_edit",
             args=[business_client.id, contact.id],
         )
 
         edit_page = self.client.get(edit_url)
-        self.assertContains(edit_page, 'value="Ana Gomez"')
+        self.assertContains(edit_page, 'value="Ana Gómez"')
         response = self.client.post(
             edit_url,
             {
-                "full_name": "Ana Gomez Ruiz",
+                "full_name": "Ana Gómez Ruiz",
                 "phone": contact.phone,
                 "relationship_label": contact.relationship_label,
                 "is_primary_contact": "on",
@@ -552,7 +562,7 @@ class ProfessionalClientViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         contact.refresh_from_db()
-        self.assertEqual(contact.full_name, "Ana Gomez Ruiz")
+        self.assertEqual(contact.full_name, "Ana Gómez Ruiz")
 
         toggle_url = reverse(
             "customers:professional_contact_toggle",
@@ -569,7 +579,7 @@ class ProfessionalClientViewTests(TestCase):
         self.client.force_login(self.professional)
         other_client = BusinessClient.objects.get(
             business=self.other_business,
-            full_name="Javier Martin",
+            full_name="Javier Martín",
         )
         other_contact = BusinessClientAuthorizedContact.objects.create(
             business=self.other_business,
@@ -591,7 +601,7 @@ class ProfessionalClientViewTests(TestCase):
         self.client.force_login(self.professional)
         business_client = BusinessClient.objects.get(
             business=self.business,
-            full_name="Maria Lopez",
+            full_name="María López",
         )
         toggle_url = reverse(
             "customers:professional_client_access_toggle",

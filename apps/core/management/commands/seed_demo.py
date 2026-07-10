@@ -18,7 +18,8 @@ from apps.booking.models import (
     Service,
     WorkLine,
 )
-from apps.businesses.models import Business, BusinessMembership
+from apps.businesses.activity import record_business_activity
+from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
 from apps.customers.models import BusinessClient, BusinessClientAccess, BusinessClientAuthorizedContact
@@ -58,7 +59,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Profesional Barbería Norte: {summary['secondary_professional_phone']} / {DEMO_PASSWORD}")
         self.stdout.write(f"Negocio principal: {summary['business']}")
         self.stdout.write(f"Segundo negocio demo: {summary['secondary_business']}")
-        self.stdout.write(f"Dia sin hueco para 180 min: {summary['no_capacity_date']}")
+        self.stdout.write(f"Día sin hueco para 180 min: {summary['no_capacity_date']}")
 
 
 class DemoSeeder:
@@ -100,6 +101,7 @@ class DemoSeeder:
         appointments = self._create_appointments()
         self._create_notifications(appointments)
         self._create_secondary_business_demo()
+        self._create_activity_events()
 
         return {
             "superadmin_phone": self.superadmin.normalized_phone,
@@ -109,6 +111,74 @@ class DemoSeeder:
             "secondary_business": self.secondary_business.commercial_name,
             "no_capacity_date": self.no_capacity_date.isoformat(),
         }
+
+    def _create_activity_events(self):
+        events = (
+            {
+                "business": self.business,
+                "category": BusinessActivityEvent.Category.APPOINTMENTS,
+                "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                "origin": BusinessActivityEvent.Origin.PHONE,
+                "summary": "Cita creada por el equipo para el 06/07/2026 a las 10:00.",
+                "actor": self.professional,
+                "entity_type": "appointment",
+                "event_at": _at(self.base_date, time(9, 45)),
+            },
+            {
+                "business": self.business,
+                "category": BusinessActivityEvent.Category.APPOINTMENTS,
+                "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                "origin": BusinessActivityEvent.Origin.PUBLIC_WEB,
+                "summary": "Reserva online creada para el 09/07/2026 a las 12:00.",
+                "actor_type": BusinessActivityEvent.ActorType.CUSTOMER,
+                "actor_label": "Cliente online",
+                "entity_type": "appointment",
+                "event_at": _at(self.base_date + timedelta(days=3), time(11, 56)),
+            },
+            {
+                "business": self.business,
+                "category": BusinessActivityEvent.Category.CONFIGURATION,
+                "event_type": BusinessActivityEvent.EventType.SERVICE_UPDATED,
+                "origin": BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "summary": 'Servicio "Tinte" actualizado.',
+                "actor": self.professional,
+                "entity_type": "service",
+                "event_at": _at(self.base_date + timedelta(days=1), time(18, 15)),
+            },
+            {
+                "business": self.secondary_business,
+                "category": BusinessActivityEvent.Category.APPOINTMENTS,
+                "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                "origin": BusinessActivityEvent.Origin.FRONT_DESK,
+                "summary": "Cita creada por el equipo para el 07/07/2026 a las 17:00.",
+                "actor": self.secondary_professional,
+                "entity_type": "appointment",
+                "event_at": _at(self.base_date + timedelta(days=1), time(16, 42)),
+            },
+            {
+                "business": self.secondary_business,
+                "category": BusinessActivityEvent.Category.CONFIGURATION,
+                "event_type": BusinessActivityEvent.EventType.AVAILABILITY_UPDATED,
+                "origin": BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "summary": "Horario actualizado para Viernes de 10:00 a 19:00.",
+                "actor": self.secondary_professional,
+                "entity_type": "availability_rule",
+                "event_at": _at(self.base_date + timedelta(days=2), time(19, 10)),
+            },
+        )
+
+        for event_data in events:
+            existing_event = BusinessActivityEvent.objects.filter(
+                business=event_data["business"],
+                event_type=event_data["event_type"],
+                summary=event_data["summary"],
+            ).first()
+            if existing_event is None:
+                record_business_activity(**event_data)
+            else:
+                BusinessActivityEvent.objects.filter(pk=existing_event.pk).update(
+                    created_at=event_data["event_at"]
+                )
 
     def _upsert_user(self, *, phone, full_name, email, is_staff, is_superuser):
         User = get_user_model()
@@ -140,6 +210,7 @@ class DemoSeeder:
                 "public_email": "hola@peluqueriamari.local",
                 "address": "Calle Mayor 12",
                 "city": "Madrid",
+                "public_booking_enabled": True,
                 "province": "Madrid",
                 "is_active": True,
             },
@@ -155,6 +226,7 @@ class DemoSeeder:
                 "public_email": "hola@barberianorte.local",
                 "address": "Avenida Norte 18",
                 "city": "Madrid",
+                "public_booking_enabled": True,
                 "province": "Madrid",
                 "is_active": True,
             },
@@ -258,15 +330,15 @@ class DemoSeeder:
 
     def _create_clients(self):
         clients = {
-            "maria": self._upsert_client("Maria Lopez", "600111201", "Prefiere citas por la mañana."),
-            "lucia": self._upsert_client("Lucia Gomez", "600111202", "Suele reservar varios servicios en la misma visita."),
+            "maria": self._upsert_client("María López", "600111201", "Prefiere citas por la mañana."),
+            "lucia": self._upsert_client("Lucía Gómez", "600111202", "Suele reservar varios servicios en la misma visita."),
             "carmen": self._upsert_client("Carmen Ruiz", "600111203", "Agradece confirmar la duración antes de cerrar la cita."),
             "ana": self._upsert_client("Ana Torres", "600111204", "Prefiere las primeras horas de la tarde."),
-            "rosa": self._upsert_client("Rosa Martin", "600111205", "Suele pedir cita por teléfono."),
+            "rosa": self._upsert_client("Rosa Martín", "600111205", "Suele pedir cita por teléfono."),
         }
         self._upsert_authorized_contact(
             client=clients["lucia"],
-            full_name="Ana Gomez",
+            full_name="Ana Gómez",
             phone="600111244",
             relationship=BusinessClientAuthorizedContact.Relationship.MOTHER,
             is_primary=True,
@@ -407,7 +479,7 @@ class DemoSeeder:
             line.full_clean()
             line.save()
 
-        javier = self._upsert_client("Javier Martin", "600222201", "Suele reservar corte y barba juntos.", business=business)
+        javier = self._upsert_client("Javier Martín", "600222201", "Suele reservar corte y barba juntos.", business=business)
         self._upsert_client("Marcos Ruiz", "600222202", "Prefiere las citas a última hora de la tarde.", business=business)
         self._upsert_client_access(javier)
 
@@ -543,6 +615,16 @@ class DemoSeeder:
         )
         appointments.append(
             self._upsert_appointment(
+                client=self.clients["carmen"],
+                line=self.lines[1],
+                start_at=_at(self.base_date + timedelta(days=3), time(12, 0)),
+                minutes=30,
+                services=[self.services["Corte"]],
+                channel=Appointment.ManualChannel.PUBLIC_WEB,
+            )
+        )
+        appointments.append(
+            self._upsert_appointment(
                 client=self.clients["maria"],
                 line=self.lines[2],
                 start_at=_at(self.past_date, time(10, 0)),
@@ -551,6 +633,18 @@ class DemoSeeder:
                 channel=Appointment.ManualChannel.FRONT_DESK,
                 status=Appointment.Status.COMPLETED,
                 completed=True,
+            )
+        )
+        appointments.append(
+            self._upsert_appointment(
+                client=self.clients["lucia"],
+                line=self.lines[2],
+                start_at=_at(self.past_date, time(12, 0)),
+                minutes=30,
+                services=[self.services["Corte"]],
+                channel=Appointment.ManualChannel.PHONE,
+                status=Appointment.Status.NO_SHOW,
+                no_show=True,
             )
         )
         appointments.extend(self._create_no_capacity_appointments())
@@ -599,6 +693,7 @@ class DemoSeeder:
         duration_adjustment_reason="",
         cancellation_reason="",
         completed=False,
+        no_show=False,
         summary="",
     ):
         appointment = Appointment.objects.filter(
@@ -626,6 +721,8 @@ class DemoSeeder:
         appointment.cancelled_at = start_at - timedelta(days=1) if status == Appointment.Status.CANCELLED else None
         appointment.completed_by = self.professional if completed else None
         appointment.completed_at = appointment.ends_at if completed else None
+        appointment.no_show_marked_by = self.professional if no_show else None
+        appointment.no_show_marked_at = appointment.ends_at if no_show else None
         appointment.full_clean()
         appointment.save()
 

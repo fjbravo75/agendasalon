@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.booking.models import Appointment, AvailabilityRule, BusinessClosure, WorkLine
-from apps.businesses.models import Business
+from apps.businesses.models import Business, BusinessActivityEvent
 
 
 class ProfessionalScheduleTests(TestCase):
@@ -46,10 +46,10 @@ class ProfessionalScheduleTests(TestCase):
             reverse("booking:professional_schedule"),
             {
                 "form_kind": "availability",
-                "weekday": "6",
-                "start_time": "10:00",
-                "end_time": "13:00",
-                "is_active": "on",
+                "availability-weekday": "6",
+                "availability-start_time": "10:00",
+                "availability-end_time": "13:00",
+                "availability-is_active": "on",
             },
         )
 
@@ -63,6 +63,19 @@ class ProfessionalScheduleTests(TestCase):
                 is_active=True,
             ).exists()
         )
+        rule = AvailabilityRule.objects.get(
+            business=self.business,
+            weekday=6,
+            start_time=time(10, 0),
+            end_time=time(13, 0),
+        )
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=rule.id,
+                event_type=BusinessActivityEvent.EventType.AVAILABILITY_CREATED,
+            ).exists()
+        )
 
     def test_availability_rejects_overlapping_rule(self):
         self.client.force_login(self.professional)
@@ -72,10 +85,10 @@ class ProfessionalScheduleTests(TestCase):
             reverse("booking:professional_schedule"),
             {
                 "form_kind": "availability",
-                "weekday": existing_rule.weekday,
-                "start_time": existing_rule.start_time.strftime("%H:%M"),
-                "end_time": existing_rule.end_time.strftime("%H:%M"),
-                "is_active": "on",
+                "availability-weekday": existing_rule.weekday,
+                "availability-start_time": existing_rule.start_time.strftime("%H:%M"),
+                "availability-end_time": existing_rule.end_time.strftime("%H:%M"),
+                "availability-is_active": "on",
             },
         )
 
@@ -89,14 +102,14 @@ class ProfessionalScheduleTests(TestCase):
             reverse("booking:professional_schedule"),
             {
                 "form_kind": "closure",
-                "closure_type": BusinessClosure.ClosureType.PUNCTUAL_BLOCK,
-                "date_from": "2026-08-03",
-                "date_to": "2026-08-03",
-                "start_time": "12:00",
-                "end_time": "13:00",
-                "work_line": "",
-                "internal_reason": "Formación interna",
-                "is_active": "on",
+                "closure-closure_type": BusinessClosure.ClosureType.PUNCTUAL_BLOCK,
+                "closure-date_from": "2026-08-03",
+                "closure-date_to": "2026-08-03",
+                "closure-start_time": "12:00",
+                "closure-end_time": "13:00",
+                "closure-work_line": "",
+                "closure-internal_reason": "Formación interna",
+                "closure-is_active": "on",
             },
         )
 
@@ -108,6 +121,25 @@ class ProfessionalScheduleTests(TestCase):
         )
         self.assertEqual(closure.created_by, self.professional)
         self.assertIsNone(closure.work_line)
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=closure.id,
+                event_type=BusinessActivityEvent.EventType.CLOSURE_CREATED,
+            ).exists()
+        )
+
+    def test_schedule_forms_use_unique_prefixed_ids(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.get(reverse("booking:professional_schedule"))
+        html = response.content.decode()
+
+        self.assertEqual(html.count('id="id_availability-start_time"'), 1)
+        self.assertEqual(html.count('id="id_closure-start_time"'), 1)
+        self.assertEqual(html.count('id="id_availability-end_time"'), 1)
+        self.assertEqual(html.count('id="id_closure-end_time"'), 1)
+        self.assertNotIn('id="id_start_time"', html)
 
     def test_professional_cannot_edit_other_business_line(self):
         self.client.force_login(self.professional)

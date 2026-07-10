@@ -46,11 +46,13 @@ class LoginPageTemplateTests(TestCase):
         self.assertContains(response, "Entrar en AgendaSalon")
         self.assertContains(response, "Acceso privado para cuentas registradas.")
         self.assertContains(response, "Agenda clara")
+        self.assertContains(response, f'href="{reverse("accounts:login")}"')
         self.assertContains(response, "TELÉFONO")
         self.assertContains(response, "CONTRASEÑA")
         self.assertNotContains(response, "Entrar en mi agenda")
         self.assertNotContains(response, "¿Has olvidado")
         self.assertNotContains(response, "MVP")
+        self.assertNotContains(response, "Reservas online")
 
     def test_invalid_login_keeps_private_editorial_context(self):
         response = self.client.post(
@@ -112,3 +114,39 @@ class LoginRoutingTests(TestCase):
         )
 
         self.assertRedirects(response, reverse("accounts:no_business"))
+
+
+class LogoutFlowTests(TestCase):
+    def setUp(self):
+        self.superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000001",
+            password="test-pass-123",
+            full_name="Admin AgendaSalon",
+        )
+        Business.objects.create(commercial_name="Peluquería Mari", slug="peluqueria-mari")
+        Business.objects.create(commercial_name="Barbería Norte", slug="barberia-norte")
+
+    def test_private_logout_ends_on_dedicated_confirmation(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.post(reverse("accounts:logout"), follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.redirect_chain[-1][0], reverse("accounts:logged_out"))
+        self.assertContains(response, "Has salido de AgendaSalon")
+        self.assertContains(response, "Volver a entrar")
+        self.assertNotContains(response, "Peluquería Mari")
+        self.assertNotContains(response, "Barbería Norte")
+        self.assertNotContains(response, "¿A dónde quieres entrar?")
+
+    def test_logout_requires_post(self):
+        self.client.force_login(self.superadmin)
+
+        self.assertEqual(self.client.get(reverse("accounts:logout")).status_code, 405)
+
+    def test_authenticated_user_does_not_see_logged_out_confirmation(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(reverse("accounts:logged_out"))
+
+        self.assertRedirects(response, reverse("dashboards:superadmin_home"))

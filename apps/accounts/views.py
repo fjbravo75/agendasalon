@@ -1,6 +1,6 @@
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse
 
 from apps.accounts.forms import PhoneAuthenticationForm
@@ -27,3 +27,9 @@ class AgendaSalonLoginView(LoginView):
 @login_required
 def no_business(request):
     return render(request, "accounts/no_business.html")
+
+
+def logged_out(request):
+    if request.user.is_authenticated:
+        return redirect(get_post_login_redirect_url(request.user))
+    return render(request, "accounts/logged_out.html")

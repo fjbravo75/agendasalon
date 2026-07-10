@@ -39,7 +39,7 @@ class AppointmentSearchForm(forms.Form):
     business_client = forms.ModelChoiceField(
         label="Cliente",
         queryset=BusinessClient.objects.none(),
-        empty_label=None,
+        empty_label="Selecciona un cliente",
     )
     manual_channel = forms.ChoiceField(
         label="Canal",
@@ -477,7 +477,7 @@ class SlotSelectionMixin(forms.Form):
             return None
         parsed = parse_datetime(value)
         if parsed is None:
-            raise forms.ValidationError("El hueco seleccionado no es valido.")
+            raise forms.ValidationError("El hueco seleccionado no es válido.")
         return parsed
 
     def clean(self):

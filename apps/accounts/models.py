@@ -13,7 +13,7 @@ class UserManager(BaseUserManager):
 
     def _create_user(self, normalized_phone, password, **extra_fields):
         if not normalized_phone:
-            raise ValueError("El telefono normalizado es obligatorio.")
+            raise ValueError("El teléfono normalizado es obligatorio.")
 
         normalized_phone = normalize_phone(normalized_phone)
         extra_fields.setdefault("phone", normalized_phone)
@@ -48,12 +48,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     """Internal SaaS user for professionals and superadministrators."""
 
     full_name = models.CharField("nombre completo", max_length=150)
-    phone = models.CharField("telefono", max_length=32)
+    phone = models.CharField("teléfono", max_length=32)
     normalized_phone = models.CharField(
-        "telefono normalizado",
+        "teléfono normalizado",
         max_length=32,
         unique=True,
-        help_text="Telefono en formato E.164 usado para iniciar sesion.",
+        help_text="Teléfono en formato E.164 usado para iniciar sesión.",
     )
     email = models.EmailField("email", blank=True)
     is_staff = models.BooleanField("staff", default=False)

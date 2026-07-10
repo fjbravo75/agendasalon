@@ -31,20 +31,37 @@
         <div class="ops-attention__head">
           <div>
             <span>Necesita tu revisión</span>
-            <h2 id="pending-appointments-title">Citas pasadas aún confirmadas</h2>
-            <p>Márcalas como completadas o canceladas para que el historial refleje lo que ocurrió.</p>
+            <h2 id="pending-appointments-title">Citas pendientes de cierre</h2>
+            <p>Indica si fueron atendidas o si el cliente no se presentó. El reloj no decide el resultado.</p>
           </div>
           <strong>{{ overdue_appointments_count }}</strong>
         </div>
-        <div class="ops-attention__list">
-          {% for appointment in overdue_appointments %}
-            <a href="{% url 'booking:professional_appointment_detail' appointment.id %}">
-              <time>{{ appointment.local_starts_at|date:"j M · H:i" }}</time>
-              <span>{{ appointment.business_client.full_name }}</span>
-              <small>{{ appointment.service_summary_snapshot|default:"Cita pendiente de revisar" }}</small>
-            </a>
-          {% endfor %}
-        </div>
+        <form class="ops-attention__form" method="post" action="{% url 'booking:professional_appointments_bulk_close' %}" data-confirm-message="Vas a registrar el mismo resultado para todas las citas seleccionadas. ¿Quieres continuar?">
+          {% csrf_token %}
+          <div class="ops-attention__actions">
+            <button class="button" type="submit" name="outcome" value="completada">Marcar atendidas</button>
+            <button class="button button--secondary" type="submit" name="outcome" value="no_presentada">No se presentaron</button>
+          </div>
+          <div class="ops-attention__list">
+            {% for appointment in overdue_appointments %}
+              <article class="ops-attention__item">
+                <input id="pending-appointment-{{ appointment.id }}" type="checkbox" name="appointment_ids" value="{{ appointment.id }}">
+                <label for="pending-appointment-{{ appointment.id }}">
+                  <time>{{ appointment.local_starts_at|date:"j M · H:i" }}</time>
+                  <strong>{{ appointment.business_client.full_name }}</strong>
+                  <small>{{ appointment.service_summary_snapshot|default:"Cita pendiente de revisar" }}</small>
+                </label>
+                <a href="{% url 'booking:professional_appointment_detail' appointment.id %}">Revisar</a>
+              </article>
+            {% endfor %}
+          </div>
+          {% if overdue_appointments_hidden_count %}
+            <p class="ops-attention__more">
+              Se muestran 5 de {{ overdue_appointments_count }}. Hay {{ overdue_appointments_hidden_count }} más pendientes.
+              <a href="{% url 'booking:professional_pending_appointments' %}">Ver todas</a>
+            </p>
+          {% endif %}
+        </form>
       </section>
     {% endif %}
 
@@ -97,7 +114,9 @@
             <span>{{ day_status_label }}</span>
             <h2>Agenda de hoy</h2>
             <p>
-              {% if availability_rules %}
+              {% if day_is_closed %}
+                {{ day_status_text }}
+              {% elif availability_rules %}
                 {% for rule in availability_rules %}
                   {{ rule.start_time|time:"H:i" }}-{{ rule.end_time|time:"H:i" }}{% if not forloop.last %} · {% endif %}
                 {% endfor %}
@@ -106,7 +125,7 @@
               {% endif %}
             </p>
           </div>
-          <strong>{{ today_total_count }} citas</strong>
+          <strong>{{ today_total_count }} cita{% if today_total_count != 1 %}s{% endif %}</strong>
         </div>
 
         {% if line_boards %}
@@ -124,19 +143,39 @@
 
                   <div class="ops-line-timeline">
                     {% for appointment in board.appointments %}
-                      <div class="ops-appointment ops-appointment--{{ appointment.status }}">
+                      <div class="ops-appointment ops-appointment--{{ appointment.operational_status_css }}">
                         <time>
                           {{ appointment.local_starts_at|date:"H:i" }}-{{ appointment.local_ends_at|date:"H:i" }}
                         </time>
                         <strong>{{ appointment.business_client.full_name }}</strong>
                         <span>{{ appointment.service_summary_snapshot|default:"Servicio pendiente de revisar" }}</span>
-                        <small>{{ appointment.get_status_display }} · {{ appointment.total_duration_minutes }} min</small>
+                        <small>{{ appointment.operational_status_label }} · {{ appointment.total_duration_minutes }} min</small>
                         <a class="appointment-inline-link" href="{% url 'booking:professional_appointment_detail' appointment.id %}">Gestionar</a>
                       </div>
                     {% empty %}
                       <p class="ops-empty-line">Libre para nuevas citas hoy.</p>
                     {% endfor %}
                   </div>
+                </article>
+              {% endfor %}
+            </div>
+          {% elif day_is_closed %}
+            <div class="ops-empty-day">
+              <div>
+                <span>Jornada no disponible</span>
+                <h3>{{ day_status_label }}</h3>
+                <p>{{ day_status_text }}</p>
+              </div>
+              <a class="button button--secondary" href="{% url 'booking:professional_schedule' %}">Revisar calendario</a>
+            </div>
+
+            <div class="ops-line-status-grid" aria-label="Estado de líneas de trabajo">
+              {% for board in line_boards %}
+                <article class="ops-line-status">
+                  <span>Línea {{ board.line.line_number }}</span>
+                  <h3>{{ board.line.name|default:"Línea de trabajo" }}</h3>
+                  <strong>{{ board.status_label }}</strong>
+                  <p>{{ board.status_text }}</p>
                 </article>
               {% endfor %}
             </div>

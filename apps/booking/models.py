@@ -23,7 +23,7 @@ class BusinessCalendarSettings(models.Model):
     )
 
     class Meta:
-        verbose_name = "configuracion de calendario"
+        verbose_name = "configuración de calendario"
         verbose_name_plural = "configuraciones de calendario"
         constraints = [
             models.CheckConstraint(
@@ -53,10 +53,10 @@ class AvailabilityRule(models.Model):
     class Weekday(models.IntegerChoices):
         MONDAY = 0, "Lunes"
         TUESDAY = 1, "Martes"
-        WEDNESDAY = 2, "Miercoles"
+        WEDNESDAY = 2, "Miércoles"
         THURSDAY = 3, "Jueves"
         FRIDAY = 4, "Viernes"
-        SATURDAY = 5, "Sabado"
+        SATURDAY = 5, "Sábado"
         SUNDAY = 6, "Domingo"
 
     business = models.ForeignKey(
@@ -65,7 +65,7 @@ class AvailabilityRule(models.Model):
         related_name="availability_rules",
         verbose_name="negocio",
     )
-    weekday = models.PositiveSmallIntegerField("dia de semana", choices=Weekday.choices)
+    weekday = models.PositiveSmallIntegerField("día de semana", choices=Weekday.choices)
     start_time = models.TimeField("hora inicio")
     end_time = models.TimeField("hora fin")
     is_active = models.BooleanField("activa", default=True)
@@ -117,14 +117,14 @@ class WorkLine(models.Model):
         related_name="work_lines",
         verbose_name="negocio",
     )
-    line_number = models.PositiveSmallIntegerField("numero de linea")
+    line_number = models.PositiveSmallIntegerField("número de línea")
     name = models.CharField("nombre", max_length=80, blank=True)
     is_active = models.BooleanField("activa", default=True)
     display_order = models.PositiveSmallIntegerField("orden", default=0)
 
     class Meta:
-        verbose_name = "linea de trabajo"
-        verbose_name_plural = "lineas de trabajo"
+        verbose_name = "línea de trabajo"
+        verbose_name_plural = "líneas de trabajo"
         ordering = ["business__commercial_name", "display_order", "line_number"]
         constraints = [
             models.UniqueConstraint(
@@ -145,10 +145,10 @@ class WorkLine(models.Model):
         if self.line_number is None:
             return
         if not 1 <= self.line_number <= 3:
-            raise ValidationError({"line_number": "La linea debe estar entre 1 y 3."})
+            raise ValidationError({"line_number": "La línea debe estar entre 1 y 3."})
 
     def __str__(self):
-        return self.name or f"Linea {self.line_number}"
+        return self.name or f"Línea {self.line_number}"
 
 
 class Service(models.Model):
@@ -161,8 +161,8 @@ class Service(models.Model):
         verbose_name="negocio",
     )
     name = models.CharField("nombre", max_length=140)
-    description = models.TextField("descripcion", blank=True)
-    duration_minutes = models.PositiveIntegerField("duracion en minutos")
+    description = models.TextField("descripción", blank=True)
+    duration_minutes = models.PositiveIntegerField("duración en minutos")
     price_amount = models.DecimalField(
         "precio orientativo",
         max_digits=8,
@@ -174,7 +174,7 @@ class Service(models.Model):
     is_active = models.BooleanField("activo", default=True)
     display_order = models.PositiveSmallIntegerField("orden", default=0)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
-    updated_at = models.DateTimeField("ultima actualizacion", auto_now=True)
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
 
     class Meta:
         verbose_name = "servicio"
@@ -196,10 +196,10 @@ class Service(models.Model):
         if self.duration_minutes is None:
             return
         if self.duration_minutes <= 0:
-            raise ValidationError({"duration_minutes": "La duracion debe ser positiva."})
+            raise ValidationError({"duration_minutes": "La duración debe ser positiva."})
         if self.duration_minutes % 15 != 0:
             raise ValidationError(
-                {"duration_minutes": "La duracion debe ser compatible con tramos de 15 minutos."}
+                {"duration_minutes": "La duración debe ser compatible con tramos de 15 minutos."}
             )
         if self.color_hex and not self.color_hex.startswith("#"):
             raise ValidationError({"color_hex": "El color debe usar formato hexadecimal, por ejemplo #C56B5C."})
@@ -214,7 +214,7 @@ class BusinessClosure(models.Model):
     class ClosureType(models.TextChoices):
         VACATION = "vacaciones", "Vacaciones"
         LOCAL_HOLIDAY = "festivo_local", "Festivo local"
-        REGIONAL_MANUAL_HOLIDAY = "festivo_autonomico_manual", "Festivo autonomico manual"
+        REGIONAL_MANUAL_HOLIDAY = "festivo_autonomico_manual", "Festivo autonómico manual"
         PUNCTUAL_BLOCK = "bloqueo_puntual", "Bloqueo puntual"
         BUSINESS_CLOSURE = "cierre_negocio", "Cierre de negocio"
         OTHER = "otro", "Otro"
@@ -231,7 +231,7 @@ class BusinessClosure(models.Model):
         null=True,
         blank=True,
         related_name="closures",
-        verbose_name="linea de trabajo",
+        verbose_name="línea de trabajo",
     )
     date_from = models.DateField("fecha desde")
     date_to = models.DateField("fecha hasta")
@@ -254,7 +254,7 @@ class BusinessClosure(models.Model):
         verbose_name="creado por",
     )
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
-    updated_at = models.DateTimeField("ultima actualizacion", auto_now=True)
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
 
     class Meta:
         verbose_name = "cierre o bloqueo"
@@ -282,7 +282,7 @@ class BusinessClosure(models.Model):
         if self.start_time and self.end_time and self.start_time >= self.end_time:
             raise ValidationError({"end_time": "La hora de fin debe ser posterior al inicio."})
         if self.work_line_id and self.business_id and self.work_line.business_id != self.business_id:
-            raise ValidationError({"work_line": "La linea debe pertenecer al mismo negocio."})
+            raise ValidationError({"work_line": "La línea debe pertenecer al mismo negocio."})
 
     def __str__(self):
         scope = self.work_line or "negocio completo"
@@ -290,19 +290,20 @@ class BusinessClosure(models.Model):
 
 
 class Appointment(models.Model):
-    """Confirmed, cancelled or completed appointment."""
+    """Appointment with an explicit operational outcome."""
 
     class Status(models.TextChoices):
         CONFIRMED = "confirmada", "Confirmada"
         CANCELLED = "cancelada", "Cancelada"
-        COMPLETED = "completada", "Completada"
+        COMPLETED = "completada", "Atendida"
+        NO_SHOW = "no_presentada", "No se presentó"
 
     class ManualChannel(models.TextChoices):
-        PHONE = "telefono", "Telefono"
+        PHONE = "telefono", "Teléfono"
         WHATSAPP = "whatsapp", "WhatsApp"
         EMAIL = "email", "Email"
         FRONT_DESK = "mostrador", "Mostrador"
-        PUBLIC_WEB = "web_publica", "Web publica"
+        PUBLIC_WEB = "web_publica", "Reserva online"
         OTHER = "otro", "Otro"
 
     business = models.ForeignKey(
@@ -321,13 +322,13 @@ class Appointment(models.Model):
         WorkLine,
         on_delete=models.PROTECT,
         related_name="appointments",
-        verbose_name="linea de trabajo",
+        verbose_name="línea de trabajo",
     )
     starts_at = models.DateTimeField("inicio")
     ends_at = models.DateTimeField("fin")
-    total_duration_minutes = models.PositiveIntegerField("duracion total")
+    total_duration_minutes = models.PositiveIntegerField("duración total")
     duration_adjustment_reason = models.CharField(
-        "motivo de ajuste de duracion",
+        "motivo de ajuste de duración",
         max_length=255,
         blank=True,
     )
@@ -359,8 +360,8 @@ class Appointment(models.Model):
         related_name="cancelled_appointments",
         verbose_name="cancelado por",
     )
-    cancelled_at = models.DateTimeField("fecha de cancelacion", null=True, blank=True)
-    cancellation_reason = models.CharField("motivo de cancelacion", max_length=255, blank=True)
+    cancelled_at = models.DateTimeField("fecha de cancelación", null=True, blank=True)
+    cancellation_reason = models.CharField("motivo de cancelación", max_length=255, blank=True)
     completed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -370,9 +371,18 @@ class Appointment(models.Model):
         verbose_name="completado por",
     )
     completed_at = models.DateTimeField("fecha de completado", null=True, blank=True)
+    no_show_marked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="no_show_appointments",
+        verbose_name="ausencia marcada por",
+    )
+    no_show_marked_at = models.DateTimeField("fecha de ausencia", null=True, blank=True)
     service_summary_snapshot = models.TextField("resumen snapshot de servicios", blank=True)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
-    updated_at = models.DateTimeField("ultima actualizacion", auto_now=True)
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
 
     class Meta:
         verbose_name = "cita"
@@ -407,23 +417,24 @@ class Appointment(models.Model):
                 errors["ends_at"] = "La fecha de fin debe ser posterior al inicio."
             actual_minutes = int((self.ends_at - self.starts_at).total_seconds() // 60)
             if self.total_duration_minutes is not None and actual_minutes != self.total_duration_minutes:
-                errors["total_duration_minutes"] = "La duracion total debe coincidir con inicio y fin."
+                errors["total_duration_minutes"] = "La duración total debe coincidir con inicio y fin."
         if self.total_duration_minutes is None:
             pass
         elif self.total_duration_minutes <= 0:
-            errors["total_duration_minutes"] = "La duracion total debe ser positiva."
+            errors["total_duration_minutes"] = "La duración total debe ser positiva."
         elif self.total_duration_minutes % 15 != 0:
-            errors["total_duration_minutes"] = "La duracion total debe usar tramos de 15 minutos."
+            errors["total_duration_minutes"] = "La duración total debe usar tramos de 15 minutos."
         if self.business_client_id and self.business_id:
             if self.business_client.business_id != self.business_id:
                 errors["business_client"] = "La ficha debe pertenecer al mismo negocio."
         if self.work_line_id and self.business_id:
             if self.work_line.business_id != self.business_id:
-                errors["work_line"] = "La linea debe pertenecer al mismo negocio."
+                errors["work_line"] = "La línea debe pertenecer al mismo negocio."
             elif not self.work_line.is_active and self.status == self.Status.CONFIRMED:
-                errors["work_line"] = "La linea debe estar activa para citas confirmadas."
-        if self.status == self.Status.COMPLETED and self.starts_at and self.starts_at > timezone.now():
-            errors["status"] = "Una cita futura no puede estar completada."
+                errors["work_line"] = "La línea debe estar activa para citas confirmadas."
+        if self.status in {self.Status.COMPLETED, self.Status.NO_SHOW} and self.starts_at:
+            if self.starts_at > timezone.now():
+                errors["status"] = "Una cita futura no puede cerrarse."
 
         if (
             not errors
@@ -441,13 +452,13 @@ class Appointment(models.Model):
             if self.pk:
                 overlaps = overlaps.exclude(pk=self.pk)
             if overlaps.exists():
-                errors["starts_at"] = "Ya existe una cita confirmada en esa linea y tramo."
+                errors["starts_at"] = "Ya existe una cita confirmada en esa línea y tramo."
 
         if self.pk and self.appointment_services.exists():
             services_minutes = self.services_duration_sum()
             if services_minutes != self.total_duration_minutes and not self.duration_adjustment_reason.strip():
                 errors["duration_adjustment_reason"] = (
-                    "Debe indicarse motivo si la duracion difiere de los servicios."
+                    "Debe indicarse motivo si la duración difiere de los servicios."
                 )
 
         if errors:
@@ -458,6 +469,11 @@ class Appointment(models.Model):
             item.duration_minutes_snapshot
             for item in self.appointment_services.all()
         )
+
+    def is_pending_closure(self, *, at=None):
+        """Return whether the elapsed appointment still needs a real outcome."""
+        at = at or timezone.now()
+        return self.status == self.Status.CONFIRMED and self.ends_at <= at
 
     def __str__(self):
         return f"{self.business_client} - {self.starts_at:%Y-%m-%d %H:%M}"
@@ -480,7 +496,7 @@ class AppointmentService(models.Model):
     )
     display_order = models.PositiveSmallIntegerField("orden", default=0)
     service_name_snapshot = models.CharField("nombre snapshot", max_length=140)
-    duration_minutes_snapshot = models.PositiveIntegerField("duracion snapshot")
+    duration_minutes_snapshot = models.PositiveIntegerField("duración snapshot")
     price_amount_snapshot = models.DecimalField(
         "precio snapshot",
         max_digits=8,
@@ -514,9 +530,9 @@ class AppointmentService(models.Model):
         if self.duration_minutes_snapshot is None:
             pass
         elif self.duration_minutes_snapshot <= 0:
-            errors["duration_minutes_snapshot"] = "La duracion debe ser positiva."
+            errors["duration_minutes_snapshot"] = "La duración debe ser positiva."
         elif self.duration_minutes_snapshot % 15 != 0:
-            errors["duration_minutes_snapshot"] = "La duracion debe usar tramos de 15 minutos."
+            errors["duration_minutes_snapshot"] = "La duración debe usar tramos de 15 minutos."
         if errors:
             raise ValidationError(errors)
 

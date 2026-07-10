@@ -5,6 +5,9 @@ from apps.booking.views import (
     professional_appointment_cancel,
     professional_appointment_complete,
     professional_appointment_detail,
+    professional_appointment_no_show,
+    professional_pending_appointments,
+    professional_appointments_bulk_close,
     professional_availability_edit,
     professional_availability_toggle,
     professional_closure_edit,
@@ -22,9 +25,12 @@ app_name = "booking"
 
 urlpatterns = [
     path("citas/nueva/", appointment_assistant, name="appointment_assistant"),
+    path("citas/pendientes/", professional_pending_appointments, name="professional_pending_appointments"),
+    path("citas/cerrar/", professional_appointments_bulk_close, name="professional_appointments_bulk_close"),
     path("citas/<int:appointment_id>/", professional_appointment_detail, name="professional_appointment_detail"),
     path("citas/<int:appointment_id>/cancelar/", professional_appointment_cancel, name="professional_appointment_cancel"),
     path("citas/<int:appointment_id>/completar/", professional_appointment_complete, name="professional_appointment_complete"),
+    path("citas/<int:appointment_id>/no-presentada/", professional_appointment_no_show, name="professional_appointment_no_show"),
     path("servicios/", professional_service_list, name="professional_service_list"),
     path("servicios/<int:service_id>/", professional_service_edit, name="professional_service_edit"),
     path("servicios/<int:service_id>/estado/", professional_service_toggle, name="professional_service_toggle"),

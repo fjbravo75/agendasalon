@@ -85,7 +85,7 @@
                       </div>
                       <div class="schedule-mini-actions">
                         <a class="button button--secondary" href="{% url 'booking:professional_availability_edit' rule.id %}">Editar</a>
-                        <form method="post" action="{% url 'booking:professional_availability_toggle' rule.id %}">
+                        <form method="post" action="{% url 'booking:professional_availability_toggle' rule.id %}" data-confirm-message="Vas a cambiar si este horario se utiliza para calcular horas disponibles. ¿Quieres continuar?">
                           {% csrf_token %}
                           {% if rule.is_active %}
                             <button class="button button--secondary" type="submit">Pausar</button>
@@ -149,7 +149,7 @@
                 </div>
                 <div class="schedule-mini-actions">
                   <a class="button button--secondary" href="{% url 'booking:professional_closure_edit' closure.id %}">Editar</a>
-                  <form method="post" action="{% url 'booking:professional_closure_toggle' closure.id %}">
+                  <form method="post" action="{% url 'booking:professional_closure_toggle' closure.id %}" data-confirm-message="Vas a cambiar si este cierre se aplica al calendario. ¿Quieres continuar?">
                     {% csrf_token %}
                     {% if closure.is_active %}
                       <button class="button button--secondary" type="submit">Pausar</button>
@@ -192,7 +192,7 @@
                   {% if line.is_active and line.future_confirmed_count %}
                     <button class="button button--secondary" type="button" disabled>Protegida</button>
                   {% else %}
-                    <form method="post" action="{% url 'booking:professional_work_line_toggle' line.id %}">
+                    <form method="post" action="{% url 'booking:professional_work_line_toggle' line.id %}" data-confirm-message="Vas a cambiar la capacidad disponible para nuevas citas. ¿Quieres continuar?">
                       {% csrf_token %}
                       {% if line.is_active %}
                         <button class="button button--secondary" type="submit">Pausar</button>
