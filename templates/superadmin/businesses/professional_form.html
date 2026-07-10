@@ -18,9 +18,12 @@
         {{ professional_form.non_field_errors }}
         <div class="saas-form-grid saas-form-grid--compact">
           {% for field in professional_form %}
-            <div class="field">{{ field.label_tag }}{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>
+            <div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>
           {% endfor %}
         </div>
+        <p class="saas-form-guidance" id="professional-access-guidance">
+          {{ professional_form.phone.help_text }} {{ professional_form.password.help_text }}
+        </p>
       </section>
       <div class="saas-management-form__actions"><button class="button" type="submit">Crear acceso profesional</button></div>
     </form>

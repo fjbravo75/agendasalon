@@ -2377,6 +2377,38 @@ a {
   gap: 7px;
 }
 
+.service-choice-list--scrollable {
+  max-height: 266px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+}
+
+.required-fields-legend {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.required-fields-legend span,
+.required-mark {
+  color: #a94337;
+  font-weight: 800;
+}
+
+.service-field-errors .errorlist {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  color: #8c382e;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .service-choice {
   min-height: var(--control-height-md);
   display: grid;
@@ -4723,6 +4755,15 @@ a {
 
 .saas-form-grid--compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.saas-form-guidance {
+  margin: 12px 0 0;
+  border-top: 1px solid var(--color-line);
+  padding-top: 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .saas-management-form__actions {

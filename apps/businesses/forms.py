@@ -102,19 +102,56 @@ class BusinessForm(forms.ModelForm):
 
 
 class ProfessionalCreateForm(forms.Form):
-    full_name = forms.CharField(label="Nombre del profesional", max_length=150)
+    full_name = forms.CharField(
+        label="Nombre del profesional",
+        max_length=150,
+        widget=forms.TextInput(
+            attrs={
+                "autocomplete": "name",
+                "placeholder": "Ej. Laura García",
+            }
+        ),
+    )
     phone = forms.CharField(
         label="Teléfono de acceso",
         max_length=32,
+        widget=forms.TelInput(
+            attrs={
+                "autocomplete": "tel",
+                "inputmode": "tel",
+                "placeholder": "Ej. 600 111 001",
+            }
+        ),
         help_text="Será su identificador para entrar en AgendaSalon.",
     )
-    email = forms.EmailField(label="Correo electrónico", required=False)
+    email = forms.EmailField(
+        label="Correo electrónico (opcional)",
+        required=False,
+        widget=forms.EmailInput(
+            attrs={
+                "autocomplete": "email",
+                "placeholder": "Ej. profesional@negocio.es",
+            }
+        ),
+    )
     password = forms.CharField(
         label="Contraseña temporal",
         strip=False,
-        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Mínimo 8 caracteres",
+            }
+        ),
         help_text="Debe tener al menos 8 caracteres y no ser demasiado común.",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in ("phone", "password"):
+            self.fields[field_name].widget.attrs["aria-describedby"] = (
+                "professional-access-guidance"
+            )
 
     def clean_phone(self):
         phone = self.cleaned_data["phone"]

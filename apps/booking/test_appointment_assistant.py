@@ -54,7 +54,30 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotContains(response, "BusinessClient")
         self.assertNotContains(response, "MVP")
         self.assertContains(response, "Selecciona un cliente")
+        self.assertContains(response, "Campos obligatorios")
+        self.assertContains(response, 'class="required-mark"', count=6)
+        self.assertContains(response, "service-choice-list--scrollable")
+        self.assertContains(response, "Correo electrónico")
+        self.assertContains(response, "Notas internas (opcional)")
         self.assertEqual(response.context["form"]["business_client"].value(), None)
+
+    def test_missing_services_uses_a_compact_actionable_message(self):
+        self.client.force_login(self.professional)
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {
+                "business_client": client_id,
+                "manual_channel": "telefono",
+                "target_date": "2026-07-09",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecciona al menos un servicio.")
+        self.assertNotContains(response, "Este campo es obligatorio.")
+        self.assertContains(response, 'class="service-field-errors"')
 
     def test_long_combined_appointment_shows_no_capacity_and_suggestions(self):
         self.client.force_login(self.professional)

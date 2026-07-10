@@ -55,6 +55,7 @@
               Para una llamada o mostrador: guarda nombre y teléfono, y sigue con la
               cita con la ficha ya seleccionada.
             </p>
+            <p class="required-fields-legend"><span aria-hidden="true">*</span> Campos obligatorios</p>
 
             {% if quick_client_form.non_field_errors %}
               <div class="alert">{{ quick_client_form.non_field_errors }}</div>
@@ -62,12 +63,12 @@
 
             <div class="quick-client-grid">
               <div class="field">
-                {{ quick_client_form.full_name.label_tag }}
+                <label for="{{ quick_client_form.full_name.id_for_label }}">Nombre completo <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
                 {{ quick_client_form.full_name }}
                 {{ quick_client_form.full_name.errors }}
               </div>
               <div class="field">
-                {{ quick_client_form.phone.label_tag }}
+                <label for="{{ quick_client_form.phone.id_for_label }}">Teléfono <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
                 {{ quick_client_form.phone }}
                 {{ quick_client_form.phone.errors }}
               </div>
@@ -97,23 +98,25 @@
             <div class="alert">{{ form.non_field_errors }}</div>
           {% endif %}
 
+          <p class="required-fields-legend"><span aria-hidden="true">*</span> Campos obligatorios</p>
+
         <div class="form-section">
           <h3>Cliente y canal</h3>
           <div class="assistant-field-grid">
             <div class="field">
-              {{ form.business_client.label_tag }}
+              <label for="{{ form.business_client.id_for_label }}">Cliente <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
               {{ form.business_client }}
               {{ form.business_client.errors }}
             </div>
 
             <div class="field">
-              {{ form.manual_channel.label_tag }}
+              <label for="{{ form.manual_channel.id_for_label }}">Canal <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
               {{ form.manual_channel }}
               {{ form.manual_channel.errors }}
             </div>
 
             <div class="field">
-              {{ form.target_date.label_tag }}
+              <label for="{{ form.target_date.id_for_label }}">Día <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
               {{ form.target_date }}
               {{ form.target_date.errors }}
             </div>
@@ -122,11 +125,13 @@
 
         <div class="form-section">
           <div class="section-title-row">
-            <h3>Servicios</h3>
+            <h3 id="services-heading">Servicios <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorios)</span></h3>
             <span>Duración real</span>
           </div>
-          {{ form.services.errors }}
-          <div class="service-choice-list">
+          {% if form.services.errors %}
+            <div class="service-field-errors" id="services-error" role="alert">{{ form.services.errors }}</div>
+          {% endif %}
+          <div class="service-choice-list service-choice-list--scrollable" role="group" aria-labelledby="services-heading"{% if form.services.errors %} aria-describedby="services-error"{% endif %}>
             {% for choice in form.services %}
               <label class="service-choice">
                 <span class="service-choice__dot" aria-hidden="true"></span>

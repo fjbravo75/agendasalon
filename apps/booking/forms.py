@@ -21,7 +21,7 @@ WEEKDAY_CHOICES = (
 PROFESSIONAL_CHANNEL_CHOICES = (
     (Appointment.ManualChannel.PHONE, "Teléfono"),
     (Appointment.ManualChannel.WHATSAPP, "WhatsApp"),
-    (Appointment.ManualChannel.EMAIL, "Email"),
+    (Appointment.ManualChannel.EMAIL, "Correo electrónico"),
     (Appointment.ManualChannel.FRONT_DESK, "Mostrador"),
     (Appointment.ManualChannel.OTHER, "Otro"),
 )
@@ -40,21 +40,25 @@ class AppointmentSearchForm(forms.Form):
         label="Cliente",
         queryset=BusinessClient.objects.none(),
         empty_label="Selecciona un cliente",
+        error_messages={"required": "Selecciona un cliente."},
     )
     manual_channel = forms.ChoiceField(
         label="Canal",
         choices=PROFESSIONAL_CHANNEL_CHOICES,
         initial=Appointment.ManualChannel.PHONE,
+        error_messages={"required": "Selecciona el canal."},
     )
     services = forms.ModelMultipleChoiceField(
         label="Servicios",
         queryset=Service.objects.none(),
         widget=forms.CheckboxSelectMultiple,
+        error_messages={"required": "Selecciona al menos un servicio."},
     )
     target_date = forms.DateField(
         label="Día",
         input_formats=["%Y-%m-%d"],
         widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+        error_messages={"required": "Indica el día de la cita."},
     )
     adjusted_duration_minutes = forms.IntegerField(
         label="Ajustar duración",
