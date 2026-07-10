@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Agenda de {{ business.commercial_name }} - AgendaSalon{% endblock %}
+{% block body_class %}react-agenda-page{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'react/agenda.css' %}?v=20260710-react-agenda-v1">
+{% endblock %}
+
+{% block content %}
+  {{ agenda_config|json_script:"professional-agenda-config" }}
+  <section
+    id="professional-agenda-root"
+    class="react-agenda-mount"
+    aria-label="Agenda profesional de {{ business.commercial_name }}"
+  >
+    <div class="agenda-loading-fallback" role="status">
+      <span class="agenda-loading-fallback__mark" aria-hidden="true"></span>
+      <div>
+        <strong>Preparando la agenda de {{ business.commercial_name }}</strong>
+        <p>Estamos reuniendo citas, horarios y huecos disponibles.</p>
+      </div>
+    </div>
+    <noscript>
+      <div class="agenda-noscript">
+        <strong>Esta agenda necesita JavaScript.</strong>
+        <p>Puedes seguir trabajando desde el resumen profesional o crear una cita.</p>
+        <a class="button" href="{% url 'dashboards:professional_home' %}">Volver al resumen</a>
+      </div>
+    </noscript>
+  </section>
+{% endblock %}
+
+{% block extra_js %}
+  <script type="module" src="{% static 'react/agenda.js' %}?v=20260710-react-agenda-v1"></script>
+{% endblock %}

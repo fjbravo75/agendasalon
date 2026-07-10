@@ -1,0 +1,23 @@
+{
+  "name": "agendasalon-frontend",
+  "version": "0.15.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test:frontend": "node --test frontend/**/*.test.js",
+    "check": "npm run test:frontend && npm run build"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "vite": "^8.1.4"
+  }
+}

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -63,6 +63,60 @@ WEEKDAY_LABELS = (
     (5, "Sábado"),
     (6, "Domingo"),
 )
+
+
+@login_required
+def professional_agenda(request):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+
+    active_services = list(
+        business.services.filter(is_active=True).order_by("display_order", "name", "pk")
+    )
+    try:
+        slot_interval_minutes = business.calendar_settings.slot_interval_minutes
+    except ObjectDoesNotExist:
+        slot_interval_minutes = 15
+
+    service_durations = {
+        service.duration_minutes
+        for service in active_services
+        if service.duration_minutes % slot_interval_minutes == 0
+    }
+    duration_options = sorted(
+        set(range(slot_interval_minutes, 4 * 60 + 1, slot_interval_minutes))
+        | service_durations
+    )
+    if not duration_options:
+        duration_options = [slot_interval_minutes]
+    default_duration = min(service_durations) if service_durations else duration_options[0]
+
+    appointment_url_template = reverse(
+        "booking:professional_appointment_detail",
+        args=[999999],
+    ).replace("999999", "__appointment_id__")
+    agenda_config = {
+        "dayEndpoint": reverse("booking:professional_agenda_day_data"),
+        "monthEndpoint": reverse("booking:professional_agenda_month_data"),
+        "appointmentAssistantUrl": reverse("booking:appointment_assistant"),
+        "appointmentUrlTemplate": appointment_url_template,
+        "businessName": business.commercial_name,
+        "professionalSummaryUrl": reverse("dashboards:professional_home"),
+        "scheduleUrl": reverse("booking:professional_schedule"),
+        "initialDate": timezone.localdate().isoformat(),
+        "initialDuration": default_duration,
+        "durationOptions": duration_options,
+        "slotIntervalMinutes": slot_interval_minutes,
+    }
+    return render(
+        request,
+        "professional/agenda.html",
+        {
+            "business": business,
+            "agenda_config": agenda_config,
+        },
+    )
 
 
 @login_required

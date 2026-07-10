@@ -1,7 +1,12 @@
 from django.urls import path
 
+from apps.booking.api import (
+    professional_agenda_day_data,
+    professional_agenda_month_data,
+)
 from apps.booking.views import (
     appointment_assistant,
+    professional_agenda,
     professional_appointment_cancel,
     professional_appointment_complete,
     professional_appointment_detail,
@@ -24,6 +29,13 @@ from apps.booking.views import (
 app_name = "booking"
 
 urlpatterns = [
+    path("agenda/", professional_agenda, name="professional_agenda"),
+    path(
+        "agenda/datos/",
+        professional_agenda_day_data,
+        name="professional_agenda_day_data",
+    ),
+    path("agenda/mes/", professional_agenda_month_data, name="professional_agenda_month_data"),
     path("citas/nueva/", appointment_assistant, name="appointment_assistant"),
     path("citas/pendientes/", professional_pending_appointments, name="professional_pending_appointments"),
     path("citas/cerrar/", professional_appointments_bulk_close, name="professional_appointments_bulk_close"),
