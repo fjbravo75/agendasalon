@@ -969,3 +969,136 @@
     transition: none;
   }
 }
+
+body.theme-dark.react-agenda-page {
+  background:
+    radial-gradient(circle at 8% 10%, rgba(91, 199, 179, 0.08), transparent 30%),
+    #141917;
+}
+
+body.theme-dark.react-agenda-page .app-header {
+  background: #1d2421;
+}
+
+.theme-dark .react-agenda {
+  --agenda-ink: #f4eee7;
+  --agenda-muted: #b9aea5;
+  --agenda-border: #3b4741;
+  --agenda-surface: #1d2421;
+  --agenda-surface-soft: #28322d;
+  --agenda-green: #5bc7b3;
+  --agenda-green-dark: #80dfcd;
+  --agenda-green-soft: #203f38;
+  --agenda-coral: #e08473;
+  --agenda-warning: #e7b25a;
+}
+
+.theme-dark .agenda-duration-control,
+.theme-dark .agenda-selected-day {
+  background: rgba(29, 36, 33, 0.92);
+}
+
+.theme-dark .agenda-duration-control select,
+.theme-dark .agenda-calendar__navigation button,
+.theme-dark .agenda-resource-error button,
+.theme-dark .agenda-decision__slot > button,
+.theme-dark .agenda-suggestions button,
+.theme-dark .agenda-line-tabs button {
+  color: var(--agenda-ink);
+  background: #242d29;
+  border-color: var(--agenda-border);
+}
+
+.theme-dark .agenda-calendar__day {
+  color: var(--agenda-muted);
+  background: #28322d;
+}
+
+.theme-dark .agenda-calendar__day.is-past {
+  color: #776f69;
+  background: transparent;
+}
+
+.theme-dark .agenda-calendar__day.is-selected,
+.theme-dark .agenda-line-tabs button.is-active {
+  color: #10201c;
+  background: var(--agenda-green-dark);
+}
+
+.theme-dark .agenda-decision__slot {
+  background: linear-gradient(145deg, #203f38, #1b302a);
+}
+
+.theme-dark .agenda-day-notice {
+  color: #f1c77e;
+  background: #392f1f;
+  border-color: #66502d;
+}
+
+.theme-dark .agenda-day-notice span {
+  color: #d9b46f;
+}
+
+.theme-dark .agenda-timeline-card__hint,
+.theme-dark .agenda-timeline__rail {
+  background: #202824;
+}
+
+.theme-dark .agenda-timeline__corner,
+.theme-dark .agenda-timeline__line-head {
+  background: #242d29;
+}
+
+.theme-dark .agenda-timeline {
+  background: #18201c;
+}
+
+.theme-dark .agenda-timeline__line {
+  background-color: #1d2521;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(210, 225, 217, 0.08) 0,
+      rgba(210, 225, 217, 0.08) 1px,
+      transparent 1px,
+      transparent var(--agenda-row-height)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--agenda-row-height) * 4 - 1px),
+      rgba(210, 225, 217, 0.14) calc(var(--agenda-row-height) * 4 - 1px),
+      rgba(210, 225, 217, 0.14) calc(var(--agenda-row-height) * 4)
+    );
+}
+
+.theme-dark .agenda-appointment {
+  color: var(--agenda-ink);
+  background: #23443c;
+  border-color: #3f6d62;
+}
+
+.theme-dark .agenda-appointment time,
+.theme-dark .agenda-appointment small {
+  color: #9bd7c9;
+}
+
+.theme-dark .agenda-appointment.is-cancelada,
+.theme-dark .agenda-appointment.is-no_presentada {
+  background: #2d2b29;
+  border-color: #574f4a;
+}
+
+.theme-dark .agenda-appointment.is-current {
+  background: #432d29;
+}
+
+.theme-dark .agenda-resource-error,
+.theme-dark .agenda-empty-state {
+  background: #382824;
+  border-color: #68483e;
+}
+
+.theme-dark .agenda-skeleton span {
+  background: linear-gradient(90deg, #222b27 25%, #2c3631 50%, #222b27 75%) 0 0 / 200% 100%;
+}

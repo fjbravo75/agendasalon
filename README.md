@@ -18,6 +18,7 @@ disponibilidad, puntuación y revalidación.
 - Plantillas Django y CSS para la mayor parte del producto
 - React 19 y Vite 8 para dos islas acotadas: agenda profesional y cuadro de
   mando del superadministrador
+- Pillow 12 para validar y procesar las imágenes públicas subidas por los negocios
 
 ## Puesta en marcha local
 
@@ -105,6 +106,13 @@ filtrar negocios sin dar acceso al flujo de reserva ni mover mutaciones fuera de
 los formularios Django protegidos. La actividad global no expone nombres de
 clientes ni datos de contacto.
 
+Cada negocio dispone de `/profesional/ajustes/`. Desde esa pantalla el equipo
+puede elegir modo claro u oscuro para todo su panel profesional y subir una
+imagen JPG, PNG o WebP para personalizar la reserva online, el acceso cliente y
+el registro cliente. La imagen se valida por formato, peso y dimensiones; si se
+retira, AgendaSalon recupera automáticamente la imagen estándar de salón o
+barbería. El acceso interno de profesionales mantiene su imagen propia.
+
 La pantalla Django del flujo profesional está disponible en
 `/profesional/citas/nueva/`. Permite seleccionar cliente, canal, varios
 servicios y día; calcula la duración total; muestra calendario mensual,
@@ -157,6 +165,7 @@ comando puede ejecutarse varias veces sin duplicar los registros principales.
 - `/profesional/citas/pendientes/`: revisión completa de citas pendientes de cierre.
 - `/profesional/servicios/`: catálogo profesional.
 - `/profesional/horarios/`: disponibilidad, cierres y líneas.
+- `/profesional/ajustes/`: modo del panel e imagen pública del negocio.
 - `/clientes/profesional/`: fichas de cliente.
 - `/superadmin/dashboard/`: estado general de AgendaSalon.
 - `/superadmin/dashboard/datos/`: datos JSON protegidos del cuadro de mando.
@@ -180,7 +189,7 @@ Verificación actual:
 npm.cmd run check
 ```
 
-La última verificación local completa deja la batería en 153 pruebas Django y 16
+La última verificación local completa deja la batería en 161 pruebas Django y 16
 pruebas frontend correctas. El build de producción y `npm audit` también se han
 verificado sin incidencias ni vulnerabilidades conocidas.
 También se puede ejecutar por dominios:
