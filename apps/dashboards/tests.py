@@ -296,10 +296,9 @@ class DashboardAccessTests(TestCase):
         response = self.client.get(reverse("dashboards:superadmin_home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Estado de AgendaSalon")
-        self.assertContains(response, "Resumen por negocio")
-        self.assertContains(response, "Actividad reciente")
-        self.assertContains(response, "Reserva online activa")
+        self.assertContains(response, "Preparando el control de AgendaSalon")
+        self.assertContains(response, "superadmin-dashboard-root")
+        self.assertContains(response, "superadmin-dashboard-config")
         self.assertNotContains(response, "Actividad acumulada")
         self.assertNotContains(response, "Abrir reserva")
 
@@ -326,5 +325,5 @@ class DashboardAccessTests(TestCase):
 
         response = self.client.get(reverse("dashboards:superadmin_home"))
 
-        self.assertContains(response, "Cita creada")
+        self.assertContains(response, "superadmin-dashboard-root")
         self.assertNotContains(response, "Carmen Ruiz")

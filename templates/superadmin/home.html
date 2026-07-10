@@ -1,141 +1,37 @@
 {% extends "base.html" %}
+{% load static %}
 
-{% block title %}Dashboard superadministrador - AgendaSalon{% endblock %}
+{% block title %}Control de AgendaSalon{% endblock %}
+{% block body_class %}react-superadmin-page{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'react/dashboard.css' %}?v=20260710-react-dashboard-v1">
+{% endblock %}
 
 {% block content %}
-  <section class="saas-dashboard" aria-label="Panel de administración de AgendaSalon">
-    <header class="professional-dashboard__hero saas-dashboard__hero">
-      <div class="professional-dashboard__copy">
-        <span>Administración de la plataforma</span>
-        <h1 class="page-title page-title--compact">Estado de AgendaSalon</h1>
-        <p>Consulta qué negocios están activos, cuáles tienen su configuración completa y si aceptan reservas online.</p>
+  {{ dashboard_config|json_script:"superadmin-dashboard-config" }}
+  <section
+    id="superadmin-dashboard-root"
+    class="react-superadmin-mount"
+    aria-label="Control de AgendaSalon"
+  >
+    <div class="superadmin-loading-fallback" role="status">
+      <span class="superadmin-loading-fallback__mark" aria-hidden="true"></span>
+      <div>
+        <strong>Preparando el control de AgendaSalon</strong>
+        <p>Estamos reuniendo el estado de los negocios y la actividad registrada.</p>
       </div>
-      <div class="professional-dashboard__actions">
-        {% if attention_businesses_count %}
-          <span class="ops-status ops-status--warning">{{ attention_businesses_count }} por configurar</span>
-        {% elif businesses_with_pending_closure_count %}
-          <span class="ops-status ops-status--warning">{{ businesses_with_pending_closure_count }} equipo{% if businesses_with_pending_closure_count != 1 %}s{% endif %} con cierres pendientes</span>
-        {% else %}
-          <span class="ops-status ops-status--ready">Configuración al día</span>
-        {% endif %}
-        <a class="button button--secondary" href="{% url 'businesses:superadmin_business_list' %}">Gestionar negocios</a>
-        <a class="button" href="{% url 'businesses:superadmin_business_create' %}">Nuevo negocio</a>
+    </div>
+    <noscript>
+      <div class="superadmin-noscript">
+        <strong>Este cuadro de mando necesita JavaScript.</strong>
+        <p>Puedes seguir gestionando altas, accesos y estados desde el listado de negocios.</p>
+        <a class="button" href="{% url 'businesses:superadmin_business_list' %}">Gestionar negocios</a>
       </div>
-    </header>
-
-    <div class="saas-metric-grid" aria-label="Resumen general">
-      <article class="saas-metric saas-metric--primary">
-        <span>Negocios preparados</span>
-        <strong>{{ operational_businesses_count }}</strong>
-        <p>De {{ active_businesses }} activos con servicios, líneas, horario y acceso profesional.</p>
-      </article>
-      <article class="saas-metric{% if attention_businesses_count %} saas-metric--warning{% endif %}">
-        <span>Configuración pendiente</span>
-        <strong>{{ attention_businesses_count }}</strong>
-        <p>Negocios activos a los que les falta algún ajuste básico.</p>
-      </article>
-      <article class="saas-metric{% if businesses_with_pending_closure_count %} saas-metric--warning{% endif %}">
-        <span>Equipos con cierres pendientes</span>
-        <strong>{{ businesses_with_pending_closure_count }}</strong>
-        <p>{{ pending_closure_count }} citas cuyo resultado debe registrar el profesional.</p>
-      </article>
-      <article class="saas-metric">
-        <span>Reserva online activa</span>
-        <strong>{{ public_booking_businesses_count }}</strong>
-        <p>De {{ active_businesses }} negocios activos que aceptan reservas online.</p>
-      </article>
-    </div>
-
-    <div class="saas-workspace">
-      <section class="saas-business-panel" aria-labelledby="saas-businesses-title">
-        <div class="ops-section-head">
-          <div>
-            <span>Resumen por negocio</span>
-            <h2 id="saas-businesses-title">Negocios</h2>
-            <p>Configuración, capacidad, clientes y estado de reserva online.</p>
-          </div>
-          <strong>{{ total_businesses }}</strong>
-        </div>
-
-        <div class="saas-business-list">
-          {% for business in businesses %}
-            <article class="saas-business-row">
-              <div class="saas-business-row__identity">
-                <span>{{ forloop.counter|stringformat:"02d" }}</span>
-                <div>
-                  <h3>{{ business.commercial_name }}</h3>
-                  <p>{{ business.city|default:"Sin localidad indicada" }} · {{ business.professionals_total }} profesional{% if business.professionals_total != 1 %}es{% endif %}</p>
-                </div>
-              </div>
-              <div class="saas-business-row__figures" aria-label="Datos de {{ business.commercial_name }}">
-                <span><strong>{{ business.active_services_count }}</strong> servicio{% if business.active_services_count != 1 %}s{% endif %}</span>
-                <span><strong>{{ business.active_lines_count }}</strong> línea{% if business.active_lines_count != 1 %}s{% endif %}</span>
-                <span><strong>{{ business.active_rules_count }}</strong> tramo{% if business.active_rules_count != 1 %}s{% endif %}</span>
-                <span><strong>{{ business.clients_total }}</strong> cliente{% if business.clients_total != 1 %}s{% endif %}</span>
-                <span><strong>{{ business.appointments_total }}</strong> cita{% if business.appointments_total != 1 %}s{% endif %}</span>
-              </div>
-              <div class="saas-business-row__state">
-                <span class="saas-health saas-health--{{ business.health_tone }}">{{ business.health_label }}</span>
-                <small>{{ business.health_detail }}</small>
-                <small>{% if business.is_active and business.public_booking_enabled %}Reserva pública activa{% else %}Reserva pública pausada{% endif %}</small>
-              </div>
-              <a class="appointment-inline-link" href="{% url 'businesses:superadmin_business_detail' business.id %}">Gestionar</a>
-            </article>
-          {% empty %}
-            <p class="soft-note">Todavía no hay negocios dados de alta.</p>
-          {% endfor %}
-        </div>
-      </section>
-
-      <aside class="saas-side-stack" aria-label="Actividad registrada y distribución de citas por estado y canal">
-        <section class="saas-side-panel">
-          <div class="ops-section-head ops-section-head--compact">
-            <div>
-              <span>Registro de la plataforma</span>
-              <h2>Actividad reciente</h2>
-            </div>
-          </div>
-          <div class="saas-activity-list">
-            {% for event in recent_activity %}
-              <div>
-                <time>{{ event.created_at|date:"j M · H:i" }}</time>
-                <strong>{{ event.business.commercial_name }}</strong>
-                <span>{{ event.get_event_type_display }} · {{ event.get_origin_display }}</span>
-              </div>
-            {% empty %}
-              <p class="soft-note">Aún no hay movimientos registrados.</p>
-            {% endfor %}
-          </div>
-        </section>
-
-        <section class="saas-side-panel">
-          <div class="ops-section-head ops-section-head--compact">
-            <div>
-              <span>Resultado acumulado</span>
-              <h2>Citas por estado</h2>
-            </div>
-          </div>
-          <div class="saas-breakdown-list">
-            {% for item in status_summary %}
-              <div><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div>
-            {% endfor %}
-          </div>
-        </section>
-
-        <section class="saas-side-panel">
-          <div class="ops-section-head ops-section-head--compact">
-            <div>
-              <span>Origen de la reserva</span>
-              <h2>Citas por canal</h2>
-            </div>
-          </div>
-          <div class="saas-breakdown-list">
-            {% for item in channel_summary %}
-              <div><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div>
-            {% endfor %}
-          </div>
-        </section>
-      </aside>
-    </div>
+    </noscript>
   </section>
+{% endblock %}
+
+{% block extra_js %}
+  <script type="module" src="{% static 'react/dashboard.js' %}?v=20260710-react-dashboard-v1"></script>
 {% endblock %}
