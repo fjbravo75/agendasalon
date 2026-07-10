@@ -33,6 +33,9 @@ htmlcov/
 _visual_checks/
 *.log
 
+# Local design candidates not used by the product
+static/img/customer-login-barberia-norte-bg.png
+
 # OS/editor
 .DS_Store
 Thumbs.db
