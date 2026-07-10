@@ -1,3 +1,4 @@
+from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -6,7 +7,7 @@ from apps.core.text import normalize_search_text
 
 
 class BusinessClient(models.Model):
-    """Customer file scoped to a business, without login in the MVP."""
+    """Customer file scoped to a business."""
 
     class Source(models.TextChoices):
         PROFESSIONAL = "professional", "Profesional"
@@ -159,5 +160,74 @@ class BusinessClientAuthorizedContact(models.Model):
 
     def __str__(self):
         return f"{self.full_name} para {self.business_client}"
+
+
+class BusinessClientAccess(models.Model):
+    """Digital access for an end customer of one business."""
+
+    business = models.ForeignKey(
+        "businesses.Business",
+        on_delete=models.CASCADE,
+        related_name="client_accesses",
+        verbose_name="negocio",
+    )
+    business_client = models.OneToOneField(
+        BusinessClient,
+        on_delete=models.CASCADE,
+        related_name="access",
+        verbose_name="ficha de cliente",
+    )
+    phone = models.CharField("telefono", max_length=32)
+    phone_normalized = models.CharField(
+        "telefono normalizado",
+        max_length=32,
+        editable=False,
+    )
+    password_hash = models.CharField("hash de contrasena", max_length=128)
+    is_active = models.BooleanField("activo", default=True)
+    last_login_at = models.DateTimeField("ultimo acceso", null=True, blank=True)
+    created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
+    updated_at = models.DateTimeField("ultima actualizacion", auto_now=True)
+
+    class Meta:
+        verbose_name = "acceso de cliente"
+        verbose_name_plural = "accesos de cliente"
+        ordering = ["business__commercial_name", "business_client__full_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "phone_normalized"],
+                name="unique_business_client_access_phone",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["business", "phone_normalized"], name="client_access_phone_idx"),
+            models.Index(fields=["business", "is_active"], name="client_access_active_idx"),
+        ]
+
+    def set_password(self, raw_password):
+        self.password_hash = make_password(raw_password)
+
+    def check_password(self, raw_password):
+        return check_password(raw_password, self.password_hash)
+
+    def clean(self):
+        super().clean()
+        if self.business_client_id and self.business_id:
+            if self.business_client.business_id != self.business_id:
+                raise ValidationError(
+                    {"business_client": "La ficha debe pertenecer al mismo negocio que el acceso."}
+                )
+        if not self.phone.strip():
+            raise ValidationError({"phone": "El telefono es obligatorio."})
+        self.phone_normalized = normalize_phone(self.phone)
+
+    def save(self, *args, **kwargs):
+        if self.business_client_id and not self.business_id:
+            self.business = self.business_client.business
+        self.phone_normalized = normalize_phone(self.phone)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Acceso cliente {self.business_client.full_name} ({self.business})"
 
 # Create your models here.

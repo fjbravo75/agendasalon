@@ -302,6 +302,7 @@ class Appointment(models.Model):
         WHATSAPP = "whatsapp", "WhatsApp"
         EMAIL = "email", "Email"
         FRONT_DESK = "mostrador", "Mostrador"
+        PUBLIC_WEB = "web_publica", "Web publica"
         OTHER = "otro", "Otro"
 
     business = models.ForeignKey(
@@ -337,7 +338,7 @@ class Appointment(models.Model):
         default=Status.CONFIRMED,
     )
     manual_channel = models.CharField(
-        "canal manual",
+        "canal de origen",
         max_length=20,
         choices=ManualChannel.choices,
         default=ManualChannel.PHONE,
