@@ -5,6 +5,7 @@ from the environment when the deployment phase is explicitly opened.
 """
 
 from .base import *  # noqa: F403
+from .database import postgres_database_config
 
 
 DEBUG = False
@@ -20,6 +21,10 @@ ALLOWED_HOSTS = [
 ]
 if not ALLOWED_HOSTS:
     raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS is required in production.")
+
+DATABASES = {
+    "default": postgres_database_config(os.environ.get("DJANGO_DATABASE_URL", ""))
+}
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()

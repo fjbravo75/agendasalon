@@ -12,6 +12,10 @@ from apps.customers.models import (
 
 
 CLIENT_ACCESS_SESSION_KEY = "business_client_access_id"
+PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE = (
+    "No podemos crear una cuenta con esos datos. "
+    "Contacta con el negocio para activar tu acceso."
+)
 
 
 def authenticate_client_access(*, business, phone: str, password: str):
@@ -68,27 +72,23 @@ def register_client_access(*, business, full_name: str, phone: str, password: st
         business=business,
         phone_normalized=phone_normalized,
     ).exists():
-        raise ValidationError("Ya existe una cuenta cliente con ese teléfono.")
+        raise ValidationError(PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE)
 
-    client = (
-        BusinessClient.objects.filter(
-            business=business,
-            phone_normalized=phone_normalized,
-            is_active=True,
-        )
-        .order_by("full_name", "pk")
-        .first()
+    if BusinessClient.objects.filter(
+        business=business,
+        phone_normalized=phone_normalized,
+    ).exists():
+        raise ValidationError(PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE)
+
+    client = BusinessClient(
+        business=business,
+        full_name=full_name,
+        phone=phone,
+        source=BusinessClient.Source.OTHER,
+        internal_notes="Ficha creada desde registro online de cliente.",
     )
-    if client is None:
-        client = BusinessClient(
-            business=business,
-            full_name=full_name,
-            phone=phone,
-            source=BusinessClient.Source.OTHER,
-            internal_notes="Ficha creada desde registro online de cliente.",
-        )
-        client.full_clean()
-        client.save()
+    client.full_clean()
+    client.save()
 
     access = BusinessClientAccess(
         business=business,

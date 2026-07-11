@@ -15,6 +15,7 @@ disponibilidad, puntuación y revalidación.
 - Django 5.2 LTS
 - Node.js 20.19 o 22.12 en adelante para compilar el frontend
 - SQLite en desarrollo local
+- PostgreSQL obligatorio en producción
 - Plantillas Django y CSS para la mayor parte del producto
 - React 19 y Vite 8 para dos islas acotadas: agenda profesional y cuadro de
   mando del superadministrador
@@ -122,6 +123,12 @@ final se resuelve mediante POST protegido y revalidación del hueco.
 El acceso cliente final está disponible en `/clientes/<slug>/entrar/`, con alta
 separada en `/clientes/<slug>/registro/`.
 
+El registro público solo crea fichas nuevas. Si el teléfono ya pertenece a una
+ficha del negocio, AgendaSalon no la vincula ni revela su identidad: el cliente
+debe contactar con el negocio para que se prepare un acceso verificado. Esta
+regla impide que conocer un teléfono permita apropiarse del historial de otra
+persona.
+
 La reserva online está disponible en `/reservar/<slug>/`. Permite al cliente
 elegir servicios, ver duración, precio y opciones recomendadas sin sesión. Al
 elegir una hora guarda un borrador temporal, solicita acceso cliente y recupera
@@ -189,9 +196,11 @@ Verificación actual:
 npm.cmd run check
 ```
 
-La última verificación local completa deja la batería en 161 pruebas Django y 16
-pruebas frontend correctas. El build de producción y `npm audit` también se han
-verificado sin incidencias ni vulnerabilidades conocidas.
+La última verificación completa deja la batería en 172 pruebas Django y
+operativas, además de 16 pruebas frontend correctas. La misma batería Django se
+ha ejecutado sobre PostgreSQL 17, incluida una prueba concurrente real. El build
+de producción y `npm audit` también se han verificado sin incidencias ni
+vulnerabilidades conocidas.
 También se puede ejecutar por dominios:
 
 ```powershell
@@ -199,3 +208,16 @@ También se puede ejecutar por dominios:
 .\.venv\Scripts\python.exe manage.py test apps.customers
 .\.venv\Scripts\python.exe manage.py test apps.accounts apps.businesses apps.dashboards apps.core apps.holidays apps.notifications
 ```
+
+## Perfil de producción y continuidad
+
+WSGI y ASGI arrancan con `config.settings.prod` y fallan si faltan secreto,
+hosts o `DJANGO_DATABASE_URL`. El desarrollo local continúa usando
+`config.settings.dev` y SQLite mediante `manage.py`.
+
+El procedimiento de PostgreSQL, copia de base de datos y media, verificación y
+restauración está documentado en
+[`docs/OPERACION_PRODUCCION.md`](docs/OPERACION_PRODUCCION.md). La herramienta
+operativa no acepta la URL de base de datos por línea de comandos: la lee de la
+variable `DJANGO_DATABASE_URL` para no exponer credenciales en la lista de
+procesos.

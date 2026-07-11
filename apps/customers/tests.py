@@ -90,22 +90,29 @@ class CustomerModelTests(TestCase):
                 is_primary_contact=True,
             )
 
-    def test_client_access_reuses_existing_client_file(self):
+    def test_public_registration_cannot_claim_an_existing_client_file(self):
         client = BusinessClient.objects.create(
             business=self.business,
             full_name="María López",
             phone="600111222",
         )
 
-        access = register_client_access(
-            business=self.business,
-            full_name="María López",
-            phone="600111222",
-            password="ClienteDemo2026!",
-        )
+        with self.assertRaises(ValidationError):
+            register_client_access(
+                business=self.business,
+                full_name="Otra persona",
+                phone="600111222",
+                password="ClienteDemo2026!",
+            )
 
-        self.assertEqual(access.business_client, client)
-        self.assertTrue(access.check_password("ClienteDemo2026!"))
+        client.refresh_from_db()
+        self.assertEqual(client.full_name, "María López")
+        self.assertFalse(
+            BusinessClientAccess.objects.filter(
+                business=self.business,
+                phone_normalized="+34600111222",
+            ).exists()
+        )
 
     def test_client_access_phone_is_unique_inside_business(self):
         client = BusinessClient.objects.create(
@@ -135,6 +142,27 @@ class CustomerModelTests(TestCase):
 
         with self.assertRaises(IntegrityError), transaction.atomic():
             duplicate.save()
+
+    def test_same_phone_in_another_business_does_not_block_registration(self):
+        other_business = Business.objects.create(
+            commercial_name="Barbería Norte",
+            slug="barberia-norte",
+        )
+        BusinessClient.objects.create(
+            business=other_business,
+            full_name="Cliente Norte",
+            phone="600111222",
+        )
+
+        access = register_client_access(
+            business=self.business,
+            full_name="Cliente Mari",
+            phone="600111222",
+            password="ClienteDemo2026!",
+        )
+
+        self.assertEqual(access.business, self.business)
+        self.assertEqual(access.business_client.full_name, "Cliente Mari")
 
 
 class ClientAccessViewTests(TestCase):
@@ -268,6 +296,36 @@ class ClientAccessViewTests(TestCase):
                 business=self.business,
                 business_client__full_name="Cliente Web",
                 phone_normalized="+34600999001",
+            ).exists()
+        )
+
+    def test_registration_with_existing_phone_fails_closed_without_disclosing_the_client(self):
+        BusinessClient.objects.create(
+            business=self.business,
+            full_name="María López",
+            phone="600999002",
+        )
+
+        response = self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Otra persona",
+                "phone": "600999002",
+                "password": "ClienteDemo2026!",
+                "password_confirm": "ClienteDemo2026!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "No podemos crear una cuenta con esos datos. Contacta con el negocio para activar tu acceso.",
+        )
+        self.assertNotContains(response, "María López")
+        self.assertFalse(
+            BusinessClientAccess.objects.filter(
+                business=self.business,
+                phone_normalized="+34600999002",
             ).exists()
         )
 

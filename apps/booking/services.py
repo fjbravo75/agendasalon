@@ -42,7 +42,7 @@ def confirm_appointment(draft: AppointmentDraft) -> Appointment:
         ).order_by("display_order", "name", "pk")
     )
     if {service.id for service in active_services} != set(service_ids):
-        raise ValidationError("Alguno de los servicios ya no esta disponible.")
+        raise ValidationError("Alguno de los servicios ya no está disponible.")
 
     work_line = WorkLine.objects.select_for_update().get(
         business=draft.business,
@@ -66,7 +66,7 @@ def confirm_appointment(draft: AppointmentDraft) -> Appointment:
         None,
     )
     if matching_slot is None:
-        raise ValidationError("Ese hueco ya no esta disponible. Elige otro horario.")
+        raise ValidationError("Ese hueco ya no está disponible. Elige otro horario.")
 
     appointment = Appointment(
         business=draft.business,
@@ -125,6 +125,7 @@ def confirm_appointment(draft: AppointmentDraft) -> Appointment:
 
 @transaction.atomic
 def cancel_appointment(appointment: Appointment, *, cancelled_by, reason: str) -> Appointment:
+    appointment = _locked_appointment(appointment)
     if appointment.status != Appointment.Status.CONFIRMED:
         raise ValidationError("Solo se puede cancelar una cita confirmada.")
 
@@ -162,6 +163,7 @@ def cancel_appointment(appointment: Appointment, *, cancelled_by, reason: str) -
 
 @transaction.atomic
 def complete_appointment(appointment: Appointment, *, completed_by, at=None) -> Appointment:
+    appointment = _locked_appointment(appointment)
     at = at or timezone.now()
     if appointment.status != Appointment.Status.CONFIRMED:
         raise ValidationError("Solo se puede completar una cita confirmada.")
@@ -196,6 +198,7 @@ def complete_appointment(appointment: Appointment, *, completed_by, at=None) -> 
 
 @transaction.atomic
 def mark_appointment_no_show(appointment: Appointment, *, marked_by, at=None) -> Appointment:
+    appointment = _locked_appointment(appointment)
     at = at or timezone.now()
     if appointment.status != Appointment.Status.CONFIRMED:
         raise ValidationError("Solo se puede registrar la ausencia de una cita confirmada.")
@@ -231,7 +234,7 @@ def mark_appointment_no_show(appointment: Appointment, *, marked_by, at=None) ->
 @transaction.atomic
 def close_appointments(appointments, *, outcome, closed_by, at=None) -> int:
     at = at or timezone.now()
-    appointments = tuple(appointments)
+    appointments = tuple(sorted(appointments, key=lambda appointment: appointment.pk))
     if outcome not in {Appointment.Status.COMPLETED, Appointment.Status.NO_SHOW}:
         raise ValidationError("El resultado elegido no es válido.")
 
@@ -241,6 +244,13 @@ def close_appointments(appointments, *, outcome, closed_by, at=None) -> int:
         else:
             mark_appointment_no_show(appointment, marked_by=closed_by, at=at)
     return len(appointments)
+
+
+def _locked_appointment(appointment: Appointment) -> Appointment:
+    """Reload and lock the current row before applying an outcome transition."""
+    if appointment.pk is None:
+        raise ValidationError("La cita debe estar guardada antes de actualizar su estado.")
+    return Appointment.objects.select_for_update().get(pk=appointment.pk)
 
 
 def _appointment_moment(appointment):

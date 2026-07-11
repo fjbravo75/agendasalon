@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from apps.accounts.models import User
 from apps.booking.models import Appointment, AppointmentService, Service, WorkLine
+from apps.booking.services import complete_appointment, mark_appointment_no_show
 from apps.businesses.models import Business
 from apps.customers.models import BusinessClient
 
@@ -123,6 +124,30 @@ class BookingModelTests(TestCase):
 
         with self.assertRaises(ValidationError):
             appointment.full_clean()
+
+    def test_stale_appointment_cannot_overwrite_an_already_recorded_outcome(self):
+        appointment = self.appointment(
+            datetime(2026, 7, 1, 9, 0, tzinfo=MADRID),
+            minutes=60,
+        )
+        first_copy = Appointment.objects.get(pk=appointment.pk)
+        stale_copy = Appointment.objects.get(pk=appointment.pk)
+
+        complete_appointment(
+            first_copy,
+            completed_by=self.user,
+            at=datetime(2026, 7, 1, 10, 30, tzinfo=MADRID),
+        )
+
+        with self.assertRaises(ValidationError):
+            mark_appointment_no_show(
+                stale_copy,
+                marked_by=self.user,
+                at=datetime(2026, 7, 1, 10, 31, tzinfo=MADRID),
+            )
+
+        appointment.refresh_from_db()
+        self.assertEqual(appointment.status, Appointment.Status.COMPLETED)
 
     def test_appointment_service_copies_service_snapshot(self):
         service = Service.objects.create(
