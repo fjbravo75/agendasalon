@@ -1,3 +1,5 @@
+from django.templatetags.static import static
+
 from apps.businesses.models import BusinessMembership
 
 
@@ -31,6 +33,8 @@ def user_has_active_business(user):
 
 
 def get_business_visual_theme(business):
+    if not business.public_images.filter(is_selected=True).exists():
+        return business.public_image_preset
     identity = f"{business.slug} {business.commercial_name}".lower()
     if "barber" in identity:
         return "barberia"
@@ -38,9 +42,22 @@ def get_business_visual_theme(business):
 
 
 def get_business_public_image_url(business):
-    if not business.public_image:
-        return ""
-    try:
-        return business.public_image.url
-    except ValueError:
-        return ""
+    selected_image = business.public_images.filter(is_selected=True).first()
+    if selected_image is not None:
+        try:
+            return selected_image.image.url
+        except ValueError:
+            pass
+
+    has_gallery_history = business.public_images.exists()
+    if business.public_image and not has_gallery_history:
+        try:
+            return business.public_image.url
+        except ValueError:
+            pass
+
+    preset_images = {
+        business.PublicImagePreset.SALON: "img/customer-login-peluqueria-mari-bg.webp",
+        business.PublicImagePreset.BARBERSHOP: "img/customer-login-barberia-norte-bg-v2.png",
+    }
+    return static(preset_images[business.public_image_preset])

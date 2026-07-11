@@ -370,8 +370,6 @@ def professional_settings(request):
     if business is None:
         return redirect("accounts:no_business")
 
-    previous_image_name = business.public_image.name if business.public_image else ""
-    previous_image_storage = business.public_image.storage if business.public_image else None
     settings_form = BusinessVisualSettingsForm(
         request.POST or None,
         request.FILES or None,
@@ -379,19 +377,17 @@ def professional_settings(request):
     )
     if request.method == "POST" and settings_form.is_valid():
         theme_changed = "professional_theme" in settings_form.changed_data
-        image_uploaded = "public_image" in settings_form.changed_data
-        image_removed = bool(
-            previous_image_name and settings_form.cleaned_data.get("remove_public_image")
-        )
-        appearance_changed = theme_changed or image_uploaded or image_removed
+        image_uploaded = "new_public_image" in settings_form.changed_data
+        image_selected = "public_image_choice" in settings_form.changed_data
+        appearance_changed = theme_changed or image_uploaded or image_selected
 
         with transaction.atomic():
-            business = settings_form.save()
+            business = settings_form.save(uploaded_by=request.user)
             if appearance_changed:
                 updated_parts = []
                 if theme_changed:
                     updated_parts.append("tema del panel")
-                if image_uploaded or image_removed:
+                if image_uploaded or image_selected:
                     updated_parts.append("imagen pública")
                 record_business_activity(
                     business=business,
@@ -404,19 +400,11 @@ def professional_settings(request):
                     entity_type="business",
                     changes={
                         "professional_theme": business.professional_theme,
-                        "has_custom_public_image": bool(business.public_image),
+                        "has_custom_public_image": business.public_images.filter(
+                            is_selected=True
+                        ).exists(),
+                        "public_image_preset": business.public_image_preset,
                     },
-                )
-            new_image_name = business.public_image.name if business.public_image else ""
-            if (
-                previous_image_name
-                and previous_image_name != new_image_name
-                and previous_image_storage is not None
-            ):
-                transaction.on_commit(
-                    lambda storage=previous_image_storage, name=previous_image_name: storage.delete(
-                        name
-                    )
                 )
 
         if appearance_changed:
@@ -433,6 +421,7 @@ def professional_settings(request):
             "settings_form": settings_form,
             "client_auth_theme": get_business_visual_theme(business),
             "client_auth_image_url": get_business_public_image_url(business),
+            "public_image_is_custom": business.public_images.filter(is_selected=True).exists(),
         },
     )
 

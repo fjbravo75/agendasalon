@@ -9,6 +9,38 @@ from apps.customers.models import BusinessClient
 
 
 SERVICE_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+SERVICE_COLOR_PALETTE = (
+    {"hex": "#08927F", "name": "Verde salón"},
+    {"hex": "#2F6F73", "name": "Verde petróleo"},
+    {"hex": "#2F6F5E", "name": "Verde bosque"},
+    {"hex": "#5BBFAD", "name": "Menta"},
+    {"hex": "#28A6A6", "name": "Turquesa"},
+    {"hex": "#3A9FBF", "name": "Cian"},
+    {"hex": "#2C7FB8", "name": "Azul océano"},
+    {"hex": "#5B9BD5", "name": "Azul cielo"},
+    {"hex": "#5079BD", "name": "Azul sereno"},
+    {"hex": "#355070", "name": "Azul marino"},
+    {"hex": "#8274C9", "name": "Lavanda"},
+    {"hex": "#8C5AA6", "name": "Violeta"},
+    {"hex": "#7A4E73", "name": "Ciruela"},
+    {"hex": "#D87093", "name": "Rosa"},
+    {"hex": "#C98C9A", "name": "Rosa empolvado"},
+    {"hex": "#D96F5D", "name": "Coral"},
+    {"hex": "#B85C4A", "name": "Terracota"},
+    {"hex": "#B94A5A", "name": "Cereza"},
+    {"hex": "#7F3348", "name": "Granate"},
+    {"hex": "#E58A3A", "name": "Naranja"},
+    {"hex": "#E9A76F", "name": "Melocotón"},
+    {"hex": "#E5A63A", "name": "Mostaza"},
+    {"hex": "#E0C34B", "name": "Amarillo"},
+    {"hex": "#8A9A4A", "name": "Oliva"},
+    {"hex": "#99B857", "name": "Lima suave"},
+    {"hex": "#708090", "name": "Gris azulado"},
+    {"hex": "#9A8C84", "name": "Gris piedra"},
+    {"hex": "#C2A878", "name": "Arena"},
+    {"hex": "#8F6B4A", "name": "Chocolate"},
+    {"hex": "#4B4F52", "name": "Carbón"},
+)
 WEEKDAY_CHOICES = (
     (0, "Lunes"),
     (1, "Martes"),
@@ -192,13 +224,7 @@ class ServiceForm(forms.ModelForm):
                     "placeholder": "Precio opcional",
                 }
             ),
-            "color_hex": forms.TextInput(
-                attrs={
-                    "autocomplete": "off",
-                    "placeholder": "#08927F",
-                    "maxlength": "7",
-                }
-            ),
+            "color_hex": forms.HiddenInput(),
             "display_order": forms.NumberInput(
                 attrs={
                     "min": "0",
@@ -217,9 +243,12 @@ class ServiceForm(forms.ModelForm):
     def __init__(self, *args, business, **kwargs):
         self.business = business
         super().__init__(*args, **kwargs)
+        self.color_palette = SERVICE_COLOR_PALETTE
         self.fields["is_active"].required = False
         if self.instance.pk is None:
             self.fields["name"].widget.attrs["autofocus"] = "autofocus"
+        if not self.is_bound and not self.initial.get("color_hex"):
+            self.initial["color_hex"] = SERVICE_COLOR_PALETTE[0]["hex"]
 
     def clean_name(self):
         name = self.cleaned_data["name"].strip()
@@ -254,12 +283,11 @@ class ServiceForm(forms.ModelForm):
         return price
 
     def clean_color_hex(self):
-        color = (self.cleaned_data.get("color_hex") or "").strip()
-        if not color:
-            return color
-        if not SERVICE_COLOR_RE.match(color):
-            raise forms.ValidationError("Usa un color hexadecimal, por ejemplo #08927F.")
-        return color.upper()
+        color = (self.cleaned_data.get("color_hex") or "").strip().upper()
+        allowed_colors = {option["hex"] for option in SERVICE_COLOR_PALETTE}
+        if not SERVICE_COLOR_RE.match(color) or color not in allowed_colors:
+            raise forms.ValidationError("Selecciona un color de la paleta.")
+        return color
 
     def save(self, commit=True):
         service = super().save(commit=False)

@@ -89,7 +89,7 @@
           </form>
         </details>
 
-        <form class="assistant-search-form" method="get" aria-label="Buscar huecos para nueva cita">
+        <form class="assistant-search-form" method="get" aria-label="Buscar huecos para nueva cita" data-appointment-search>
           {% if request.GET.selected_work_line_id and request.GET.selected_starts_at %}
             <input type="hidden" name="selected_work_line_id" value="{{ request.GET.selected_work_line_id }}">
             <input type="hidden" name="selected_starts_at" value="{{ request.GET.selected_starts_at }}">
@@ -132,21 +132,36 @@
             <div class="service-field-errors" id="services-error" role="alert">{{ form.services.errors }}</div>
           {% endif %}
           <div class="service-choice-list service-choice-list--scrollable" role="group" aria-labelledby="services-heading"{% if form.services.errors %} aria-describedby="services-error"{% endif %}>
-            {% for choice in form.services %}
+            {% for service in available_services %}
               <label class="service-choice">
                 <span class="service-choice__dot" aria-hidden="true"></span>
-                {{ choice.tag }}
-                <span class="service-choice__label">{{ choice.choice_label }}</span>
+                <input
+                  type="checkbox"
+                  name="services"
+                  value="{{ service.id }}"
+                  data-appointment-service
+                  data-duration="{{ service.duration_minutes }}"
+                  {% if service.id in selected_service_ids %}checked{% endif %}
+                >
+                <span class="service-choice__label">{{ service.name }} - {{ service.duration_minutes }} min</span>
               </label>
             {% endfor %}
+          </div>
+          <div class="service-duration-summary" aria-live="polite">
+            <span>Duración</span>
+            <strong data-appointment-duration-total>0 min</strong>
+            <small data-appointment-duration-detail>Selecciona servicios para calcular el tiempo total.</small>
           </div>
         </div>
 
         <div class="form-section">
           <div class="section-title-row">
-            <h3>Duración</h3>
+            <h3>Ajustar duración</h3>
             <span>Opcional</span>
           </div>
+          <p class="duration-adjust-help" data-duration-adjust-help>
+            Úsalo solo si la cita necesita más o menos tiempo que la suma de los servicios.
+          </p>
           <div class="duration-adjust-grid">
             <div class="field">
               {{ form.adjusted_duration_minutes.label_tag }}

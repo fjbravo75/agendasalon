@@ -140,9 +140,35 @@
               {{ service_form.price_amount }}
               {{ service_form.price_amount.errors }}
             </div>
-            <div class="field">
-              {{ service_form.color_hex.label_tag }}
+            <div class="field service-color-field">
+              <span class="field-label" id="service-color-label">Color</span>
               {{ service_form.color_hex }}
+              <details class="service-color-picker" data-service-color-picker>
+                <summary aria-labelledby="service-color-label">
+                  <span class="service-color-picker__preview" data-service-color-preview aria-hidden="true"></span>
+                  <span class="service-color-picker__selection">
+                    <strong data-service-color-name>Verde salón</strong>
+                    <small>Color seleccionado</small>
+                  </span>
+                  <span class="service-color-picker__action">Elegir color</span>
+                </summary>
+                <div class="service-color-palette" role="group" aria-label="Paleta de colores del servicio">
+                  {% for color in service_form.color_palette %}
+                    <button
+                      type="button"
+                      class="service-color-option"
+                      style="--palette-color: {{ color.hex }};"
+                      data-service-color-option
+                      data-color="{{ color.hex }}"
+                      data-color-name="{{ color.name }}"
+                      aria-label="{{ color.name }}"
+                      title="{{ color.name }}"
+                    >
+                      <span aria-hidden="true"></span>
+                    </button>
+                  {% endfor %}
+                </div>
+              </details>
               {{ service_form.color_hex.errors }}
             </div>
             <div class="field">

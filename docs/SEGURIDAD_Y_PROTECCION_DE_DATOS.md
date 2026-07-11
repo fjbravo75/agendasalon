@@ -17,9 +17,8 @@ La revisión distingue tres estados:
 
 Fecha de la evidencia: **11 de julio de 2026**.
 
-Código funcional revisado: `958527c05c68d4149beff6fd5a0fa2b30b0d8ef0`.
-La incorporación de este documento no modifica el comportamiento de la
-aplicación.
+Código funcional revisado: estado de la rama principal y bloque de cierre previo
+al despliegue del 11 de julio de 2026.
 
 ## Arquitectura de seguridad
 
@@ -76,9 +75,10 @@ La aplicación separa cuatro superficies:
 | CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; pantalla de rechazo sin detalles internos | `config/settings/base.py`, plantillas y prueba CSRF real de activación | Aplicado y verificado |
 | XSS y contenido activo | Autoescape de plantillas, ausencia de inserciones HTML inseguras en el código de producto y CSP con scripts limitados al mismo origen | `apps/core/middleware.py`, `config/settings/base.py` | Aplicado y verificado |
 | Cabeceras de navegador | `Permissions-Policy`, CORP `same-origin`, bloqueo de marcos y objetos mediante CSP | middleware y pruebas de cabeceras | Aplicado y verificado |
-| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y 198 pruebas Django | Aplicado y verificado |
+| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y 201 pruebas Django | Aplicado y verificado |
 | Integridad de citas | Revalidación del hueco antes de guardar, transacciones atómicas y bloqueo de filas en transiciones concurrentes | `apps/booking/services.py`, `test_postgres_concurrency.py` | Aplicado y verificado |
 | Subida de imágenes | JPG, PNG o WebP; 5 MB y 16 millones de píxeles; orientación, reducción a 2400 px y recodificación WebP sin EXIF | `apps/businesses/images.py`, pruebas de ajustes | Aplicado y verificado |
+| Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
 | Secretos | Variables de entorno obligatorias en producción; arranque detenido si faltan secreto, hosts o PostgreSQL | `config/settings/prod.py`, `.env.example`, pruebas de producción | Aplicado y verificado |
 | Base de datos | SQLite solo para desarrollo; PostgreSQL obligatorio en producción, conexión persistente con comprobación de salud | `config/settings/database.py`, `config/settings/prod.py` | Aplicado y verificado |
 | HTTPS | Redirección a HTTPS, cookies seguras, orígenes CSRF configurables y HSTS inicial | `config/settings/prod.py` | Preparado para despliegue |
@@ -169,8 +169,8 @@ El perfil `config.settings.prod` falla de forma explícita si no recibe:
 PostgreSQL es obligatorio en producción. La URL de conexión se obtiene del
 entorno y no se pasa a la herramienta de copias mediante argumentos visibles en
 la lista de procesos. `.env.example` contiene únicamente nombres y ejemplos sin
-credenciales reales. Gitleaks no detectó secretos en los 22 commits existentes
-en el momento de esta revisión.
+credenciales reales. Gitleaks no detectó secretos en los 23 commits existentes
+ni en el árbol de trabajo completo del bloque de cierre.
 
 ## HTTPS: configuración preparada y evidencia pendiente
 
@@ -235,14 +235,14 @@ gitleaks detect --source . --no-banner --redact --exit-code 1
 
 | Comprobación | Resultado |
 | --- | --- |
-| Suite Django | 198 pruebas correctas; 1 omitida por requerir una característica exclusiva de PostgreSQL |
+| Suite Django | 201 pruebas correctas; 1 omitida por requerir una característica exclusiva de PostgreSQL |
 | Suite frontend | 17 pruebas correctas |
 | Build Vite | Correcto; 19 módulos transformados |
 | `manage.py check` | Sin incidencias |
 | Migraciones | No se detectaron cambios pendientes |
 | `pip-audit` | Sin vulnerabilidades conocidas |
 | `npm audit` | 0 vulnerabilidades conocidas |
-| Gitleaks 8.30.1 | 22 commits y 1,60 MB revisados; sin secretos detectados |
+| Gitleaks 8.30.1 | 23 commits y 1,62 MB de historial, más el árbol de trabajo completo; sin secretos detectados |
 | PostgreSQL 17 | 172 pruebas correctas en el ensayo previo, incluida concurrencia real |
 | Copia y restauración | Restauración completa en base limpia con recuentos coincidentes |
 

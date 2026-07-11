@@ -213,7 +213,7 @@ Verificación actual:
 npm.cmd run check
 ```
 
-La última verificación completa deja la batería en 198 pruebas Django y
+La última verificación completa deja la batería en 201 pruebas Django y
 operativas, además de 17 pruebas frontend correctas. La compatibilidad con
 PostgreSQL 17 se verificó en el bloque de producción, incluida una prueba
 concurrente real. El build de producción, `pip-audit` y `npm audit` también se
@@ -256,3 +256,7 @@ procesos.
 La matriz académica de controles, las evidencias reproducibles y los riesgos
 que deben cerrarse durante el despliegue están reunidos en
 [`docs/SEGURIDAD_Y_PROTECCION_DE_DATOS.md`](docs/SEGURIDAD_Y_PROTECCION_DE_DATOS.md).
+
+La memoria técnica previa al despliegue, con capturas y diagramas basados en la
+aplicación real, está disponible en
+[`docs/memoria/Memoria_tecnica_AgendaSalon.docx`](docs/memoria/Memoria_tecnica_AgendaSalon.docx).

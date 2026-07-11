@@ -11,3 +11,6 @@ Documentos disponibles:
   residuales.
 - [`OPERACION_PRODUCCION.md`](OPERACION_PRODUCCION.md): perfil de producción,
   cabeceras, administración técnica, copias y restauración.
+- [`memoria/Memoria_tecnica_AgendaSalon.docx`](memoria/Memoria_tecnica_AgendaSalon.docx):
+  memoria técnica previa al despliegue, con capturas, diagramas, seguridad,
+  pruebas, limitaciones y fuentes del proyecto.

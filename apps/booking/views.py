@@ -190,6 +190,8 @@ def appointment_assistant(request):
     context = {
         "business": business,
         "form": form,
+        "available_services": tuple(form.fields["services"].queryset),
+        "selected_service_ids": _selected_service_ids(form.data if form.is_bound else None),
         "active_lines": active_lines,
         "has_search": bool(search_data),
         "search_is_valid": False,

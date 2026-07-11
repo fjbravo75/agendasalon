@@ -58,7 +58,7 @@
               <span>Experiencia cliente</span>
               <h2 id="public-image-title">Imagen pública del negocio</h2>
             </div>
-            <span class="settings-state">{% if business.public_image %}Personalizada{% else %}Predeterminada{% endif %}</span>
+            <span class="settings-state">{% if public_image_is_custom %}Personalizada{% else %}Predeterminada{% endif %}</span>
           </div>
           <p class="settings-panel__intro">
             Esta imagen se utiliza en la reserva online y en las pantallas de
@@ -67,7 +67,7 @@
           </p>
 
           <div class="settings-image-layout">
-            <div class="settings-public-preview settings-public-preview--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--settings-public-bg: url('{{ client_auth_image_url }}');"{% endif %} role="img" aria-label="Vista previa de la imagen pública de {{ business.commercial_name }}">
+            <div class="settings-public-preview settings-public-preview--{{ client_auth_theme }}" style="--settings-public-bg: url('{{ client_auth_image_url }}');" role="img" aria-label="Vista previa de la imagen pública de {{ business.commercial_name }}" data-public-image-preview>
               <div>
                 <span>Reserva online</span>
                 <strong>{{ business.commercial_name }}</strong>
@@ -75,28 +75,40 @@
             </div>
 
             <div class="settings-image-controls">
-              <div class="field settings-upload-field">
-                {{ settings_form.public_image.label_tag }}
-                {{ settings_form.public_image }}
-                <small>JPG, PNG o WebP · máximo 5 MB · mínimo 800 × 500 px. Recomendado: imagen horizontal de 1600 × 1000 px o superior.</small>
-                {{ settings_form.public_image.errors }}
-              </div>
+              <fieldset class="settings-image-choice-fieldset">
+                <legend>Elige la imagen activa</legend>
+                <div class="settings-image-choice-list">
+                  {% for image in settings_form.public_image_options %}
+                    <label class="settings-image-choice{% if image.is_selected %} is-selected{% endif %}" data-public-image-card>
+                      <input
+                        type="radio"
+                        name="public_image_choice"
+                        value="{{ image.value }}"
+                        data-public-image-choice
+                        data-image-url="{{ image.url }}"
+                        data-image-theme="{{ image.theme }}"
+                        {% if image.is_selected %}checked{% endif %}
+                      >
+                      <span class="settings-image-choice__thumb" style="--choice-image: url('{{ image.url }}');" aria-hidden="true"></span>
+                      <span>
+                        <strong>{{ image.label }}</strong>
+                        <small>{{ image.description }}</small>
+                      </span>
+                    </label>
+                  {% endfor %}
+                </div>
+                {{ settings_form.public_image_choice.errors }}
+              </fieldset>
 
-              {% if business.public_image %}
-                <label class="settings-remove-image">
-                  {{ settings_form.remove_public_image }}
-                  <span>
-                    <strong>{{ settings_form.remove_public_image.label }}</strong>
-                    <small>Se recuperará automáticamente la imagen estándar del tipo de negocio.</small>
-                  </span>
-                </label>
-                {{ settings_form.remove_public_image.errors }}
-              {% else %}
-                <p class="settings-default-note">
-                  Ahora se utiliza la imagen estándar asignada al tipo de negocio.
-                  Si subes una nueva, podrás volver a esta opción cuando quieras.
-                </p>
-              {% endif %}
+              <div class="field settings-upload-field">
+                {{ settings_form.new_public_image.label_tag }}
+                {{ settings_form.new_public_image }}
+                <small>JPG, PNG o WebP · máximo 5 MB · mínimo 800 × 500 px. Recomendado: imagen horizontal de 1600 × 1000 px o superior.</small>
+                {{ settings_form.new_public_image.errors }}
+              </div>
+              <p class="settings-default-note">
+                La nueva imagen quedará guardada solo para este negocio y podrás volver a elegirla más adelante.
+              </p>
             </div>
           </div>
         </section>

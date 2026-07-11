@@ -8,7 +8,12 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
-from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
+from apps.businesses.models import (
+    Business,
+    BusinessActivityEvent,
+    BusinessMembership,
+    BusinessPublicImage,
+)
 
 
 class ProfessionalSettingsTests(TestCase):
@@ -48,6 +53,7 @@ class ProfessionalSettingsTests(TestCase):
             slug="barberia-norte",
             is_active=True,
             public_booking_enabled=True,
+            public_image_preset=Business.PublicImagePreset.BARBERSHOP,
         )
         BusinessMembership.objects.create(
             business=self.business,
@@ -79,6 +85,9 @@ class ProfessionalSettingsTests(TestCase):
         self.assertContains(response, "Imagen pública del negocio")
         self.assertContains(response, 'aria-current="page"')
         self.assertContains(response, "Predeterminada")
+        self.assertContains(response, "Salón luminoso")
+        self.assertContains(response, "Barbería contemporánea")
+        self.assertContains(response, "data-public-image-choice", count=2)
 
     def test_professional_can_enable_dark_mode_only_for_their_business(self):
         self.client.force_login(self.professional)
@@ -119,14 +128,15 @@ class ProfessionalSettingsTests(TestCase):
             self.url,
             {
                 "professional_theme": Business.ProfessionalTheme.LIGHT,
-                "public_image": image,
+                "new_public_image": image,
             },
         )
 
         self.assertRedirects(response, self.url)
         self.business.refresh_from_db()
-        self.assertTrue(self.business.public_image.name.endswith(".webp"))
-        image_url = self.business.public_image.url
+        selected_image = self.business.public_images.get(is_selected=True)
+        self.assertTrue(selected_image.image.name.endswith(".webp"))
+        image_url = selected_image.image.url
         for url in (
             reverse("public_booking", args=[self.business.slug]),
             reverse("customers:client_access", args=[self.business.slug]),
@@ -154,14 +164,15 @@ class ProfessionalSettingsTests(TestCase):
             self.url,
             {
                 "professional_theme": Business.ProfessionalTheme.LIGHT,
-                "public_image": upload,
+                "new_public_image": upload,
             },
         )
 
         self.assertRedirects(response, self.url)
         self.business.refresh_from_db()
-        self.assertTrue(self.business.public_image.name.endswith(".webp"))
-        with Image.open(self.business.public_image.path) as stored:
+        selected_image = self.business.public_images.get(is_selected=True)
+        self.assertTrue(selected_image.image.name.endswith(".webp"))
+        with Image.open(selected_image.image.path) as stored:
             self.assertEqual(stored.format, "WEBP")
             self.assertEqual(stored.size, (1200, 800))
             self.assertFalse(stored.getexif())
@@ -174,7 +185,7 @@ class ProfessionalSettingsTests(TestCase):
             self.url,
             {
                 "professional_theme": Business.ProfessionalTheme.LIGHT,
-                "public_image": self._image_file(
+                "new_public_image": self._image_file(
                     "fachada-grande.png",
                     size=(4000, 2500),
                     image_format="PNG",
@@ -184,7 +195,8 @@ class ProfessionalSettingsTests(TestCase):
 
         self.assertRedirects(response, self.url)
         self.business.refresh_from_db()
-        with Image.open(self.business.public_image.path) as stored:
+        selected_image = self.business.public_images.get(is_selected=True)
+        with Image.open(selected_image.image.path) as stored:
             self.assertEqual(stored.size, (2400, 1500))
 
     def test_invalid_or_too_small_images_are_rejected(self):
@@ -194,7 +206,7 @@ class ProfessionalSettingsTests(TestCase):
             self.url,
             {
                 "professional_theme": Business.ProfessionalTheme.LIGHT,
-                "public_image": SimpleUploadedFile(
+                "new_public_image": SimpleUploadedFile(
                     "falsa.jpg",
                     b"no es una imagen",
                     content_type="image/jpeg",
@@ -207,12 +219,12 @@ class ProfessionalSettingsTests(TestCase):
             self.url,
             {
                 "professional_theme": Business.ProfessionalTheme.LIGHT,
-                "public_image": self._image_file("pequena.png", size=(500, 300)),
+                "new_public_image": self._image_file("pequena.png", size=(500, 300)),
             },
         )
         self.assertContains(small_response, "La imagen debe medir al menos 800 × 500 píxeles")
         self.business.refresh_from_db()
-        self.assertFalse(self.business.public_image)
+        self.assertFalse(self.business.public_images.exists())
 
     def test_image_over_resource_budget_is_rejected_before_processing(self):
         self.client.force_login(self.professional)
@@ -222,7 +234,7 @@ class ProfessionalSettingsTests(TestCase):
                 self.url,
                 {
                     "professional_theme": Business.ProfessionalTheme.LIGHT,
-                    "public_image": self._image_file(
+                    "new_public_image": self._image_file(
                         "demasiado-grande.png",
                         size=(4001, 4000),
                         image_format="PNG",
@@ -233,32 +245,80 @@ class ProfessionalSettingsTests(TestCase):
         self.assertContains(response, "La imagen tiene demasiados píxeles para un uso seguro")
         sanitizer.assert_not_called()
 
-    def test_professional_can_restore_the_default_public_image(self):
+    def test_professional_can_choose_between_both_default_public_images(self):
         self.client.force_login(self.professional)
         self.client.post(
             self.url,
             {
                 "professional_theme": Business.ProfessionalTheme.LIGHT,
-                "public_image": self._image_file("personalizada.webp", image_format="WEBP"),
+                "new_public_image": self._image_file("personalizada.webp", image_format="WEBP"),
             },
         )
         self.business.refresh_from_db()
-        self.assertTrue(self.business.public_image)
+        self.assertTrue(self.business.public_images.filter(is_selected=True).exists())
+        self.business.public_image.name = "businesses/legacy/publica.webp"
+        self.business.save(update_fields=["public_image", "updated_at"])
 
-        with self.captureOnCommitCallbacks(execute=True):
+        response = self.client.post(
+            self.url,
+            {
+                "professional_theme": Business.ProfessionalTheme.LIGHT,
+                "public_image_choice": "preset:barberia",
+            },
+        )
+
+        self.assertRedirects(response, self.url)
+        self.business.refresh_from_db()
+        self.assertEqual(
+            self.business.public_image_preset,
+            Business.PublicImagePreset.BARBERSHOP,
+        )
+        self.assertFalse(self.business.public_images.filter(is_selected=True).exists())
+        public_response = self.client.get(reverse("public_booking", args=[self.business.slug]))
+        self.assertNotContains(public_response, "/media/businesses/")
+        self.assertContains(public_response, "customer-login-barberia-norte-bg-v2.png")
+
+    def test_uploaded_images_remain_available_in_the_business_gallery(self):
+        self.client.force_login(self.professional)
+
+        for filename in ("fachada-principal.jpg", "zona-lavacabezas.jpg"):
             response = self.client.post(
                 self.url,
                 {
                     "professional_theme": Business.ProfessionalTheme.LIGHT,
-                    "remove_public_image": "on",
+                    "new_public_image": self._image_file(filename),
                 },
             )
+            self.assertRedirects(response, self.url)
 
-        self.assertRedirects(response, self.url)
-        self.business.refresh_from_db()
-        self.assertFalse(self.business.public_image)
-        public_response = self.client.get(reverse("public_booking", args=[self.business.slug]))
-        self.assertNotContains(public_response, "/media/businesses/")
+        images = self.business.public_images.order_by("created_at")
+        self.assertEqual(images.count(), 2)
+        self.assertEqual(images.filter(is_selected=True).count(), 1)
+
+        response = self.client.get(self.url)
+        self.assertContains(response, "fachada-principal")
+        self.assertContains(response, "zona-lavacabezas")
+        self.assertContains(response, "data-public-image-choice", count=4)
+
+    def test_professional_cannot_select_an_image_from_another_business(self):
+        foreign_image = BusinessPublicImage.objects.create(
+            business=self.other_business,
+            image=self._image_file("privada-norte.jpg"),
+            label="Privada Norte",
+        )
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            self.url,
+            {
+                "professional_theme": Business.ProfessionalTheme.LIGHT,
+                "public_image_choice": f"custom:{foreign_image.pk}",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecciona una imagen disponible.")
+        self.assertFalse(foreign_image.is_selected)
 
     @staticmethod
     def _image_file(name, *, size=(1200, 800), image_format="JPEG"):

@@ -33,6 +33,11 @@ class ProfessionalServiceManagementTests(TestCase):
         self.assertContains(response, "Catálogo de reserva")
         self.assertContains(response, "Lavado")
         self.assertContains(response, "Pausado")
+        self.assertContains(response, "data-service-color-picker")
+        self.assertContains(response, "data-service-color-option", count=30)
+        self.assertContains(response, "Color seleccionado")
+        self.assertContains(response, "Elegir color")
+        self.assertContains(response, 'type="hidden" name="color_hex"')
         self.assertNotContains(response, "Barbería Norte")
         self.assertNotContains(response, "MVP")
 
@@ -66,6 +71,31 @@ class ProfessionalServiceManagementTests(TestCase):
                 entity_id=service.id,
                 event_type=BusinessActivityEvent.EventType.SERVICE_CREATED,
                 actor_user=self.professional,
+            ).exists()
+        )
+
+    def test_service_form_rejects_a_color_outside_the_palette(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("booking:professional_service_list"),
+            {
+                "name": "Servicio con color externo",
+                "duration_minutes": "30",
+                "price_amount": "12.00",
+                "color_hex": "#123456",
+                "display_order": "9",
+                "description": "",
+                "is_active": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecciona un color de la paleta.")
+        self.assertFalse(
+            Service.objects.filter(
+                business=self.business,
+                name="Servicio con color externo",
             ).exists()
         )
 
