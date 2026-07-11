@@ -32,6 +32,9 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+CONTENT_SECURITY_POLICY += "; upgrade-insecure-requests"
+ADMIN_CONTENT_SECURITY_POLICY += "; upgrade-insecure-requests"
+
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_SSL_REDIRECT = True

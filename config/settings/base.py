@@ -45,6 +45,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "apps.core.middleware.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -52,6 +53,46 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+_CSP_COMMON_DIRECTIVES = [
+    "default-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "style-src-elem 'self' https://fonts.googleapis.com",
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "connect-src 'self'",
+    "media-src 'self'",
+    "manifest-src 'self'",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+]
+
+CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        *_CSP_COMMON_DIRECTIVES,
+        "script-src 'self'",
+        "script-src-elem 'self'",
+        "script-src-attr 'none'",
+    ]
+)
+
+ADMIN_CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        *_CSP_COMMON_DIRECTIVES,
+        "script-src 'self' 'unsafe-inline'",
+        "script-src-elem 'self' 'unsafe-inline'",
+        "script-src-attr 'none'",
+    ]
+)
+
+PERMISSIONS_POLICY = (
+    "browsing-topics=(), camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+)
 
 ROOT_URLCONF = "config.urls"
 

@@ -1,6 +1,7 @@
 from datetime import timedelta
 from io import StringIO
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
@@ -31,6 +32,84 @@ class RootRoutingTests(TestCase):
             status_code=403,
         )
         self.assertNotContains(response, "Reason given for failure", status_code=403)
+
+    def test_product_responses_enforce_a_strict_script_policy(self):
+        response = self.client.get(reverse("accounts:login"))
+
+        policy = response["Content-Security-Policy"]
+        directives = {
+            part.strip().split(" ", 1)[0]: part.strip()
+            for part in policy.split(";")
+            if part.strip()
+        }
+        self.assertEqual(directives["default-src"], "default-src 'self'")
+        self.assertEqual(directives["script-src"], "script-src 'self'")
+        self.assertEqual(directives["script-src-attr"], "script-src-attr 'none'")
+        self.assertEqual(directives["object-src"], "object-src 'none'")
+        self.assertEqual(directives["frame-ancestors"], "frame-ancestors 'none'")
+        self.assertNotIn("'unsafe-inline'", directives["script-src"])
+        self.assertEqual(response["Cross-Origin-Resource-Policy"], "same-origin")
+        self.assertIn("camera=()", response["Permissions-Policy"])
+        self.assertIn("microphone=()", response["Permissions-Policy"])
+
+    def test_django_admin_receives_only_its_required_script_exception(self):
+        response = self.client.get(reverse("admin:login"))
+
+        policy = response["Content-Security-Policy"]
+        directives = {
+            part.strip().split(" ", 1)[0]: part.strip()
+            for part in policy.split(";")
+            if part.strip()
+        }
+        self.assertIn("'unsafe-inline'", directives["script-src"])
+        self.assertEqual(directives["script-src-attr"], "script-src-attr 'none'")
+        self.assertEqual(directives["object-src"], "object-src 'none'")
+
+
+class DjangoAdminAccessTests(TestCase):
+    def test_professional_without_staff_flag_cannot_enter_django_admin(self):
+        professional = get_user_model().objects.create_user(
+            normalized_phone="+34600111991",
+            password="test-pass-123",
+            full_name="Profesional sin acceso técnico",
+        )
+        self.client.force_login(professional)
+
+        response = self.client.get(reverse("admin:index"))
+
+        self.assertRedirects(
+            response,
+            f'{reverse("admin:login")}?next={reverse("admin:index")}',
+        )
+
+    def test_technical_staff_needs_explicit_model_permissions(self):
+        technical_staff = get_user_model().objects.create_user(
+            normalized_phone="+34600111992",
+            password="test-pass-123",
+            full_name="Soporte técnico limitado",
+            is_staff=True,
+        )
+        self.client.force_login(technical_staff)
+
+        self.assertEqual(self.client.get(reverse("admin:index")).status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse("admin:accounts_user_changelist")).status_code,
+            403,
+        )
+
+    def test_django_superuser_can_access_registered_models(self):
+        technical_superuser = get_user_model().objects.create_superuser(
+            normalized_phone="+34600111993",
+            password="test-pass-123",
+            full_name="Administración técnica",
+        )
+        self.client.force_login(technical_superuser)
+
+        self.assertEqual(self.client.get(reverse("admin:index")).status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse("admin:accounts_user_changelist")).status_code,
+            200,
+        )
 
 
 class SecurityThrottleTests(TestCase):
