@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -65,6 +67,50 @@ class LoginPageTemplateTests(TestCase):
         self.assertContains(response, "Entrar en AgendaSalon")
         self.assertNotContains(response, "¿Has olvidado")
         self.assertNotContains(response, "MVP")
+
+    def test_repeated_invalid_private_login_is_rate_limited(self):
+        responses = [
+            self.client.post(
+                reverse("accounts:login"),
+                {"username": "600 000 000", "password": "clave-no-valida"},
+            )
+            for _ in range(5)
+        ]
+        with patch("apps.accounts.forms.authenticate") as authenticate_mock:
+            responses.append(
+                self.client.post(
+                    reverse("accounts:login"),
+                    {"username": "600 000 000", "password": "clave-no-valida"},
+                )
+            )
+
+        authenticate_mock.assert_not_called()
+        self.assertEqual(responses[-2].status_code, 429)
+        self.assertEqual(responses[-1].status_code, 429)
+        self.assertContains(
+            responses[-1],
+            "Demasiados intentos. Espera unos minutos antes de volver a intentarlo.",
+            status_code=429,
+        )
+
+    def test_equivalent_phone_formats_cannot_bypass_the_login_limit(self):
+        phones = [
+            "600 000 000",
+            "+34 600 000 000",
+            "600000000",
+            "+34600000000",
+            "600-000-000",
+        ]
+
+        responses = [
+            self.client.post(
+                reverse("accounts:login"),
+                {"username": phone, "password": "clave-no-valida"},
+            )
+            for phone in phones
+        ]
+
+        self.assertEqual(responses[-1].status_code, 429)
 
 
 class LoginRoutingTests(TestCase):

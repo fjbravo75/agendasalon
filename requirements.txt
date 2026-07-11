@@ -1,4 +1,5 @@
 Django==5.2.15
+argon2-cffi==25.1.0
 phonenumbers==9.0.33
 Pillow==12.3.0
 psycopg[binary]==3.3.4

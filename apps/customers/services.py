@@ -1,3 +1,8 @@
+import hashlib
+import hmac
+import secrets
+from datetime import datetime, timedelta
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -7,11 +12,16 @@ from apps.core.text import normalize_search_text
 from apps.customers.models import (
     BusinessClient,
     BusinessClientAccess,
+    BusinessClientAccessInvitation,
     BusinessClientAuthorizedContact,
 )
 
 
 CLIENT_ACCESS_SESSION_KEY = "business_client_access_id"
+CLIENT_ACCESS_LAST_SEEN_SESSION_KEY = "business_client_access_last_seen"
+CLIENT_INVITATION_CLAIM_SESSION_KEY = "business_client_invitation_claim"
+CLIENT_ACCESS_IDLE_SECONDS = 60 * 60
+CLIENT_INVITATION_LIFETIME_HOURS = 24
 PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE = (
     "No podemos crear una cuenta con esos datos. "
     "Contacta con el negocio para activar tu acceso."
@@ -40,6 +50,22 @@ def get_session_client_access(request, business):
     if not access_id:
         return None
 
+    last_seen_raw = request.session.get(CLIENT_ACCESS_LAST_SEEN_SESSION_KEY)
+    if not last_seen_raw:
+        logout_client_access(request)
+        return None
+    try:
+        last_seen = datetime.fromisoformat(last_seen_raw)
+    except (TypeError, ValueError):
+        logout_client_access(request)
+        return None
+    if timezone.is_naive(last_seen):
+        last_seen = timezone.make_aware(last_seen)
+    now = timezone.now()
+    if (now - last_seen).total_seconds() > CLIENT_ACCESS_IDLE_SECONDS:
+        logout_client_access(request)
+        return None
+
     access = (
         BusinessClientAccess.objects.select_related("business_client", "business")
         .filter(
@@ -51,18 +77,160 @@ def get_session_client_access(request, business):
         .first()
     )
     if access is None:
-        request.session.pop(CLIENT_ACCESS_SESSION_KEY, None)
+        logout_client_access(request)
+    else:
+        request.session[CLIENT_ACCESS_LAST_SEEN_SESSION_KEY] = now.isoformat()
     return access
 
 
 def login_client_access(request, access):
+    request.session.cycle_key()
     request.session[CLIENT_ACCESS_SESSION_KEY] = access.id
+    request.session[CLIENT_ACCESS_LAST_SEEN_SESSION_KEY] = timezone.now().isoformat()
     access.last_login_at = timezone.now()
     access.save(update_fields=["last_login_at", "updated_at"])
 
 
 def logout_client_access(request):
     request.session.pop(CLIENT_ACCESS_SESSION_KEY, None)
+    request.session.pop(CLIENT_ACCESS_LAST_SEEN_SESSION_KEY, None)
+    request.session.cycle_key()
+
+
+def invitation_token_digest(raw_token):
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+@transaction.atomic
+def create_client_access_invitation(*, business, business_client, created_by, now=None):
+    now = now or timezone.now()
+    business_client = BusinessClient.objects.select_for_update().get(
+        pk=business_client.pk,
+        business=business,
+    )
+    if business_client.business_id != business.id:
+        raise ValidationError("La ficha no pertenece a este negocio.")
+    if not business_client.is_active:
+        raise ValidationError("Reactiva la ficha antes de crear una invitación.")
+    if BusinessClientAccess.objects.filter(business_client=business_client).exists():
+        raise ValidationError("Esta ficha ya tiene una cuenta online.")
+
+    BusinessClientAccessInvitation.objects.filter(
+        business=business,
+        business_client=business_client,
+        used_at__isnull=True,
+        revoked_at__isnull=True,
+    ).update(revoked_at=now)
+
+    raw_token = secrets.token_urlsafe(32)
+    invitation = BusinessClientAccessInvitation(
+        business=business,
+        business_client=business_client,
+        token_digest=invitation_token_digest(raw_token),
+        expires_at=now + timedelta(hours=CLIENT_INVITATION_LIFETIME_HOURS),
+        created_by=created_by,
+    )
+    invitation.full_clean()
+    invitation.save()
+    return invitation, raw_token
+
+
+def find_available_invitation(*, invitation_id, raw_token, business=None, now=None, lock=False):
+    now = now or timezone.now()
+    queryset = BusinessClientAccessInvitation.objects.select_related(
+        "business",
+        "business_client",
+    )
+    if lock:
+        queryset = queryset.select_for_update()
+    filters = {"id": invitation_id}
+    if business is not None:
+        filters["business"] = business
+    invitation = queryset.filter(**filters).first()
+    if invitation is None or not invitation.is_available(now):
+        return None
+    if not hmac.compare_digest(
+        invitation.token_digest,
+        invitation_token_digest(raw_token),
+    ):
+        return None
+    if BusinessClientAccess.objects.filter(business_client=invitation.business_client).exists():
+        return None
+    return invitation
+
+
+def store_invitation_claim(request, invitation):
+    request.session.cycle_key()
+    request.session[CLIENT_INVITATION_CLAIM_SESSION_KEY] = {
+        "invitation_id": str(invitation.id),
+        "business_id": invitation.business_id,
+        "claimed_at": timezone.now().isoformat(),
+    }
+
+
+def get_claimed_invitation(request, business, now=None, lock=False):
+    now = now or timezone.now()
+    claim = request.session.get(CLIENT_INVITATION_CLAIM_SESSION_KEY)
+    if not isinstance(claim, dict) or claim.get("business_id") != business.id:
+        return None
+    try:
+        claimed_at = datetime.fromisoformat(claim["claimed_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if timezone.is_naive(claimed_at):
+        claimed_at = timezone.make_aware(claimed_at)
+    if now - claimed_at > timedelta(minutes=30):
+        request.session.pop(CLIENT_INVITATION_CLAIM_SESSION_KEY, None)
+        return None
+
+    queryset = BusinessClientAccessInvitation.objects.select_related(
+        "business",
+        "business_client",
+    )
+    if lock:
+        queryset = queryset.select_for_update()
+    invitation = queryset.filter(
+        id=claim.get("invitation_id"),
+        business=business,
+    ).first()
+    if invitation is None or not invitation.is_available(now):
+        return None
+    if BusinessClientAccess.objects.filter(business_client=invitation.business_client).exists():
+        return None
+    return invitation
+
+
+@transaction.atomic
+def activate_claimed_invitation(*, request, business, password, now=None):
+    now = now or timezone.now()
+    invitation = get_claimed_invitation(request, business, now=now, lock=True)
+    if invitation is None:
+        raise ValidationError("Esta invitación ya no está disponible.")
+
+    access = BusinessClientAccess(
+        business=business,
+        business_client=invitation.business_client,
+        phone=invitation.business_client.phone,
+        is_active=True,
+    )
+    access.set_password(password)
+    access.full_clean()
+    access.save()
+    invitation.used_at = now
+    invitation.save(update_fields=["used_at"])
+    request.session.pop(CLIENT_INVITATION_CLAIM_SESSION_KEY, None)
+    return access, invitation
+
+
+@transaction.atomic
+def revoke_client_access_invitation(*, invitation, now=None):
+    now = now or timezone.now()
+    invitation = BusinessClientAccessInvitation.objects.select_for_update().get(pk=invitation.pk)
+    if not invitation.is_available(now):
+        raise ValidationError("Esta invitación ya no está disponible.")
+    invitation.revoked_at = now
+    invitation.save(update_fields=["revoked_at"])
+    return invitation
 
 
 @transaction.atomic

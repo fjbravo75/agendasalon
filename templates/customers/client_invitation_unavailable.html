@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Invitación no disponible - AgendaSalon{% endblock %}
+{% block body_class %}login-body client-auth-body{% endblock %}
+
+{% block content %}
+  <div class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--client-auth-bg: url('{{ client_auth_image_url }}');"{% endif %}>
+    <section class="login-shell client-auth-shell">
+      <div class="login-topbar" aria-label="Cabecera">
+        <a class="login-brand" href="{% url 'public_booking' business.slug %}">
+          <strong>{{ business.commercial_name }}</strong>
+          <span>Reserva online con AgendaSalon</span>
+        </a>
+      </div>
+
+      <div class="client-auth-content">
+        <div class="login-hero-copy client-auth-copy">
+          <div class="client-auth-business-signal">Acceso protegido</div>
+          <h1>Este enlace ya<br>no está disponible.</h1>
+          <p>
+            {% if rate_limited %}
+              Se han realizado demasiados intentos. Espera unos minutos antes de volver a intentarlo.
+            {% else %}
+              Puede haber caducado, haberse utilizado o haber sido sustituido. Pide al negocio una invitación nueva.
+            {% endif %}
+          </p>
+        </div>
+
+        <aside class="login-panel client-auth-panel" aria-label="Opciones disponibles">
+          <div class="login-panel__inner">
+            <div class="client-auth-panel-context">{{ business.commercial_name }}</div>
+            <h2>¿Qué puedes hacer?</h2>
+            <p>Contacta con el negocio para solicitar un enlace nuevo. Si ya activaste tu cuenta, entra con tu teléfono y contraseña.</p>
+            <a class="login-button" href="{% url 'customers:client_access' business.slug %}">Ir al acceso de clientes</a>
+          </div>
+        </aside>
+      </div>
+
+      <div class="client-auth-image-space" aria-hidden="true"></div>
+    </section>
+  </div>
+{% endblock %}

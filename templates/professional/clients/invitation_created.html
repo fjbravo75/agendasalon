@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Invitación para {{ business_client.full_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="client-invitation-shell" aria-labelledby="invitation-title">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Cuenta online</span>
+        <h1 id="invitation-title" class="page-title page-title--compact">Invitación creada</h1>
+        <p>
+          Comparte este enlace únicamente con {{ business_client.full_name }}.
+          Caduca el {{ invitation.expires_at|date:"j M Y" }} a las {{ invitation.expires_at|date:"H:i" }} y solo puede utilizarse una vez.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'customers:professional_client_detail' business_client.id %}">Volver a la ficha</a>
+      </div>
+    </header>
+
+    <section class="client-invitation-card" aria-label="Enlace de activación">
+      <div>
+        <span>Enlace privado de activación</span>
+        <strong>Se muestra solo en esta pantalla</strong>
+        <p>Si sales sin copiarlo, crea una invitación nueva desde la ficha. La anterior se revocará automáticamente.</p>
+      </div>
+      <div class="client-invitation-copy">
+        <label for="invitation-url">Enlace para el cliente</label>
+        <input id="invitation-url" type="text" value="{{ invitation_url }}" readonly autocomplete="off">
+        <button class="button" type="button" data-copy-target="invitation-url" data-copy-success="Enlace copiado">Copiar enlace</button>
+        <span class="client-invitation-copy__status" data-copy-status aria-live="polite"></span>
+      </div>
+      <div class="client-invitation-warning" role="note">
+        Este enlace permite activar la cuenta de esta ficha. No lo publiques ni lo envíes a otra persona.
+      </div>
+    </section>
+  </section>
+{% endblock %}

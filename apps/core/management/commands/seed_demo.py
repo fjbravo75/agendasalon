@@ -189,6 +189,9 @@ class DemoSeeder:
             user.set_password(DEMO_PASSWORD)
         elif not user.has_usable_password():
             user.set_password(DEMO_PASSWORD)
+        else:
+            # Verifica la credencial demo y actualiza un hash heredado si procede.
+            user.check_password(DEMO_PASSWORD)
 
         user.full_name = full_name
         user.email = email

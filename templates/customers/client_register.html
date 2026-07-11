@@ -74,7 +74,7 @@
               <div class="login-field{% if registration_form.password.errors %} is-error{% endif %}">
                 <label for="{{ registration_form.password.id_for_label }}">CONTRASEÑA <span aria-hidden="true">*</span></label>
                 {{ registration_form.password }}
-                <small id="password-requirements">Usa al menos 8 caracteres y evita contraseñas demasiado comunes o solo numéricas.</small>
+                <small id="password-requirements">Usa al menos 12 caracteres y evita contraseñas demasiado comunes o solo numéricas.</small>
                 {% if registration_form.password.errors %}
                   <div class="login-field-error" role="alert">{{ registration_form.password.errors }}</div>
                 {% endif %}

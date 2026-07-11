@@ -102,7 +102,21 @@
             {% endif %}
           {% else %}
             <strong>Sin registro</strong>
-            <small>La persona puede crear su cuenta desde el acceso público del salón.</small>
+            {% if active_invitation %}
+              <small>Hay una invitación pendiente hasta el {{ active_invitation.expires_at|date:"j M Y H:i" }}.</small>
+              <form method="post" action="{% url 'customers:professional_client_invitation_revoke' business_client.id active_invitation.id %}" data-confirm-message="La invitación dejará de funcionar de inmediato. ¿Quieres revocarla?">
+                {% csrf_token %}
+                <button class="button button--secondary" type="submit">Revocar invitación</button>
+              </form>
+            {% elif business_client.is_active %}
+              <small>Crea un enlace de un solo uso para que esta persona active exactamente esta ficha.</small>
+              <form method="post" action="{% url 'customers:professional_client_invitation_create' business_client.id %}">
+                {% csrf_token %}
+                <button class="button" type="submit">Crear invitación segura</button>
+              </form>
+            {% else %}
+              <small>Reactiva la ficha para poder crear una invitación.</small>
+            {% endif %}
           {% endif %}
         </div>
 

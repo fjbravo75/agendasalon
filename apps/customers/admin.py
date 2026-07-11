@@ -1,6 +1,11 @@
 from django.contrib import admin
 
-from .models import BusinessClient, BusinessClientAccess, BusinessClientAuthorizedContact
+from .models import (
+    BusinessClient,
+    BusinessClientAccess,
+    BusinessClientAccessInvitation,
+    BusinessClientAuthorizedContact,
+)
 
 
 class BusinessClientAuthorizedContactInline(admin.TabularInline):
@@ -84,5 +89,32 @@ class BusinessClientAccessAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("business", "business_client")
     readonly_fields = ("phone_normalized", "last_login_at", "created_at", "updated_at")
+
+
+@admin.register(BusinessClientAccessInvitation)
+class BusinessClientAccessInvitationAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_client",
+        "business",
+        "expires_at",
+        "used_at",
+        "revoked_at",
+        "created_at",
+    )
+    list_filter = ("business", "used_at", "revoked_at")
+    search_fields = ("business_client__full_name", "business__commercial_name")
+    autocomplete_fields = ("business", "business_client", "created_by")
+    readonly_fields = (
+        "id",
+        "token_digest",
+        "expires_at",
+        "used_at",
+        "revoked_at",
+        "created_by",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
 
 # Register your models here.
