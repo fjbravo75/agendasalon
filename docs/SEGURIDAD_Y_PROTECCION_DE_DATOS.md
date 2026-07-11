@@ -169,8 +169,9 @@ El perfil `config.settings.prod` falla de forma explícita si no recibe:
 PostgreSQL es obligatorio en producción. La URL de conexión se obtiene del
 entorno y no se pasa a la herramienta de copias mediante argumentos visibles en
 la lista de procesos. `.env.example` contiene únicamente nombres y ejemplos sin
-credenciales reales. Gitleaks no detectó secretos en los 23 commits existentes
-ni en el árbol de trabajo completo del bloque de cierre.
+credenciales reales. Gitleaks no detectó secretos en el historial Git completo
+existente en la fecha de revisión ni en los cambios preparados del bloque de
+cierre.
 
 ## HTTPS: configuración preparada y evidencia pendiente
 
@@ -242,7 +243,7 @@ gitleaks detect --source . --no-banner --redact --exit-code 1
 | Migraciones | No se detectaron cambios pendientes |
 | `pip-audit` | Sin vulnerabilidades conocidas |
 | `npm audit` | 0 vulnerabilidades conocidas |
-| Gitleaks 8.30.1 | 23 commits y 1,62 MB de historial, más el árbol de trabajo completo; sin secretos detectados |
+| Gitleaks 8.30.1 | Historial Git completo y cambios preparados revisados; sin secretos detectados |
 | PostgreSQL 17 | 172 pruebas correctas en el ensayo previo, incluida concurrencia real |
 | Copia y restauración | Restauración completa en base limpia con recuentos coincidentes |
 
