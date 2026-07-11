@@ -96,7 +96,13 @@ class ProfessionalSettingsTests(TestCase):
         self.assertContains(response, "theme-dark")
         self.assertContains(response, "Los ajustes visuales del negocio quedan guardados")
         public_response = self.client.get(reverse("public_booking", args=[self.business.slug]))
-        self.assertNotContains(public_response, "theme-dark")
+        self.assertContains(public_response, "theme-auto")
+        self.assertContains(public_response, "/static/js/public_booking.js")
+        other_public_response = self.client.get(
+            reverse("public_booking", args=[self.other_business.slug])
+        )
+        self.assertContains(other_public_response, "theme-auto")
+        self.assertContains(other_public_response, "public-booking-body--barberia")
         self.assertTrue(
             BusinessActivityEvent.objects.filter(
                 business=self.business,

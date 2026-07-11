@@ -79,6 +79,26 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotContains(response, "Este campo es obligatorio.")
         self.assertContains(response, 'class="service-field-errors"')
 
+    def test_partial_search_hides_redundant_required_field_messages(self):
+        self.client.force_login(self.professional)
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {"business_client": client_id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Selecciona un cliente.")
+        self.assertNotContains(response, "Selecciona el canal.")
+        self.assertNotContains(response, "Indica el día de la cita.")
+        self.assertContains(response, "Selecciona al menos un servicio.")
+        self.assertEqual(response.context["form"]["manual_channel"].value(), "telefono")
+        self.assertEqual(
+            response.context["form"]["target_date"].value(),
+            timezone.localdate().isoformat(),
+        )
+
     def test_long_combined_appointment_shows_no_capacity_and_suggestions(self):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()

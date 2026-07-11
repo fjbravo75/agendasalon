@@ -111,18 +111,25 @@ clientes ni datos de contacto.
 Cada negocio dispone de `/profesional/ajustes/`. Desde esa pantalla el equipo
 puede elegir modo claro u oscuro para todo su panel profesional y subir una
 imagen JPG, PNG o WebP para personalizar la reserva online, el acceso cliente y
-el registro cliente. La imagen se valida, se orienta y se recodifica como WebP
+el registro cliente. La reserva pública mantiene una preferencia independiente:
+adapta automáticamente su luminosidad al modo claro u oscuro del dispositivo
+del cliente. La imagen se valida, se orienta y se recodifica como WebP
 sin EXIF ni metadatos; el lado mayor queda limitado a 2400 px. La entrada no
 puede superar 5 MB ni 16 millones de píxeles y la compresión utiliza un perfil
 WebP equilibrado para no ocupar de forma desproporcionada los procesos web. Si
 se retira, AgendaSalon recupera automáticamente la imagen estándar de salón o
-barbería. El acceso interno de profesionales mantiene su imagen propia.
+barbería. El fondo estándar de salón se sirve como WebP optimizado para reducir
+peso y mantener estable la revisión visual. El acceso interno de profesionales
+mantiene su imagen propia.
 
 La pantalla Django del flujo profesional está disponible en
 `/profesional/citas/nueva/`. Permite seleccionar cliente, canal, varios
 servicios y día; calcula la duración total; muestra calendario mensual,
 disponibilidad por líneas, hueco recomendado y sugerencias. La confirmación
-final se resuelve mediante POST protegido y revalidación del hueco.
+final se resuelve mediante POST protegido y revalidación del hueco. Los campos
+obligatorios usan asterisco y leyenda conjunta; la búsqueda parcial conserva
+canal y día por defecto sin mostrar avisos rojos redundantes. La indicación de
+servicios permanece visible porque desbloquea el cálculo de disponibilidad.
 
 El acceso cliente final está disponible en `/clientes/<slug>/entrar/`, con alta
 separada en `/clientes/<slug>/registro/`.
@@ -206,11 +213,11 @@ Verificación actual:
 npm.cmd run check
 ```
 
-La última verificación completa deja la batería en 197 pruebas Django y
-operativas, además de 16 pruebas frontend correctas. La misma batería Django se
-ha ejecutado sobre PostgreSQL 17, incluida una prueba concurrente real. El build
-de producción, `pip-audit` y `npm audit` también se han verificado sin
-vulnerabilidades conocidas.
+La última verificación completa deja la batería en 198 pruebas Django y
+operativas, además de 17 pruebas frontend correctas. La compatibilidad con
+PostgreSQL 17 se verificó en el bloque de producción, incluida una prueba
+concurrente real. El build de producción, `pip-audit` y `npm audit` también se
+han verificado sin vulnerabilidades conocidas.
 También se puede ejecutar por dominios:
 
 ```powershell
