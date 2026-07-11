@@ -47,6 +47,40 @@
   color-scheme: dark;
 }
 
+@media (prefers-color-scheme: dark) {
+  .theme-auto {
+    --color-bg: #141917;
+    --color-surface: #1d2421;
+    --color-surface-soft: #242d29;
+    --color-surface-muted: #2b3530;
+    --color-line: #39453f;
+    --color-line-strong: #4b5952;
+    --color-text: #f4eee7;
+    --color-text-muted: #b9aea5;
+    --color-text-soft: #918780;
+    --color-accent: #5bc7b3;
+    --color-accent-strong: #80dfcd;
+    --color-accent-soft: #203f38;
+    --color-editorial: #e08473;
+    --color-editorial-soft: #402925;
+    --color-highlight: #e7b25a;
+    --color-highlight-soft: #3b3221;
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.24);
+    color-scheme: dark;
+  }
+
+  .public-booking-body.theme-auto {
+    background:
+      linear-gradient(90deg, rgba(20, 25, 23, 0.98) 0%, rgba(20, 25, 23, 0.94) 45%, rgba(20, 25, 23, 0.8) 100%),
+      linear-gradient(180deg, rgba(20, 25, 23, 0.74), rgba(14, 18, 16, 0.94)),
+      var(--public-booking-bg);
+  }
+
+  .public-booking-body.theme-auto .app-header--public-booking {
+    background: rgba(29, 36, 33, 0.9);
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -72,7 +106,7 @@ body.theme-dark {
 }
 
 .public-booking-body {
-  --public-booking-bg: url("../img/customer-login-peluqueria-mari-bg.png");
+  --public-booking-bg: url("../img/customer-login-peluqueria-mari-bg.webp");
   background:
     linear-gradient(90deg, rgba(250, 246, 239, 0.97) 0%, rgba(250, 246, 239, 0.94) 45%, rgba(250, 246, 239, 0.76) 100%),
     linear-gradient(180deg, rgba(255, 253, 249, 0.72), rgba(245, 238, 231, 0.92)),
@@ -83,7 +117,7 @@ body.theme-dark {
 }
 
 .public-booking-body--salon {
-  --public-booking-bg: url("../img/customer-login-peluqueria-mari-bg.png");
+  --public-booking-bg: url("../img/customer-login-peluqueria-mari-bg.webp");
 }
 
 .public-booking-body--barberia {
@@ -137,6 +171,17 @@ a {
 
 .public-booking-body .app-header--public-booking {
   background: rgba(255, 253, 249, 0.84);
+}
+
+.public-booking-body.theme-dark {
+  background:
+    linear-gradient(90deg, rgba(20, 25, 23, 0.98) 0%, rgba(20, 25, 23, 0.94) 45%, rgba(20, 25, 23, 0.8) 100%),
+    linear-gradient(180deg, rgba(20, 25, 23, 0.74), rgba(14, 18, 16, 0.94)),
+    var(--public-booking-bg);
+}
+
+.public-booking-body.theme-dark .app-header--public-booking {
+  background: rgba(29, 36, 33, 0.9);
 }
 
 .app-header__inner,
@@ -3426,6 +3471,24 @@ a {
   box-shadow: 0 18px 48px rgba(41, 29, 20, 0.08);
 }
 
+.theme-dark .booking-option-card {
+  background: linear-gradient(180deg, rgba(36, 45, 41, 0.98), rgba(29, 36, 33, 0.92));
+}
+
+.theme-dark .public-account-promise {
+  border-color: rgba(91, 199, 179, 0.28);
+  background: var(--color-accent-soft);
+}
+
+.theme-dark .booking-progress li span {
+  background: var(--color-surface);
+}
+
+.theme-dark .booking-confirmation {
+  background: rgba(29, 36, 33, 0.97);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+}
+
 .booking-confirmation__intro {
   max-width: 680px;
 }
@@ -4007,7 +4070,7 @@ a {
 }
 
 .client-auth-page {
-  --client-auth-bg: url("../img/customer-login-peluqueria-mari-bg.png");
+  --client-auth-bg: url("../img/customer-login-peluqueria-mari-bg.webp");
   background-image:
     linear-gradient(90deg, rgba(13, 10, 8, 0.91) 0%, rgba(23, 18, 15, 0.84) 34%, rgba(27, 21, 18, 0.38) 57%, rgba(15, 13, 11, 0.06) 100%),
     linear-gradient(180deg, rgba(13, 12, 11, 0.16) 0%, rgba(13, 12, 11, 0.04) 44%, rgba(13, 12, 11, 0.34) 100%),
@@ -4017,7 +4080,7 @@ a {
 }
 
 .client-auth-page--salon {
-  --client-auth-bg: url("../img/customer-login-peluqueria-mari-bg.png");
+  --client-auth-bg: url("../img/customer-login-peluqueria-mari-bg.webp");
 }
 
 .client-auth-page--barberia {
@@ -5046,7 +5109,7 @@ a {
 }
 
 .settings-public-preview {
-  --settings-public-bg: url("../img/customer-login-peluqueria-mari-bg.png");
+  --settings-public-bg: url("../img/customer-login-peluqueria-mari-bg.webp");
   min-height: 245px;
   display: flex;
   align-items: flex-end;

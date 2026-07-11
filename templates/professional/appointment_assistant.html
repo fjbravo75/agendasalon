@@ -106,19 +106,19 @@
             <div class="field">
               <label for="{{ form.business_client.id_for_label }}">Cliente <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
               {{ form.business_client }}
-              {{ form.business_client.errors }}
+              {% if request.method == "POST" %}{{ form.business_client.errors }}{% endif %}
             </div>
 
             <div class="field">
               <label for="{{ form.manual_channel.id_for_label }}">Canal <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
               {{ form.manual_channel }}
-              {{ form.manual_channel.errors }}
+              {% if request.method == "POST" %}{{ form.manual_channel.errors }}{% endif %}
             </div>
 
             <div class="field">
               <label for="{{ form.target_date.id_for_label }}">Día <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
               {{ form.target_date }}
-              {{ form.target_date.errors }}
+              {% if request.method == "POST" %}{{ form.target_date.errors }}{% endif %}
             </div>
           </div>
         </div>

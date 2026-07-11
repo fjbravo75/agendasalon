@@ -1,4 +1,18 @@
 (() => {
+  const body = document.body;
+  const preferredTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+
+  if (body.classList.contains("theme-auto") && preferredTheme) {
+    const applyPreferredTheme = (isDark) => {
+      body.classList.toggle("theme-dark", isDark);
+    };
+
+    applyPreferredTheme(preferredTheme.matches);
+    preferredTheme.addEventListener?.("change", (event) => {
+      applyPreferredTheme(event.matches);
+    });
+  }
+
   const form = document.querySelector("[data-booking-search]");
   if (!form) {
     return;

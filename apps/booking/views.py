@@ -176,6 +176,10 @@ def appointment_assistant(request):
         "target_date": timezone.localdate(),
         "manual_channel": Appointment.ManualChannel.PHONE,
     }
+    if request.method == "GET" and search_data:
+        search_data = search_data.copy()
+        search_data.setdefault("manual_channel", initial["manual_channel"])
+        search_data.setdefault("target_date", initial["target_date"].isoformat())
     if form is None:
         form = AppointmentSearchForm(
             search_data or None,
