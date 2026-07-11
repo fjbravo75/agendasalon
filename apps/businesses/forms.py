@@ -1,7 +1,10 @@
+from pathlib import Path
+
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.templatetags.static import static
 from django.utils.text import slugify
 
 from apps.businesses.images import (
@@ -10,7 +13,7 @@ from apps.businesses.images import (
     PublicImageProcessingError,
     sanitize_public_image,
 )
-from apps.businesses.models import Business, BusinessMembership
+from apps.businesses.models import Business, BusinessMembership, BusinessPublicImage
 from apps.core.phone import normalize_phone
 
 
@@ -193,35 +196,105 @@ class ProfessionalCreateForm(forms.Form):
 
 
 class BusinessVisualSettingsForm(forms.ModelForm):
-    remove_public_image = forms.BooleanField(
-        label="Volver a la imagen predeterminada",
+    public_image_choice = forms.ChoiceField(
+        label="Imagen activa",
         required=False,
+        error_messages={"invalid_choice": "Selecciona una imagen disponible."},
+    )
+    new_public_image = forms.ImageField(
+        label="Subir una imagen nueva",
+        required=False,
+        error_messages={
+            "invalid_image": "Selecciona una imagen JPG, PNG o WebP válida.",
+        },
+        widget=forms.FileInput(
+            attrs={
+                "accept": "image/jpeg,image/png,image/webp",
+                "data-public-image-upload": "",
+            }
+        ),
     )
 
     class Meta:
         model = Business
-        fields = ("professional_theme", "public_image")
+        fields = ("professional_theme", "public_image_choice", "new_public_image")
         labels = {
             "professional_theme": "Apariencia del panel",
-            "public_image": "Nueva imagen pública",
-        }
-        error_messages = {
-            "public_image": {
-                "invalid_image": "Selecciona una imagen JPG, PNG o WebP válida.",
-            }
+            "public_image_choice": "Imagen activa",
+            "new_public_image": "Subir una imagen nueva",
         }
         widgets = {
             "professional_theme": forms.RadioSelect,
-            "public_image": forms.FileInput(
-                attrs={
-                    "accept": "image/jpeg,image/png,image/webp",
-                }
-            ),
         }
 
-    def clean_public_image(self):
-        image = self.cleaned_data.get("public_image")
-        if not image or "public_image" not in self.files:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.uploaded_image_label = "Imagen personalizada"
+        self.saved_public_image = None
+        custom_images = tuple(self.instance.public_images.all())
+        choices = [
+            ("preset:salon", "Salón luminoso"),
+            ("preset:barberia", "Barbería contemporánea"),
+            *[(f"custom:{image.pk}", image.label) for image in custom_images],
+        ]
+        self.fields["public_image_choice"].choices = choices
+
+        selected_custom = next((image for image in custom_images if image.is_selected), None)
+        current_choice = (
+            f"custom:{selected_custom.pk}"
+            if selected_custom is not None
+            else f"preset:{self.instance.public_image_preset}"
+        )
+        if not self.is_bound:
+            self.initial["public_image_choice"] = current_choice
+        selected_value = str(self["public_image_choice"].value() or current_choice)
+
+        self.public_image_options = [
+            {
+                "value": "preset:salon",
+                "label": "Salón luminoso",
+                "description": "Ambiente claro y cálido para peluquería, belleza o estética.",
+                "url": static("img/customer-login-peluqueria-mari-bg.webp"),
+                "theme": "salon",
+                "is_selected": selected_value == "preset:salon",
+            },
+            {
+                "value": "preset:barberia",
+                "label": "Barbería contemporánea",
+                "description": "Ambiente oscuro y sobrio para barbería o cuidado masculino.",
+                "url": static("img/customer-login-barberia-norte-bg-v2.png"),
+                "theme": "barberia",
+                "is_selected": selected_value == "preset:barberia",
+            },
+        ]
+        for image in custom_images:
+            try:
+                image_url = image.image.url
+            except ValueError:
+                continue
+            self.public_image_options.append(
+                {
+                    "value": f"custom:{image.pk}",
+                    "label": image.label,
+                    "description": "Imagen subida por este negocio.",
+                    "url": image_url,
+                    "theme": "custom",
+                    "is_selected": selected_value == f"custom:{image.pk}",
+                }
+            )
+
+        self.active_public_image_label = next(
+            (
+                option["label"]
+                for option in self.public_image_options
+                if option["is_selected"]
+            ),
+            "Salón luminoso",
+        )
+
+    def clean_new_public_image(self):
+        image = self.cleaned_data.get("new_public_image")
+        if not image or "new_public_image" not in self.files:
             return image
         if image.size > PUBLIC_IMAGE_MAX_INPUT_BYTES:
             raise forms.ValidationError("La imagen no puede superar los 5 MB.")
@@ -235,6 +308,7 @@ class BusinessVisualSettingsForm(forms.ModelForm):
             raise forms.ValidationError("La imagen tiene demasiados píxeles para un uso seguro.")
         if width < 800 or height < 500:
             raise forms.ValidationError("La imagen debe medir al menos 800 × 500 píxeles.")
+        self.uploaded_image_label = Path(image.name or "Imagen personalizada").stem[:120]
         try:
             return sanitize_public_image(image)
         except PublicImageProcessingError as exc:
@@ -242,19 +316,49 @@ class BusinessVisualSettingsForm(forms.ModelForm):
                 "No hemos podido preparar la imagen. Prueba con otro archivo JPG, PNG o WebP."
             ) from exc
 
-    def clean(self):
-        cleaned_data = super().clean()
-        if cleaned_data.get("remove_public_image") and self.files.get("public_image"):
-            self.add_error(
-                "public_image",
-                "Elige una imagen nueva o vuelve a la predeterminada, pero no ambas opciones.",
+    def clean_public_image_choice(self):
+        choice = self.cleaned_data.get("public_image_choice")
+        if not choice:
+            selected = self.instance.public_images.filter(is_selected=True).first()
+            return (
+                f"custom:{selected.pk}"
+                if selected is not None
+                else f"preset:{self.instance.public_image_preset}"
             )
-        return cleaned_data
+        if choice in {"preset:salon", "preset:barberia"}:
+            return choice
+        if choice.startswith("custom:"):
+            try:
+                image_id = int(choice.split(":", 1)[1])
+            except (TypeError, ValueError):
+                raise forms.ValidationError("Selecciona una imagen disponible.")
+            if self.instance.public_images.filter(pk=image_id).exists():
+                return choice
+        raise forms.ValidationError("Selecciona una imagen disponible.")
 
-    def save(self, commit=True):
+    def save(self, commit=True, uploaded_by=None):
         business = super().save(commit=False)
-        if self.cleaned_data.get("remove_public_image"):
-            business.public_image = None
         if commit:
             business.save()
+            uploaded_image = self.cleaned_data.get("new_public_image")
+            choice = self.cleaned_data["public_image_choice"]
+            if uploaded_image:
+                business.public_images.filter(is_selected=True).update(is_selected=False)
+                self.saved_public_image = BusinessPublicImage.objects.create(
+                    business=business,
+                    image=uploaded_image,
+                    label=self.uploaded_image_label,
+                    is_selected=True,
+                    uploaded_by=uploaded_by,
+                )
+            elif choice.startswith("custom:"):
+                image_id = int(choice.split(":", 1)[1])
+                business.public_images.filter(is_selected=True).exclude(pk=image_id).update(
+                    is_selected=False
+                )
+                business.public_images.filter(pk=image_id).update(is_selected=True)
+            else:
+                business.public_images.filter(is_selected=True).update(is_selected=False)
+                business.public_image_preset = choice.split(":", 1)[1]
+                business.save(update_fields=["public_image_preset", "updated_at"])
         return business

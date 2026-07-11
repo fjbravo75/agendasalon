@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Business, BusinessActivityEvent, BusinessMembership
+from .models import Business, BusinessActivityEvent, BusinessMembership, BusinessPublicImage
 
 
 @admin.register(Business)
@@ -23,6 +23,15 @@ class BusinessMembershipAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("business", "user")
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(BusinessPublicImage)
+class BusinessPublicImageAdmin(admin.ModelAdmin):
+    list_display = ("label", "business", "is_selected", "uploaded_by", "created_at")
+    list_filter = ("is_selected", "business")
+    search_fields = ("label", "business__commercial_name")
+    autocomplete_fields = ("business", "uploaded_by")
+    readonly_fields = ("created_at",)
 
 
 @admin.register(BusinessActivityEvent)

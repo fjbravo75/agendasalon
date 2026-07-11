@@ -11,12 +11,21 @@ def business_public_image_upload_to(instance, filename):
     return f"businesses/{instance.slug}/public-{uuid4().hex}{extension}"
 
 
+def business_public_gallery_image_upload_to(instance, filename):
+    extension = Path(filename).suffix.lower()
+    return f"businesses/{instance.business.slug}/gallery/public-{uuid4().hex}{extension}"
+
+
 class Business(models.Model):
     """Business subscribed to AgendaSalon."""
 
     class ProfessionalTheme(models.TextChoices):
         LIGHT = "light", "Modo claro"
         DARK = "dark", "Modo oscuro"
+
+    class PublicImagePreset(models.TextChoices):
+        SALON = "salon", "Salón luminoso"
+        BARBERSHOP = "barberia", "Barbería contemporánea"
 
     commercial_name = models.CharField("nombre comercial", max_length=160)
     slug = models.SlugField("slug", max_length=180, unique=True)
@@ -39,6 +48,12 @@ class Business(models.Model):
         upload_to=business_public_image_upload_to,
         blank=True,
         validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+    )
+    public_image_preset = models.CharField(
+        "imagen pública predeterminada",
+        max_length=16,
+        choices=PublicImagePreset.choices,
+        default=PublicImagePreset.SALON,
     )
     last_activity_at = models.DateTimeField("última actividad", null=True, blank=True)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
@@ -68,6 +83,54 @@ class Business(models.Model):
 
     def accepts_public_bookings(self):
         return self.is_active and self.public_booking_enabled
+
+
+class BusinessPublicImage(models.Model):
+    """Imagen reutilizable subida por un negocio para sus pantallas públicas."""
+
+    business = models.ForeignKey(
+        Business,
+        on_delete=models.CASCADE,
+        related_name="public_images",
+        verbose_name="negocio",
+    )
+    image = models.ImageField(
+        "imagen",
+        upload_to=business_public_gallery_image_upload_to,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+    )
+    label = models.CharField("nombre visible", max_length=120)
+    is_selected = models.BooleanField("seleccionada", default=False)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="uploaded_business_public_images",
+        verbose_name="subida por",
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "imagen pública de negocio"
+        verbose_name_plural = "imágenes públicas de negocio"
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business"],
+                condition=models.Q(is_selected=True),
+                name="unique_selected_public_image_per_business",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["business", "created_at"],
+                name="pubimg_business_created_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.label} ({self.business})"
 
 
 class BusinessMembership(models.Model):

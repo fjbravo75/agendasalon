@@ -35,3 +35,116 @@ document.addEventListener("click", async (event) => {
     }
   }
 });
+
+const appointmentSearchForm = document.querySelector("[data-appointment-search]");
+
+if (appointmentSearchForm) {
+  const serviceInputs = [
+    ...appointmentSearchForm.querySelectorAll("[data-appointment-service]"),
+  ];
+  const totalNode = appointmentSearchForm.querySelector(
+    "[data-appointment-duration-total]",
+  );
+  const detailNode = appointmentSearchForm.querySelector(
+    "[data-appointment-duration-detail]",
+  );
+  const adjustmentHelpNode = appointmentSearchForm.querySelector(
+    "[data-duration-adjust-help]",
+  );
+
+  const updateAppointmentDuration = () => {
+    const selectedServices = serviceInputs.filter((input) => input.checked);
+    const totalMinutes = selectedServices.reduce(
+      (total, input) => total + Number(input.dataset.duration || 0),
+      0,
+    );
+
+    if (!selectedServices.length) {
+      totalNode.textContent = "0 min";
+      detailNode.textContent = "Selecciona servicios para calcular el tiempo total.";
+      adjustmentHelpNode.textContent =
+        "Úsalo solo si la cita necesita más o menos tiempo que la suma de los servicios.";
+      return;
+    }
+
+    totalNode.textContent = `${totalMinutes} min`;
+    detailNode.textContent = `${selectedServices.length} ${
+      selectedServices.length === 1 ? "servicio seleccionado" : "servicios seleccionados"
+    }.`;
+    adjustmentHelpNode.textContent =
+      `La duración calculada es de ${totalMinutes} min. Ajústala solo si esta cita necesita un tiempo diferente.`;
+  };
+
+  serviceInputs.forEach((input) =>
+    input.addEventListener("change", updateAppointmentDuration),
+  );
+  updateAppointmentDuration();
+}
+
+const serviceColorPicker = document.querySelector("[data-service-color-picker]");
+
+if (serviceColorPicker) {
+  const colorInput = serviceColorPicker.parentElement.querySelector(
+    'input[name="color_hex"]',
+  );
+  const previewNode = serviceColorPicker.querySelector("[data-service-color-preview]");
+  const nameNode = serviceColorPicker.querySelector("[data-service-color-name]");
+  const colorOptions = [
+    ...serviceColorPicker.querySelectorAll("[data-service-color-option]"),
+  ];
+
+  const selectServiceColor = (color, colorName) => {
+    colorInput.value = color;
+    serviceColorPicker.style.setProperty("--selected-service-color", color);
+    previewNode.style.setProperty("--selected-service-color", color);
+    nameNode.textContent = colorName;
+    colorOptions.forEach((option) =>
+      option.setAttribute("aria-pressed", String(option.dataset.color === color)),
+    );
+  };
+
+  const initialOption =
+    colorOptions.find((option) => option.dataset.color === colorInput.value.toUpperCase()) ||
+    colorOptions[0];
+  selectServiceColor(initialOption.dataset.color, initialOption.dataset.colorName);
+
+  colorOptions.forEach((option) => {
+    option.addEventListener("click", () => {
+      selectServiceColor(option.dataset.color, option.dataset.colorName);
+      serviceColorPicker.open = false;
+    });
+  });
+}
+
+const publicImagePreview = document.querySelector("[data-public-image-preview]");
+
+if (publicImagePreview) {
+  const imageChoices = [...document.querySelectorAll("[data-public-image-choice]")];
+  const imageUpload = document.querySelector("[data-public-image-upload]");
+  let localPreviewUrl = "";
+
+  const showPublicImage = (url) => {
+    publicImagePreview.style.setProperty("--settings-public-bg", `url("${url}")`);
+  };
+
+  imageChoices.forEach((choice) => {
+    choice.addEventListener("change", () => {
+      if (!choice.checked) {
+        return;
+      }
+      showPublicImage(choice.dataset.imageUrl);
+    });
+  });
+
+  imageUpload?.addEventListener("change", () => {
+    const [file] = imageUpload.files;
+    if (!file) {
+      return;
+    }
+    if (localPreviewUrl) {
+      URL.revokeObjectURL(localPreviewUrl);
+    }
+    localPreviewUrl = URL.createObjectURL(file);
+    showPublicImage(localPreviewUrl);
+  });
+}

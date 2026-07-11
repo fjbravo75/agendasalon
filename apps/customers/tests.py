@@ -231,11 +231,12 @@ class ClientAccessViewTests(TestCase):
         self.assertNotContains(response, "Acceso profesional")
         self.assertNotContains(response, "Entrar y revisar reserva")
 
-    def test_barberia_business_uses_masculine_visual_theme(self):
+    def test_business_uses_the_selected_barbershop_visual_theme(self):
         barberia = Business.objects.create(
             commercial_name="Barbería Norte",
             slug="barberia-norte",
             is_active=True,
+            public_image_preset=Business.PublicImagePreset.BARBERSHOP,
         )
 
         response = self.client.get(
