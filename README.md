@@ -111,8 +111,11 @@ clientes ni datos de contacto.
 Cada negocio dispone de `/profesional/ajustes/`. Desde esa pantalla el equipo
 puede elegir modo claro u oscuro para todo su panel profesional y subir una
 imagen JPG, PNG o WebP para personalizar la reserva online, el acceso cliente y
-el registro cliente. La imagen se valida por formato, peso y dimensiones; si se
-retira, AgendaSalon recupera automáticamente la imagen estándar de salón o
+el registro cliente. La imagen se valida, se orienta y se recodifica como WebP
+sin EXIF ni metadatos; el lado mayor queda limitado a 2400 px. La entrada no
+puede superar 5 MB ni 16 millones de píxeles y la compresión utiliza un perfil
+WebP equilibrado para no ocupar de forma desproporcionada los procesos web. Si
+se retira, AgendaSalon recupera automáticamente la imagen estándar de salón o
 barbería. El acceso interno de profesionales mantiene su imagen propia.
 
 La pantalla Django del flujo profesional está disponible en
@@ -203,10 +206,10 @@ Verificación actual:
 npm.cmd run check
 ```
 
-La última verificación completa deja la batería en 189 pruebas Django y
+La última verificación completa deja la batería en 197 pruebas Django y
 operativas, además de 16 pruebas frontend correctas. La misma batería Django se
 ha ejecutado sobre PostgreSQL 17, incluida una prueba concurrente real. El build
-de producción y `npm audit` también se han verificado sin incidencias ni
+de producción, `pip-audit` y `npm audit` también se han verificado sin
 vulnerabilidades conocidas.
 También se puede ejecutar por dominios:
 
@@ -221,6 +224,20 @@ También se puede ejecutar por dominios:
 WSGI y ASGI arrancan con `config.settings.prod` y fallan si faltan secreto,
 hosts o `DJANGO_DATABASE_URL`. El desarrollo local continúa usando
 `config.settings.dev` y SQLite mediante `manage.py`.
+
+Las respuestas incorporan una política CSP. Las rutas de producto solo permiten
+scripts del mismo origen; Django Admin conserva una excepción inline limitada a
+su propio prefijo. Las capacidades de navegador no utilizadas quedan
+deshabilitadas mediante `Permissions-Policy` y los recursos propios usan CORP
+`same-origin`. El perfil de producción añade `upgrade-insecure-requests`.
+
+El panel propio `/superadmin/` es la administración funcional de AgendaSalon.
+`/admin/` es una herramienta técnica interna de Django: exige una cuenta activa
+con `is_staff`, aplica permisos por modelo y concede acceso total únicamente a
+superusuarios. Los profesionales no pueden entrar. La semilla local reúne ambos
+papeles en la cuenta demo para facilitar la evaluación, pero en producción deben
+usarse cuentas técnicas personales, con privilegios mínimos y separadas de la
+operativa habitual de la plataforma.
 
 El procedimiento de PostgreSQL, copia de base de datos y media, verificación y
 restauración está documentado en

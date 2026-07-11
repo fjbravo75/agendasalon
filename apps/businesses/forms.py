@@ -4,6 +4,12 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 
+from apps.businesses.images import (
+    PUBLIC_IMAGE_MAX_INPUT_BYTES,
+    PUBLIC_IMAGE_MAX_INPUT_PIXELS,
+    PublicImageProcessingError,
+    sanitize_public_image,
+)
 from apps.businesses.models import Business, BusinessMembership
 from apps.core.phone import normalize_phone
 
@@ -217,7 +223,7 @@ class BusinessVisualSettingsForm(forms.ModelForm):
         image = self.cleaned_data.get("public_image")
         if not image or "public_image" not in self.files:
             return image
-        if image.size > 5 * 1024 * 1024:
+        if image.size > PUBLIC_IMAGE_MAX_INPUT_BYTES:
             raise forms.ValidationError("La imagen no puede superar los 5 MB.")
         verified_image = getattr(image, "image", None)
         image_format = getattr(verified_image, "format", "")
@@ -225,11 +231,16 @@ class BusinessVisualSettingsForm(forms.ModelForm):
             raise forms.ValidationError("Usa una imagen JPG, PNG o WebP.")
         width = getattr(verified_image, "width", 0)
         height = getattr(verified_image, "height", 0)
-        if width * height > 24_000_000:
+        if width * height > PUBLIC_IMAGE_MAX_INPUT_PIXELS:
             raise forms.ValidationError("La imagen tiene demasiados píxeles para un uso seguro.")
         if width < 800 or height < 500:
             raise forms.ValidationError("La imagen debe medir al menos 800 × 500 píxeles.")
-        return image
+        try:
+            return sanitize_public_image(image)
+        except PublicImageProcessingError as exc:
+            raise forms.ValidationError(
+                "No hemos podido preparar la imagen. Prueba con otro archivo JPG, PNG o WebP."
+            ) from exc
 
     def clean(self):
         cleaned_data = super().clean()

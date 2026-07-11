@@ -27,6 +27,53 @@ La URL y el resto de secretos deben vivir en el gestor de variables del
 servidor, nunca en Git, el README, una unidad de servicio ni la línea de
 comandos.
 
+## Cabeceras y contenido activo
+
+AgendaSalon envía una CSP en todas las respuestas. Las rutas de producto solo
+aceptan JavaScript del mismo origen. Los estilos y fuentes de Google se limitan a
+`fonts.googleapis.com` y `fonts.gstatic.com`; ningún otro tercero queda
+autorizado. Django Admin recibe una excepción de script inline limitada a
+`/admin/` para conservar su funcionamiento. Producción añade
+`upgrade-insecure-requests`. `Permissions-Policy` desactiva cámara, micrófono,
+geolocalización, pagos, USB y Topics; CORP limita los recursos propios al mismo
+origen.
+
+Antes de desplegar deben recorrerse reserva, agenda React, dashboard React y
+Django Admin con la consola del navegador abierta. HSTS preload no se activa
+hasta confirmar dominio definitivo, HTTPS estable y el periodo de HSTS exigido.
+
+## Administración técnica
+
+El panel `/superadmin/` pertenece al producto y gestiona negocios, accesos y
+reserva pública. Django Admin, bajo `/admin/`, queda reservado para mantenimiento
+y diagnóstico técnico. No sustituye los flujos funcionales ni debe enlazarse
+desde las pantallas de profesionales o clientes.
+
+Django permite entrar a una cuenta activa con `is_staff`; después aplica los
+permisos de cada modelo. Un superusuario dispone de acceso completo. En
+producción deben cumplirse estas reglas:
+
+- cuentas técnicas personales, nunca compartidas;
+- privilegios mínimos por modelo cuando no sea necesario un superusuario;
+- separación entre administración funcional y mantenimiento técnico;
+- acceso restringido por red, VPN o IP cuando la infraestructura lo permita;
+- uso excepcional para diagnóstico, recuperación o corrección controlada, no
+  para la operativa cotidiana.
+
+La cuenta superadministradora de la semilla local reúne ambos papeles solo para
+la demostración. Las pruebas automatizadas confirman que un profesional sin
+`is_staff` no entra, que el personal técnico limitado no obtiene modelos sin
+permiso y que el superusuario sí puede administrarlos.
+
+## Medios públicos
+
+Las imágenes públicas admiten JPG, PNG o WebP hasta 5 MB y 16 millones de
+píxeles. Se orientan, se reducen a un máximo de 2400 px, se recodifican como WebP
+estático con un perfil equilibrado y se guardan sin EXIF ni metadatos. El
+despliegue debe añadir un límite moderado por cuenta o por ruta para la subida de
+medios. Si el volumen real crece, el procesamiento deberá pasar a un trabajador
+en segundo plano con concurrencia acotada.
+
 ## Objetivos iniciales de continuidad
 
 Para la demo del PFM se fija un objetivo inicial y revisable:

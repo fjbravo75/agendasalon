@@ -246,6 +246,8 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotContains(response, "María López")
         self.assertNotContains(response, "600111201")
         self.assertNotContains(response, "Línea")
+        self.assertContains(response, "/static/js/public_booking.js")
+        self.assertNotContains(response, "<script>\n    (() => {")
 
     def test_public_booking_shows_optimized_options_without_internal_agenda(self):
         self._login_demo_client()

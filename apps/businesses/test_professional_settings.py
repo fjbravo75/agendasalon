@@ -1,5 +1,6 @@
 from io import BytesIO
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -118,7 +119,7 @@ class ProfessionalSettingsTests(TestCase):
 
         self.assertRedirects(response, self.url)
         self.business.refresh_from_db()
-        self.assertTrue(self.business.public_image.name.endswith(".jpg"))
+        self.assertTrue(self.business.public_image.name.endswith(".webp"))
         image_url = self.business.public_image.url
         for url in (
             reverse("public_booking", args=[self.business.slug]),
@@ -128,6 +129,57 @@ class ProfessionalSettingsTests(TestCase):
             public_response = self.client.get(url)
             self.assertEqual(public_response.status_code, 200)
             self.assertContains(public_response, image_url)
+
+    def test_uploaded_image_is_reencoded_without_exif_metadata(self):
+        self.client.force_login(self.professional)
+        output = BytesIO()
+        source = Image.new("RGB", (800, 1200), color=(93, 67, 54))
+        exif = Image.Exif()
+        exif[274] = 6
+        exif[315] = "Dato interno que no debe publicarse"
+        source.save(output, format="JPEG", exif=exif)
+        upload = SimpleUploadedFile(
+            "foto-con-metadatos.jpg",
+            output.getvalue(),
+            content_type="image/jpeg",
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "professional_theme": Business.ProfessionalTheme.LIGHT,
+                "public_image": upload,
+            },
+        )
+
+        self.assertRedirects(response, self.url)
+        self.business.refresh_from_db()
+        self.assertTrue(self.business.public_image.name.endswith(".webp"))
+        with Image.open(self.business.public_image.path) as stored:
+            self.assertEqual(stored.format, "WEBP")
+            self.assertEqual(stored.size, (1200, 800))
+            self.assertFalse(stored.getexif())
+            self.assertNotIn("exif", stored.info)
+
+    def test_large_image_is_downscaled_without_changing_its_aspect_ratio(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            self.url,
+            {
+                "professional_theme": Business.ProfessionalTheme.LIGHT,
+                "public_image": self._image_file(
+                    "fachada-grande.png",
+                    size=(4000, 2500),
+                    image_format="PNG",
+                ),
+            },
+        )
+
+        self.assertRedirects(response, self.url)
+        self.business.refresh_from_db()
+        with Image.open(self.business.public_image.path) as stored:
+            self.assertEqual(stored.size, (2400, 1500))
 
     def test_invalid_or_too_small_images_are_rejected(self):
         self.client.force_login(self.professional)
@@ -155,6 +207,25 @@ class ProfessionalSettingsTests(TestCase):
         self.assertContains(small_response, "La imagen debe medir al menos 800 × 500 píxeles")
         self.business.refresh_from_db()
         self.assertFalse(self.business.public_image)
+
+    def test_image_over_resource_budget_is_rejected_before_processing(self):
+        self.client.force_login(self.professional)
+
+        with patch("apps.businesses.forms.sanitize_public_image") as sanitizer:
+            response = self.client.post(
+                self.url,
+                {
+                    "professional_theme": Business.ProfessionalTheme.LIGHT,
+                    "public_image": self._image_file(
+                        "demasiado-grande.png",
+                        size=(4001, 4000),
+                        image_format="PNG",
+                    ),
+                },
+            )
+
+        self.assertContains(response, "La imagen tiene demasiados píxeles para un uso seguro")
+        sanitizer.assert_not_called()
 
     def test_professional_can_restore_the_default_public_image(self):
         self.client.force_login(self.professional)
