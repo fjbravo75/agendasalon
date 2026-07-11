@@ -252,3 +252,7 @@ restauración está documentado en
 operativa no acepta la URL de base de datos por línea de comandos: la lee de la
 variable `DJANGO_DATABASE_URL` para no exponer credenciales en la lista de
 procesos.
+
+La matriz académica de controles, las evidencias reproducibles y los riesgos
+que deben cerrarse durante el despliegue están reunidos en
+[`docs/SEGURIDAD_Y_PROTECCION_DE_DATOS.md`](docs/SEGURIDAD_Y_PROTECCION_DE_DATOS.md).

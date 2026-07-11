@@ -17,6 +17,14 @@ en `DJANGO_TRUSTED_PROXY_IPS`, separadas por comas. Solo entonces AgendaSalon
 consulta `X-Forwarded-For`; recorre la cadena desde el proxy más cercano y no
 confía en una cabecera enviada directamente por el cliente.
 
+La topología de despliegue debe impedir el acceso directo al proceso Django. Si
+el proxy termina TLS y comunica con Django mediante HTTP interno, antes de
+activar `SECURE_PROXY_SSL_HEADER` debe garantizarse que el proxy elimina toda
+cabecera `X-Forwarded-Proto` enviada por el cliente y escribe su propio valor.
+La aplicación no confía automáticamente en esa cabecera hasta decidir y probar
+la arquitectura definitiva; de este modo se evita convertir una configuración
+genérica en una vía para falsear el carácter seguro de una petición.
+
 La base de datos de producción debe ser PostgreSQL. Formato esperado:
 
 ```text

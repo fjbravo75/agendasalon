@@ -1,8 +1,13 @@
-# Documentacion tecnica del entregable
+# Documentación técnica del entregable
 
-Esta carpeta queda reservada para documentacion tecnica util de la aplicacion
-entregable: instalacion, despliegue, datos demo, arquitectura y decisiones que
-deban viajar con el codigo.
+Esta carpeta reúne documentación técnica útil de la aplicación
+entregable: instalación, despliegue, datos demo, arquitectura y decisiones que
+deban viajar con el código.
 
-La memoria viva de definicion del PFM permanece fuera de este repositorio, en la
-carpeta documental del proyecto.
+Documentos disponibles:
+
+- [`SEGURIDAD_Y_PROTECCION_DE_DATOS.md`](SEGURIDAD_Y_PROTECCION_DE_DATOS.md):
+  matriz de controles, evidencias reproducibles, arquitectura y riesgos
+  residuales.
+- [`OPERACION_PRODUCCION.md`](OPERACION_PRODUCCION.md): perfil de producción,
+  cabeceras, administración técnica, copias y restauración.
