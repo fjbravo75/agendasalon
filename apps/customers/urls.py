@@ -2,9 +2,13 @@ from django.urls import path
 
 from apps.customers.views import (
     client_access,
+    client_invitation_activate,
+    client_invitation_claim,
     client_logout,
     client_register,
     professional_client_access_toggle,
+    professional_client_invitation_create,
+    professional_client_invitation_revoke,
     professional_client_detail,
     professional_client_edit,
     professional_client_list,
@@ -28,6 +32,16 @@ urlpatterns = [
         name="professional_client_access_toggle",
     ),
     path(
+        "profesional/<int:client_id>/cuenta-online/invitacion/",
+        professional_client_invitation_create,
+        name="professional_client_invitation_create",
+    ),
+    path(
+        "profesional/<int:client_id>/cuenta-online/invitacion/<uuid:invitation_id>/revocar/",
+        professional_client_invitation_revoke,
+        name="professional_client_invitation_revoke",
+    ),
+    path(
         "profesional/<int:client_id>/contactos/nuevo/",
         professional_contact_create,
         name="professional_contact_create",
@@ -43,6 +57,16 @@ urlpatterns = [
         name="professional_contact_toggle",
     ),
     path("<slug:slug>/entrar/", client_access, name="client_access"),
+    path(
+        "<slug:slug>/activar/<uuid:invitation_id>/<str:token>/",
+        client_invitation_claim,
+        name="client_invitation_claim",
+    ),
+    path(
+        "<slug:slug>/activar/",
+        client_invitation_activate,
+        name="client_invitation_activate",
+    ),
     path("<slug:slug>/registro/", client_register, name="client_register"),
     path("<slug:slug>/salir/", client_logout, name="client_logout"),
 ]

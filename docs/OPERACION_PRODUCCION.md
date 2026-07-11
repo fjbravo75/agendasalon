@@ -12,6 +12,11 @@ perfil por defecto y detienen el arranque cuando falta alguna de estas variables
 - `DJANGO_ALLOWED_HOSTS`;
 - `DJANGO_DATABASE_URL`.
 
+Si existe un proxy inverso, sus direcciones deben declararse de forma explícita
+en `DJANGO_TRUSTED_PROXY_IPS`, separadas por comas. Solo entonces AgendaSalon
+consulta `X-Forwarded-For`; recorre la cadena desde el proxy más cercano y no
+confía en una cabecera enviada directamente por el cliente.
+
 La base de datos de producción debe ser PostgreSQL. Formato esperado:
 
 ```text
@@ -34,6 +39,13 @@ Para la demo del PFM se fija un objetivo inicial y revisable:
 
 Antes de una explotación comercial deben revisarse estos valores según volumen,
 coste y compromisos con clientes.
+
+Los contadores de intentos fallidos se conservan de forma seudonimizada. La
+tarea operativa diaria debe retirar los que lleven 30 días inactivos:
+
+```bash
+python manage.py prune_security_throttles --days 30
+```
 
 ## Crear y verificar una copia
 

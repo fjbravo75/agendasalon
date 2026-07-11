@@ -3,6 +3,7 @@ from io import StringIO
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import identify_hasher
 from django.core.management import call_command
 from django.test import TestCase
 
@@ -50,6 +51,12 @@ class SeedDemoCommandTests(TestCase):
                 is_active=True,
             ).exists()
         )
+        self.assertTrue(
+            all(
+                identify_hasher(user.password).algorithm == "argon2"
+                for user in get_user_model().objects.all()
+            )
+        )
         self.assertEqual(BusinessCalendarSettings.objects.filter(business=business).count(), 1)
         self.assertEqual(BusinessCalendarSettings.objects.filter(business=barberia).count(), 1)
         self.assertEqual(WorkLine.objects.filter(business=business, is_active=True).count(), 3)
@@ -63,6 +70,12 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(BusinessClient.objects.filter(business=barberia).count(), 2)
         self.assertEqual(BusinessClientAccess.objects.filter(business=business).count(), 2)
         self.assertEqual(BusinessClientAccess.objects.filter(business=barberia).count(), 1)
+        self.assertTrue(
+            all(
+                identify_hasher(access.password_hash).algorithm == "argon2"
+                for access in BusinessClientAccess.objects.all()
+            )
+        )
         self.assertEqual(BusinessClientAuthorizedContact.objects.filter(business=business).count(), 1)
         self.assertEqual(BusinessClosure.objects.filter(business=business, is_active=True).count(), 2)
         self.assertEqual(OfficialHoliday.objects.filter(name="Fiesta nacional").count(), 1)

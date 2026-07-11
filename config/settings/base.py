@@ -18,6 +18,13 @@ DEBUG = False
 ALLOWED_HOSTS: list[str] = []
 
 CSRF_TRUSTED_ORIGINS: list[str] = []
+CSRF_FAILURE_VIEW = "apps.core.views.csrf_failure"
+
+TRUSTED_PROXY_IPS = {
+    ip.strip()
+    for ip in os.environ.get("DJANGO_TRUSTED_PROXY_IPS", "").split(",")
+    if ip.strip()
+}
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -75,12 +82,19 @@ DATABASES = {
 
 AUTH_USER_MODEL = "accounts.User"
 
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+]
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
     },
     {
         "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
@@ -110,3 +124,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/cuenta/entrar/"
 LOGIN_REDIRECT_URL = "/profesional/"
 LOGOUT_REDIRECT_URL = "/cuenta/desconectado/"
+
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SECURE_REFERRER_POLICY = "same-origin"
+SESSION_COOKIE_AGE = 8 * 60 * 60
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True

@@ -174,6 +174,9 @@ class BusinessActivityEvent(models.Model):
         MEMBERSHIP_CREATED = "membership_created", "Acceso profesional creado"
         MEMBERSHIP_PAUSED = "membership_paused", "Acceso profesional pausado"
         MEMBERSHIP_REACTIVATED = "membership_reactivated", "Acceso profesional reactivado"
+        CLIENT_INVITATION_CREATED = "client_invitation_created", "Invitación de cliente creada"
+        CLIENT_INVITATION_REVOKED = "client_invitation_revoked", "Invitación de cliente revocada"
+        CLIENT_ACCESS_ACTIVATED = "client_access_activated", "Cuenta de cliente activada"
 
     business = models.ForeignKey(
         Business,

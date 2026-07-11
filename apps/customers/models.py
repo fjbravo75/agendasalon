@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -208,7 +210,11 @@ class BusinessClientAccess(models.Model):
         self.password_hash = make_password(raw_password)
 
     def check_password(self, raw_password):
-        return check_password(raw_password, self.password_hash)
+        def upgrade_password(password):
+            self.set_password(password)
+            self.save(update_fields=["password_hash", "updated_at"])
+
+        return check_password(raw_password, self.password_hash, setter=upgrade_password)
 
     def clean(self):
         super().clean()
@@ -229,5 +235,68 @@ class BusinessClientAccess(models.Model):
 
     def __str__(self):
         return f"Acceso cliente {self.business_client.full_name} ({self.business})"
+
+
+class BusinessClientAccessInvitation(models.Model):
+    """Invitación de un solo uso para activar la cuenta de una ficha existente."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(
+        "businesses.Business",
+        on_delete=models.CASCADE,
+        related_name="client_access_invitations",
+        verbose_name="negocio",
+    )
+    business_client = models.ForeignKey(
+        BusinessClient,
+        on_delete=models.CASCADE,
+        related_name="access_invitations",
+        verbose_name="ficha de cliente",
+    )
+    token_digest = models.CharField("resumen del token", max_length=64, unique=True)
+    expires_at = models.DateTimeField("caduca el")
+    used_at = models.DateTimeField("usada el", null=True, blank=True)
+    revoked_at = models.DateTimeField("revocada el", null=True, blank=True)
+    created_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.PROTECT,
+        related_name="created_client_access_invitations",
+        verbose_name="creada por",
+    )
+    created_at = models.DateTimeField("fecha de creación", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "invitación de acceso de cliente"
+        verbose_name_plural = "invitaciones de acceso de cliente"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["business_client", "expires_at"],
+                name="client_invite_active_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.business_client_id and self.business_id:
+            if self.business_client.business_id != self.business_id:
+                raise ValidationError(
+                    {"business_client": "La ficha debe pertenecer al mismo negocio que la invitación."}
+                )
+
+    def is_available(self, now=None):
+        from django.utils import timezone
+
+        now = now or timezone.now()
+        return (
+            self.used_at is None
+            and self.revoked_at is None
+            and self.expires_at > now
+            and self.business.is_active
+            and self.business_client.is_active
+        )
+
+    def __str__(self):
+        return f"Invitación para {self.business_client.full_name} ({self.business})"
 
 # Create your models here.

@@ -34,6 +34,10 @@ class PhoneAuthenticationForm(AuthenticationForm):
         ),
     )
 
+    def __init__(self, *args, skip_authentication=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.skip_authentication = skip_authentication
+
     def clean(self):
         phone = self.cleaned_data.get("username")
         password = self.cleaned_data.get("password")
@@ -45,6 +49,8 @@ class PhoneAuthenticationForm(AuthenticationForm):
                 raise self.get_invalid_login_error() from exc
 
             self.cleaned_data["username"] = normalized_phone
+            if self.skip_authentication:
+                return self.cleaned_data
             self.user_cache = authenticate(
                 self.request,
                 username=normalized_phone,

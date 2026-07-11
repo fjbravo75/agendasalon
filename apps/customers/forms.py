@@ -24,9 +24,10 @@ class ClientLoginForm(forms.Form):
         widget=forms.PasswordInput(attrs={"autocomplete": "current-password", "placeholder": "Tu contraseña"}),
     )
 
-    def __init__(self, *args, business, **kwargs):
+    def __init__(self, *args, business, skip_authentication=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.business = business
+        self.skip_authentication = skip_authentication
         self.client_access = None
 
     def clean_phone(self):
@@ -42,6 +43,8 @@ class ClientLoginForm(forms.Form):
         phone = cleaned_data.get("phone")
         password = cleaned_data.get("password")
         if not phone or not password:
+            return cleaned_data
+        if self.skip_authentication:
             return cleaned_data
 
         self.client_access = authenticate_client_access(
@@ -123,6 +126,41 @@ class ClientRegistrationForm(forms.Form):
         except DjangoValidationError as exc:
             raise forms.ValidationError(getattr(exc, "messages", [str(exc)])) from exc
         return self.client_access
+
+
+class ClientInvitationActivationForm(forms.Form):
+    password = forms.CharField(
+        label="Contraseña",
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Crea tu contraseña",
+                "aria-describedby": "password-requirements",
+            }
+        ),
+    )
+    password_confirm = forms.CharField(
+        label="Repite la contraseña",
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Repite tu contraseña",
+            }
+        ),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password = cleaned_data.get("password")
+        password_confirm = cleaned_data.get("password_confirm")
+        if password and password_confirm and password != password_confirm:
+            self.add_error("password_confirm", "Las contraseñas no coinciden.")
+        if password:
+            try:
+                validate_password(password)
+            except DjangoValidationError as exc:
+                self.add_error("password", exc)
+        return cleaned_data
 
 
 class ProfessionalClientQuickForm(forms.Form):

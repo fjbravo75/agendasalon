@@ -12,26 +12,47 @@ from django.views.decorators.http import require_POST
 from apps.booking.models import Appointment
 from apps.booking.public_booking_drafts import get_public_booking_draft
 from apps.businesses.models import Business
+from apps.businesses.activity import record_business_activity
+from apps.businesses.models import BusinessActivityEvent
 from apps.businesses.services import (
     get_business_public_image_url,
     get_business_visual_theme,
     get_primary_business_for_user,
 )
 from apps.customers.forms import (
+    ClientInvitationActivationForm,
     ClientLoginForm,
     ClientRegistrationForm,
     ProfessionalAuthorizedContactForm,
     ProfessionalClientEditForm,
     ProfessionalClientQuickForm,
 )
-from apps.customers.models import BusinessClient, BusinessClientAuthorizedContact
+from apps.customers.models import (
+    BusinessClient,
+    BusinessClientAccessInvitation,
+    BusinessClientAuthorizedContact,
+)
 from apps.customers.services import (
+    activate_claimed_invitation,
+    create_client_access_invitation,
+    find_available_invitation,
+    get_claimed_invitation,
     get_session_client_access,
     login_client_access,
     logout_client_access,
+    revoke_client_access_invitation,
     set_authorized_contact_active,
     set_client_access_active,
     set_professional_client_active,
+    store_invitation_claim,
+)
+from apps.core.security_throttle import (
+    THROTTLE_MESSAGE,
+    clear_failed_attempts,
+    is_throttled,
+    phone_throttle_key,
+    record_failed_attempt,
+    request_ip,
 )
 
 
@@ -270,6 +291,87 @@ def professional_client_access_toggle(request, client_id):
     return redirect("customers:professional_client_detail", client_id=business_client.id)
 
 
+@login_required
+@require_POST
+def professional_client_invitation_create(request, client_id):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+    business_client = _get_professional_client(business, client_id)
+    try:
+        invitation, raw_token = create_client_access_invitation(
+            business=business,
+            business_client=business_client,
+            created_by=request.user,
+        )
+    except ValidationError as exc:
+        messages.error(request, _validation_message(exc))
+        return redirect("customers:professional_client_detail", client_id=business_client.id)
+
+    invitation_url = request.build_absolute_uri(
+        reverse(
+            "customers:client_invitation_claim",
+            args=[business.slug, invitation.id, raw_token],
+        )
+    )
+    record_business_activity(
+        business=business,
+        category=BusinessActivityEvent.Category.ACCESS,
+        event_type=BusinessActivityEvent.EventType.CLIENT_INVITATION_CREATED,
+        origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+        summary=f"Invitación de cuenta online creada para {business_client.full_name}.",
+        actor=request.user,
+        entity=business_client,
+        entity_type="business_client",
+        changes={"expires_at": invitation.expires_at.isoformat()},
+    )
+    response = render(
+        request,
+        "professional/clients/invitation_created.html",
+        {
+            "business": business,
+            "business_client": business_client,
+            "invitation": invitation,
+            "invitation_url": invitation_url,
+        },
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@login_required
+@require_POST
+def professional_client_invitation_revoke(request, client_id, invitation_id):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+    business_client = _get_professional_client(business, client_id)
+    invitation = get_object_or_404(
+        BusinessClientAccessInvitation,
+        id=invitation_id,
+        business=business,
+        business_client=business_client,
+    )
+    try:
+        revoke_client_access_invitation(invitation=invitation)
+    except ValidationError as exc:
+        messages.error(request, _validation_message(exc))
+    else:
+        record_business_activity(
+            business=business,
+            category=BusinessActivityEvent.Category.ACCESS,
+            event_type=BusinessActivityEvent.EventType.CLIENT_INVITATION_REVOKED,
+            origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+            summary=f"Invitación de cuenta online revocada para {business_client.full_name}.",
+            actor=request.user,
+            entity=business_client,
+            entity_type="business_client",
+        )
+        messages.success(request, "La invitación ha quedado revocada.")
+    return redirect("customers:professional_client_detail", client_id=business_client.id)
+
+
 def _professional_client_context(business, business_client):
     now = timezone.now()
     appointments = (
@@ -296,6 +398,11 @@ def _professional_client_context(business, business_client):
         )
 
     client_access = getattr(business_client, "access", None)
+    active_invitation = business_client.access_invitations.filter(
+        used_at__isnull=True,
+        revoked_at__isnull=True,
+        expires_at__gt=now,
+    ).order_by("-created_at").first()
     return {
         "business": business,
         "business_client": business_client,
@@ -309,6 +416,7 @@ def _professional_client_context(business, business_client):
         ),
         "active_contacts_count": business_client.authorized_contacts.filter(is_active=True).count(),
         "client_access": client_access,
+        "active_invitation": active_invitation,
         "has_client_access": client_access is not None and client_access.is_active,
         "pending_confirmed_count": business_client.appointments.filter(
             status=Appointment.Status.CONFIRMED,
@@ -375,13 +483,44 @@ def client_access(request, slug):
         return redirect(next_url)
 
     login_form = ClientLoginForm(business=business)
+    response_status = 200
 
     if request.method == "POST":
-        login_form = ClientLoginForm(request.POST, business=business)
-        if login_form.is_valid():
-            login_client_access(request, login_form.client_access)
-            messages.success(request, "Has entrado en tu zona de reservas.")
-            return redirect(next_url)
+        subject_key = f"{business.id}:{phone_throttle_key(request.POST.get('phone', ''))}"
+        ip_key = request_ip(request)
+        if is_throttled(scope="client_login_subject", key=subject_key) or is_throttled(
+            scope="client_login_ip", key=ip_key
+        ):
+            login_form = ClientLoginForm(
+                request.POST,
+                business=business,
+                skip_authentication=True,
+            )
+            login_form.is_valid()
+            login_form.add_error(None, THROTTLE_MESSAGE)
+            response_status = 429
+        else:
+            login_form = ClientLoginForm(request.POST, business=business)
+            if login_form.is_valid():
+                clear_failed_attempts(scope="client_login_subject", key=subject_key)
+                login_client_access(request, login_form.client_access)
+                messages.success(request, "Has entrado en tu zona de reservas.")
+                return redirect(next_url)
+            subject_blocked = record_failed_attempt(
+                scope="client_login_subject",
+                key=subject_key,
+                limit=5,
+                window_seconds=15 * 60,
+            )
+            ip_blocked = record_failed_attempt(
+                scope="client_login_ip",
+                key=ip_key,
+                limit=30,
+                window_seconds=15 * 60,
+            )
+            if subject_blocked or ip_blocked:
+                login_form.add_error(None, THROTTLE_MESSAGE)
+                response_status = 429
 
     return render(
         request,
@@ -394,7 +533,114 @@ def client_access(request, slug):
             "client_auth_image_url": get_business_public_image_url(business),
             "has_pending_booking": has_pending_booking,
         },
+        status=response_status,
     )
+
+
+def client_invitation_claim(request, slug, invitation_id, token):
+    business = get_object_or_404(
+        Business,
+        slug=slug,
+        is_active=True,
+        public_booking_enabled=True,
+    )
+    ip_key = request_ip(request)
+    if is_throttled(scope="client_invitation_claim_ip", key=ip_key):
+        return _invitation_unavailable_response(request, business, status=429)
+
+    invitation = find_available_invitation(
+        invitation_id=invitation_id,
+        raw_token=token,
+        business=business,
+    )
+    if invitation is None:
+        blocked = record_failed_attempt(
+            scope="client_invitation_claim_ip",
+            key=ip_key,
+            limit=20,
+            window_seconds=15 * 60,
+        )
+        return _invitation_unavailable_response(
+            request,
+            business,
+            status=429 if blocked else 410,
+        )
+
+    store_invitation_claim(request, invitation)
+    response = redirect("customers:client_invitation_activate", slug=business.slug)
+    response["Referrer-Policy"] = "no-referrer"
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def client_invitation_activate(request, slug):
+    business = get_object_or_404(
+        Business,
+        slug=slug,
+        is_active=True,
+        public_booking_enabled=True,
+    )
+    invitation = get_claimed_invitation(request, business)
+    if invitation is None:
+        return _invitation_unavailable_response(request, business)
+
+    activation_form = ClientInvitationActivationForm(request.POST or None)
+    if request.method == "POST" and activation_form.is_valid():
+        try:
+            access, used_invitation = activate_claimed_invitation(
+                request=request,
+                business=business,
+                password=activation_form.cleaned_data["password"],
+            )
+        except ValidationError:
+            return _invitation_unavailable_response(request, business)
+        login_client_access(request, access)
+        record_business_activity(
+            business=business,
+            category=BusinessActivityEvent.Category.ACCESS,
+            event_type=BusinessActivityEvent.EventType.CLIENT_ACCESS_ACTIVATED,
+            origin=BusinessActivityEvent.Origin.PUBLIC_WEB,
+            summary=f"Cuenta online activada para {access.business_client.full_name}.",
+            actor_type=BusinessActivityEvent.ActorType.CUSTOMER,
+            actor_label=access.business_client.full_name,
+            entity=access.business_client,
+            entity_type="business_client",
+            changes={"invitation_id": str(used_invitation.id)},
+        )
+        messages.success(request, "Cuenta activada. Ya puedes reservar tu cita.")
+        return redirect("public_booking", slug=business.slug)
+
+    response = render(
+        request,
+        "customers/client_invitation_activate.html",
+        {
+            "business": business,
+            "business_client": invitation.business_client,
+            "activation_form": activation_form,
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+        },
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def _invitation_unavailable_response(request, business, status=410):
+    response = render(
+        request,
+        "customers/client_invitation_unavailable.html",
+        {
+            "business": business,
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+            "rate_limited": status == 429,
+        },
+        status=status,
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def client_register(request, slug):

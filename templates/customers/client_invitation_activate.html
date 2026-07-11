@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Activar cuenta en {{ business.commercial_name }} - AgendaSalon{% endblock %}
+{% block body_class %}login-body client-auth-body{% endblock %}
+
+{% block content %}
+  <div class="login-page client-auth-page client-auth-register-page client-auth-page--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--client-auth-bg: url('{{ client_auth_image_url }}');"{% endif %}>
+    <section class="login-shell client-auth-shell">
+      <div class="login-topbar" aria-label="Cabecera">
+        <div class="login-brand">
+          <strong>{{ business.commercial_name }}</strong>
+          <span>Activación segura con AgendaSalon</span>
+        </div>
+      </div>
+
+      <div class="client-auth-content">
+        <div class="login-hero-copy client-auth-copy">
+          <div class="client-auth-business-signal">Invitación verificada</div>
+          <h1>Activa tu<br>cuenta.</h1>
+          <p>
+            Hola, {{ business_client.full_name }}. Crea una contraseña para acceder a tus reservas en
+            {{ business.commercial_name }}. La invitación quedará inutilizada al terminar.
+          </p>
+        </div>
+
+        <aside class="login-panel client-auth-panel" aria-label="Activar cuenta cliente">
+          <div class="login-panel__inner">
+            <div class="client-auth-panel-context">{{ business.commercial_name }}</div>
+            <h2 class="visually-hidden">Crear contraseña</h2>
+            <form method="post" class="login-form-stack" novalidate>
+              {% csrf_token %}
+              <p class="required-fields-note"><span aria-hidden="true">*</span> Todos los campos son obligatorios.</p>
+
+              {% if activation_form.non_field_errors %}
+                <div class="login-form-error" role="alert">{{ activation_form.non_field_errors }}</div>
+              {% endif %}
+
+              <div class="login-field{% if activation_form.password.errors %} is-error{% endif %}">
+                <label for="{{ activation_form.password.id_for_label }}">CONTRASEÑA <span aria-hidden="true">*</span></label>
+                {{ activation_form.password }}
+                <small id="password-requirements">Usa al menos 12 caracteres y evita contraseñas demasiado comunes o solo numéricas.</small>
+                {% if activation_form.password.errors %}<div class="login-field-error" role="alert">{{ activation_form.password.errors }}</div>{% endif %}
+              </div>
+
+              <div class="login-field{% if activation_form.password_confirm.errors %} is-error{% endif %}">
+                <label for="{{ activation_form.password_confirm.id_for_label }}">REPETIR CONTRASEÑA <span aria-hidden="true">*</span></label>
+                {{ activation_form.password_confirm }}
+                {% if activation_form.password_confirm.errors %}<div class="login-field-error" role="alert">{{ activation_form.password_confirm.errors }}</div>{% endif %}
+              </div>
+
+              <button class="login-button" type="submit">Activar mi cuenta</button>
+            </form>
+          </div>
+        </aside>
+      </div>
+
+      <div class="client-auth-image-space" aria-hidden="true"></div>
+    </section>
+  </div>
+{% endblock %}

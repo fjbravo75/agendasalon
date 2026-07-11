@@ -1,18 +1,30 @@
 from datetime import timedelta
 from io import StringIO
+from urllib.parse import urlparse
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import identify_hasher, make_password
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.booking.models import Appointment
-from apps.businesses.models import Business
-from apps.customers.models import BusinessClient, BusinessClientAccess, BusinessClientAuthorizedContact
-from apps.customers.services import register_client_access
+from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
+from apps.customers.models import (
+    BusinessClient,
+    BusinessClientAccess,
+    BusinessClientAccessInvitation,
+    BusinessClientAuthorizedContact,
+)
+from apps.customers.services import (
+    CLIENT_ACCESS_LAST_SEEN_SESSION_KEY,
+    CLIENT_ACCESS_SESSION_KEY,
+    register_client_access,
+)
 
 
 class CustomerModelTests(TestCase):
@@ -299,6 +311,86 @@ class ClientAccessViewTests(TestCase):
             ).exists()
         )
 
+    def test_new_client_password_uses_argon2(self):
+        access = register_client_access(
+            business=self.business,
+            full_name="Cliente Argon2",
+            phone="600999010",
+            password="ClienteDemo2026!",
+        )
+
+        self.assertEqual(identify_hasher(access.password_hash).algorithm, "argon2")
+
+    def test_successful_login_upgrades_a_legacy_pbkdf2_hash(self):
+        client_file = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Cliente heredado",
+            phone="600999011",
+        )
+        access = BusinessClientAccess.objects.create(
+            business=self.business,
+            business_client=client_file,
+            phone="600999011",
+            password_hash=make_password("ClienteDemo2026!", hasher="pbkdf2_sha256"),
+        )
+
+        response = self.client.post(
+            reverse("customers:client_access", args=[self.business.slug]),
+            {"phone": "600999011", "password": "ClienteDemo2026!"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        access.refresh_from_db()
+        self.assertEqual(identify_hasher(access.password_hash).algorithm, "argon2")
+
+    def test_client_login_rotates_the_session_identifier(self):
+        register_client_access(
+            business=self.business,
+            full_name="Cliente sesión",
+            phone="600999012",
+            password="ClienteDemo2026!",
+        )
+        session = self.client.session
+        session["preserved_state"] = "ok"
+        session.save()
+        previous_session_key = session.session_key
+
+        response = self.client.post(
+            reverse("customers:client_access", args=[self.business.slug]),
+            {"phone": "600999012", "password": "ClienteDemo2026!"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotEqual(self.client.session.session_key, previous_session_key)
+        self.assertEqual(self.client.session["preserved_state"], "ok")
+
+    def test_repeated_invalid_client_login_is_rate_limited(self):
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+
+        responses = [
+            self.client.post(
+                login_url,
+                {"phone": "600999099", "password": "ContraseñaIncorrecta2026!"},
+            )
+            for _ in range(5)
+        ]
+        with patch("apps.customers.forms.authenticate_client_access") as authenticate_mock:
+            responses.append(
+                self.client.post(
+                    login_url,
+                    {"phone": "600999099", "password": "ContraseñaIncorrecta2026!"},
+                )
+            )
+
+        authenticate_mock.assert_not_called()
+        self.assertEqual(responses[-2].status_code, 429)
+        self.assertEqual(responses[-1].status_code, 429)
+        self.assertContains(
+            responses[-1],
+            "Demasiados intentos. Espera unos minutos antes de volver a intentarlo.",
+            status_code=429,
+        )
+
     def test_registration_with_existing_phone_fails_closed_without_disclosing_the_client(self):
         BusinessClient.objects.create(
             business=self.business,
@@ -356,6 +448,189 @@ class ClientAccessViewTests(TestCase):
         self.assertEqual(booking_response.status_code, 200)
         self.assertContains(booking_response, "No necesitas una cuenta para consultar servicios y horas")
         self.assertNotContains(booking_response, "Reservas como")
+
+    def test_client_session_expires_after_one_hour_without_activity(self):
+        access = register_client_access(
+            business=self.business,
+            full_name="Cliente inactivo",
+            phone="600999021",
+            password="ClienteDemo2026!",
+        )
+        session = self.client.session
+        session[CLIENT_ACCESS_SESSION_KEY] = access.id
+        session[CLIENT_ACCESS_LAST_SEEN_SESSION_KEY] = (
+            timezone.now() - timedelta(hours=1, seconds=1)
+        ).isoformat()
+        session.save()
+
+        response = self.client.get(
+            reverse("customers:client_access", args=[self.business.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, self.client.session)
+        self.assertNotIn(CLIENT_ACCESS_LAST_SEEN_SESSION_KEY, self.client.session)
+
+
+class ClientAccessInvitationTests(TestCase):
+    def setUp(self):
+        self.business = Business.objects.create(
+            commercial_name="Peluquería Mari",
+            slug="peluqueria-mari",
+            is_active=True,
+            public_booking_enabled=True,
+        )
+        self.professional = get_user_model().objects.create_user(
+            normalized_phone="+34600111991",
+            password="ProfesionalDemo2026!",
+            full_name="Mari Profesional",
+        )
+        BusinessMembership.objects.create(
+            business=self.business,
+            user=self.professional,
+        )
+        self.business_client = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Lucía Cliente",
+            phone="600111992",
+        )
+        self.client.force_login(self.professional)
+
+    def _create_invitation(self):
+        response = self.client.post(
+            reverse(
+                "customers:professional_client_invitation_create",
+                args=[self.business_client.id],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        return response, response.context["invitation"]
+
+    def test_professional_creates_a_one_time_invitation_without_storing_the_token(self):
+        response, invitation = self._create_invitation()
+        invitation_url = response.context["invitation_url"]
+        raw_token = invitation_url.rstrip("/").split("/")[-1]
+
+        self.assertNotEqual(invitation.token_digest, raw_token)
+        self.assertNotIn(raw_token, invitation.token_digest)
+        self.assertGreater(invitation.expires_at, timezone.now())
+        self.assertContains(response, "Se muestra solo en esta pantalla")
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                event_type=BusinessActivityEvent.EventType.CLIENT_INVITATION_CREATED,
+            ).exists()
+        )
+
+    def test_new_invitation_revokes_the_previous_pending_one(self):
+        _, first = self._create_invitation()
+        _, second = self._create_invitation()
+
+        first.refresh_from_db()
+        self.assertIsNotNone(first.revoked_at)
+        self.assertIsNone(second.revoked_at)
+
+    def test_verified_invitation_activates_the_exact_client_and_cannot_be_replayed(self):
+        response, invitation = self._create_invitation()
+        claim_path = urlparse(response.context["invitation_url"]).path
+        customer_browser = self.client_class()
+
+        claim_response = customer_browser.get(claim_path)
+        self.assertRedirects(
+            claim_response,
+            reverse("customers:client_invitation_activate", args=[self.business.slug]),
+        )
+        self.assertEqual(claim_response["Referrer-Policy"], "no-referrer")
+
+        activation_response = customer_browser.post(
+            reverse("customers:client_invitation_activate", args=[self.business.slug]),
+            {
+                "password": "ClienteInvitado2026!",
+                "password_confirm": "ClienteInvitado2026!",
+            },
+        )
+        self.assertRedirects(
+            activation_response,
+            reverse("public_booking", args=[self.business.slug]),
+        )
+
+        access = BusinessClientAccess.objects.get(business_client=self.business_client)
+        invitation.refresh_from_db()
+        self.assertEqual(access.business, self.business)
+        self.assertIsNotNone(invitation.used_at)
+        self.assertEqual(identify_hasher(access.password_hash).algorithm, "argon2")
+        self.assertEqual(customer_browser.session[CLIENT_ACCESS_SESSION_KEY], access.id)
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                event_type=BusinessActivityEvent.EventType.CLIENT_ACCESS_ACTIVATED,
+                entity_id=self.business_client.id,
+            ).exists()
+        )
+
+        replay_response = self.client_class().get(claim_path)
+        self.assertEqual(replay_response.status_code, 410)
+        self.assertContains(replay_response, "Este enlace ya", status_code=410)
+
+    def test_activation_accepts_a_valid_same_origin_csrf_submission(self):
+        response, _ = self._create_invitation()
+        claim_path = urlparse(response.context["invitation_url"]).path
+        csrf_browser = Client(enforce_csrf_checks=True)
+        csrf_browser.get(claim_path)
+        activation_url = reverse(
+            "customers:client_invitation_activate",
+            args=[self.business.slug],
+        )
+        csrf_browser.get(activation_url)
+        csrf_token = csrf_browser.cookies["csrftoken"].value
+
+        response = csrf_browser.post(
+            activation_url,
+            {
+                "csrfmiddlewaretoken": csrf_token,
+                "password": "ClienteInvitado2026!",
+                "password_confirm": "ClienteInvitado2026!",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("public_booking", args=[self.business.slug]),
+        )
+
+    def test_invitation_cannot_be_used_from_another_business_url(self):
+        response, _ = self._create_invitation()
+        raw_token = response.context["invitation_url"].rstrip("/").split("/")[-1]
+        invitation = BusinessClientAccessInvitation.objects.latest("created_at")
+        other_business = Business.objects.create(
+            commercial_name="Barbería Norte",
+            slug="barberia-norte",
+            is_active=True,
+            public_booking_enabled=True,
+        )
+        wrong_path = reverse(
+            "customers:client_invitation_claim",
+            args=[other_business.slug, invitation.id, raw_token],
+        )
+
+        response = self.client_class().get(wrong_path)
+
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(BusinessClientAccess.objects.filter(business_client=self.business_client).exists())
+
+    def test_expired_invitation_fails_closed(self):
+        response, invitation = self._create_invitation()
+        claim_path = urlparse(response.context["invitation_url"]).path
+        BusinessClientAccessInvitation.objects.filter(pk=invitation.pk).update(
+            expires_at=timezone.now() - timedelta(seconds=1)
+        )
+
+        response = self.client_class().get(claim_path)
+
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(BusinessClientAccess.objects.filter(business_client=self.business_client).exists())
 
 
 class ProfessionalClientViewTests(TestCase):

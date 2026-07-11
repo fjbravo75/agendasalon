@@ -20,6 +20,7 @@ disponibilidad, puntuación y revalidación.
 - React 19 y Vite 8 para dos islas acotadas: agenda profesional y cuadro de
   mando del superadministrador
 - Pillow 12 para validar y procesar las imágenes públicas subidas por los negocios
+- Argon2id para el hashing preferente de contraseñas
 
 ## Puesta en marcha local
 
@@ -124,10 +125,15 @@ El acceso cliente final está disponible en `/clientes/<slug>/entrar/`, con alta
 separada en `/clientes/<slug>/registro/`.
 
 El registro público solo crea fichas nuevas. Si el teléfono ya pertenece a una
-ficha del negocio, AgendaSalon no la vincula ni revela su identidad: el cliente
-debe contactar con el negocio para que se prepare un acceso verificado. Esta
-regla impide que conocer un teléfono permita apropiarse del historial de otra
-persona.
+ficha del negocio, AgendaSalon no la vincula ni revela su identidad. El
+profesional puede crear desde esa ficha una invitación privada que caduca en 24
+horas, solo funciona una vez y activa exactamente el registro seleccionado. El
+token no se guarda en claro.
+
+Las contraseñas nuevas usan Argon2id y los hashes PBKDF2 anteriores se actualizan
+después de un acceso correcto. Los intentos de acceso se limitan por identidad e
+IP sin guardar esos identificadores en claro. La sesión cliente rota al entrar y
+salir, y caduca tras una hora sin actividad.
 
 La reserva online está disponible en `/reservar/<slug>/`. Permite al cliente
 elegir servicios, ver duración, precio y opciones recomendadas sin sesión. Al
@@ -181,6 +187,7 @@ comando puede ejecutarse varias veces sin duplicar los registros principales.
 - `/reservar/<slug>/`: reserva online híbrida.
 - `/clientes/<slug>/entrar/`: acceso cliente por negocio.
 - `/clientes/<slug>/registro/`: alta cliente por negocio.
+- `/clientes/<slug>/activar/`: activación limpia tras validar una invitación.
 
 Cada cliente llega mediante la URL del negocio concreto. Por ejemplo, la
 demostración utiliza `/reservar/peluqueria-mari/` y
@@ -196,7 +203,7 @@ Verificación actual:
 npm.cmd run check
 ```
 
-La última verificación completa deja la batería en 172 pruebas Django y
+La última verificación completa deja la batería en 189 pruebas Django y
 operativas, además de 16 pruebas frontend correctas. La misma batería Django se
 ha ejecutado sobre PostgreSQL 17, incluida una prueba concurrente real. El build
 de producción y `npm audit` también se han verificado sin incidencias ni
