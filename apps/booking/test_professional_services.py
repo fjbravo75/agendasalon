@@ -41,6 +41,46 @@ class ProfessionalServiceManagementTests(TestCase):
         self.assertNotContains(response, "Barbería Norte")
         self.assertNotContains(response, "MVP")
 
+    def test_service_catalog_scrolls_when_there_are_more_than_five_services(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.get(reverse("booking:professional_service_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "service-list--scrollable")
+        self.assertContains(response, "data-service-scroll-list")
+        self.assertContains(response, "desplázate para consultar todos")
+
+    def test_service_catalog_scroll_rule_is_shared_by_barberia_norte(self):
+        secondary_professional = get_user_model().objects.get(
+            normalized_phone="+34600222001"
+        )
+        self.client.force_login(secondary_professional)
+
+        response = self.client.get(reverse("booking:professional_service_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Servicios de Barbería Norte")
+        self.assertNotContains(response, "service-list--scrollable")
+        self.assertNotContains(response, "data-service-scroll-list")
+
+        next_order = self.other_business.services.count() + 1
+        Service.objects.create(
+            business=self.other_business,
+            name="Servicio adicional de barbería",
+            duration_minutes=15,
+            display_order=next_order,
+            color_hex="#5079BD",
+        )
+
+        response = self.client.get(reverse("booking:professional_service_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Servicios de Barbería Norte")
+        self.assertContains(response, "service-list--scrollable")
+        self.assertContains(response, "data-service-scroll-list")
+        self.assertNotContains(response, "Peluquería Mari")
+
     def test_professional_can_create_service_for_own_business(self):
         self.client.force_login(self.professional)
 

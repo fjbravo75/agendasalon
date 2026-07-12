@@ -142,6 +142,12 @@ obligatorios usan asterisco y leyenda conjunta; la búsqueda parcial conserva
 canal y día por defecto sin mostrar avisos rojos redundantes. La indicación de
 servicios permanece visible porque desbloquea el cálculo de disponibilidad.
 
+El catálogo profesional `/profesional/servicios/` contiene la lista dentro de
+su propio panel: muestra cinco servicios completos y, solo desde el sexto,
+activa desplazamiento vertical interno. La altura se adapta a las filas reales
+para no cortar contenido en escritorio ni móvil. La regla se aplica a todos los
+negocios sin alterar la edición, la pausa o la activación de servicios.
+
 El acceso cliente final está disponible en `/clientes/<slug>/entrar/`, con alta
 separada en `/clientes/<slug>/registro/`.
 
@@ -226,7 +232,7 @@ Verificación actual:
 npm.cmd run check
 ```
 
-La última verificación completa deja la batería en 219 pruebas Django y
+La última verificación completa deja la batería en 236 pruebas Django y
 operativas, además de 17 pruebas frontend correctas. La compatibilidad con
 PostgreSQL 17 se verificó en el bloque de producción, incluida una prueba
 concurrente real. El build de producción, `pip-audit` y `npm audit` también se
