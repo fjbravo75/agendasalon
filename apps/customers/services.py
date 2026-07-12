@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db import models
 from django.utils import timezone
 
 from apps.core.phone import normalize_phone
@@ -12,6 +13,7 @@ from apps.core.text import normalize_search_text
 from apps.customers.models import (
     BusinessClient,
     BusinessClientAccess,
+    BusinessClientAccessGrant,
     BusinessClientAccessInvitation,
     BusinessClientAuthorizedContact,
 )
@@ -26,6 +28,39 @@ PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE = (
     "No podemos crear una cuenta con esos datos. "
     "Contacta con el negocio para activar tu acceso."
 )
+
+
+def ensure_self_booking_grant(access):
+    grant, _ = BusinessClientAccessGrant.objects.get_or_create(
+        business=access.business,
+        access=access,
+        business_client=access.business_client,
+        defaults={
+            "relationship_label": BusinessClientAccessGrant.Relationship.SELF,
+            "is_active": True,
+        },
+    )
+    if not grant.is_active:
+        grant.is_active = True
+        grant.save(update_fields=["is_active", "updated_at"])
+    return grant
+
+
+def get_bookable_clients(access):
+    return BusinessClient.objects.filter(
+        business=access.business,
+        is_active=True,
+    ).filter(
+        models.Q(pk=access.business_client_id)
+        | models.Q(
+            online_booking_grants__access=access,
+            online_booking_grants__is_active=True,
+        )
+    ).distinct().order_by("full_name", "pk")
+
+
+def get_bookable_client(access, client_id):
+    return get_bookable_clients(access).filter(pk=client_id).first()
 
 
 def authenticate_client_access(*, business, phone: str, password: str):
@@ -112,6 +147,10 @@ def create_client_access_invitation(*, business, business_client, created_by, no
         raise ValidationError("La ficha no pertenece a este negocio.")
     if not business_client.is_active:
         raise ValidationError("Reactiva la ficha antes de crear una invitación.")
+    if not business_client.phone_normalized:
+        raise ValidationError(
+            "Esta ficha no tiene teléfono propio. Vincula la cuenta online de una persona autorizada."
+        )
     if BusinessClientAccess.objects.filter(business_client=business_client).exists():
         raise ValidationError("Esta ficha ya tiene una cuenta online.")
 
@@ -216,6 +255,7 @@ def activate_claimed_invitation(*, request, business, password, now=None):
     access.set_password(password)
     access.full_clean()
     access.save()
+    ensure_self_booking_grant(access)
     invitation.used_at = now
     invitation.save(update_fields=["used_at"])
     request.session.pop(CLIENT_INVITATION_CLAIM_SESSION_KEY, None)
@@ -267,6 +307,7 @@ def register_client_access(*, business, full_name: str, phone: str, password: st
     access.set_password(password)
     access.full_clean()
     access.save()
+    ensure_self_booking_grant(access)
     return access
 
 
@@ -279,7 +320,7 @@ def create_or_reuse_professional_client(
     email: str = "",
     internal_notes: str = "",
 ):
-    phone_normalized = normalize_phone(phone)
+    phone_normalized = normalize_phone(phone) if (phone or "").strip() else ""
     name_normalized = normalize_search_text(full_name)
 
     client = (
@@ -291,6 +332,8 @@ def create_or_reuse_professional_client(
         )
         .order_by("pk")
         .first()
+        if phone_normalized
+        else None
     )
     if client is not None:
         return client, False
@@ -310,19 +353,23 @@ def create_or_reuse_professional_client(
 
 @transaction.atomic
 def update_professional_client(*, client, full_name, phone, email="", internal_notes=""):
-    phone_normalized = normalize_phone(phone)
+    phone_normalized = normalize_phone(phone) if (phone or "").strip() else ""
     name_normalized = normalize_search_text(full_name)
-    duplicate_client = BusinessClient.objects.filter(
-        business=client.business,
-        phone_normalized=phone_normalized,
-        full_name_normalized=name_normalized,
-        is_active=True,
-    ).exclude(pk=client.pk)
+    duplicate_client = BusinessClient.objects.none()
+    if phone_normalized:
+        duplicate_client = BusinessClient.objects.filter(
+            business=client.business,
+            phone_normalized=phone_normalized,
+            full_name_normalized=name_normalized,
+            is_active=True,
+        ).exclude(pk=client.pk)
     if duplicate_client.exists():
         raise ValidationError("Ya existe una ficha activa con ese nombre y teléfono.")
 
     access = getattr(client, "access", None)
     if access is not None:
+        if not phone_normalized:
+            raise ValidationError("Una ficha con cuenta online activa debe conservar su teléfono.")
         duplicate_access = BusinessClientAccess.objects.filter(
             business=client.business,
             phone_normalized=phone_normalized,
@@ -380,6 +427,7 @@ def save_authorized_contact(
     if business_client.business_id != business.id:
         raise ValidationError("La ficha no pertenece a este negocio.")
 
+    previous_phone_normalized = contact.phone_normalized if contact is not None else ""
     if contact is None:
         contact = BusinessClientAuthorizedContact(
             business=business,
@@ -403,6 +451,11 @@ def save_authorized_contact(
     contact.notes = (notes or "").strip()
     contact.full_clean()
     contact.save()
+    linked_grants = BusinessClientAccessGrant.objects.filter(authorized_contact=contact)
+    if previous_phone_normalized and previous_phone_normalized != contact.phone_normalized:
+        linked_grants.update(is_active=False)
+    else:
+        linked_grants.update(relationship_label=contact.relationship_label)
     return contact
 
 
@@ -425,7 +478,50 @@ def set_authorized_contact_active(*, contact, is_active):
     contact.is_active = is_active
     contact.full_clean()
     contact.save(update_fields=["is_active", "is_primary_contact", "phone_normalized", "updated_at"])
+    BusinessClientAccessGrant.objects.filter(authorized_contact=contact).update(is_active=is_active)
     return contact, demoted_from_primary
+
+
+@transaction.atomic
+def toggle_contact_online_booking(*, contact):
+    if not contact.is_active:
+        raise ValidationError("Reactiva primero a esta persona autorizada.")
+
+    access = BusinessClientAccess.objects.filter(
+        business=contact.business,
+        phone_normalized=contact.phone_normalized,
+        is_active=True,
+        business_client__is_active=True,
+    ).first()
+    if access is None:
+        raise ValidationError(
+            "Ese teléfono todavía no tiene una cuenta online activa en este negocio."
+        )
+
+    grant, created = BusinessClientAccessGrant.objects.get_or_create(
+        business=contact.business,
+        access=access,
+        business_client=contact.business_client,
+        defaults={
+            "authorized_contact": contact,
+            "relationship_label": contact.relationship_label,
+            "is_active": True,
+        },
+    )
+    if not created:
+        grant.authorized_contact = contact
+        grant.relationship_label = contact.relationship_label
+        grant.is_active = not grant.is_active
+        grant.full_clean()
+        grant.save(
+            update_fields=[
+                "authorized_contact",
+                "relationship_label",
+                "is_active",
+                "updated_at",
+            ]
+        )
+    return grant
 
 
 @transaction.atomic

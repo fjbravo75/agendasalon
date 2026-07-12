@@ -25,6 +25,9 @@ class AppointmentDraft:
     channel: str
     created_by: object | None = None
     duration_adjustment_reason: str = ""
+    requested_by_client_access: object | None = None
+    requested_by_name: str = ""
+    requested_by_relationship: str = ""
 
 
 @transaction.atomic
@@ -79,6 +82,9 @@ def confirm_appointment(draft: AppointmentDraft) -> Appointment:
         status=Appointment.Status.CONFIRMED,
         manual_channel=draft.channel,
         created_by=draft.created_by,
+        requested_by_client_access=draft.requested_by_client_access,
+        requested_by_name_snapshot=draft.requested_by_name,
+        requested_by_relationship_snapshot=draft.requested_by_relationship,
         service_summary_snapshot=" + ".join(service.name for service in active_services),
     )
     appointment.full_clean()
@@ -111,13 +117,15 @@ def confirm_appointment(draft: AppointmentDraft) -> Appointment:
         ),
         actor=draft.created_by,
         actor_type=(BusinessActivityEvent.ActorType.CUSTOMER if is_public_booking else None),
-        actor_label=("Cliente online" if is_public_booking else None),
+        actor_label=((draft.requested_by_name or "Cliente online") if is_public_booking else None),
         entity=appointment,
         entity_type="appointment",
         changes={
             "status": appointment.status,
             "origin": appointment.manual_channel,
             "starts_at": appointment.starts_at.isoformat(),
+            "requested_for": appointment.business_client.full_name,
+            "requested_by": appointment.requested_by_name_snapshot,
         },
     )
     return appointment

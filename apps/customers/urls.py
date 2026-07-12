@@ -15,6 +15,7 @@ from apps.customers.views import (
     professional_client_toggle,
     professional_contact_create,
     professional_contact_edit,
+    professional_contact_online_toggle,
     professional_contact_toggle,
 )
 
@@ -55,6 +56,11 @@ urlpatterns = [
         "profesional/<int:client_id>/contactos/<int:contact_id>/estado/",
         professional_contact_toggle,
         name="professional_contact_toggle",
+    ),
+    path(
+        "profesional/<int:client_id>/contactos/<int:contact_id>/reserva-online/",
+        professional_contact_online_toggle,
+        name="professional_contact_online_toggle",
     ),
     path("<slug:slug>/entrar/", client_access, name="client_access"),
     path(

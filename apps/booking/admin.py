@@ -96,6 +96,7 @@ class AppointmentAdmin(admin.ModelAdmin):
         "business_client",
         "work_line",
         "created_by",
+        "requested_by_client_access",
         "cancelled_by",
         "completed_by",
         "no_show_marked_by",

@@ -76,7 +76,7 @@ class SeedDemoCommandTests(TestCase):
                 for access in BusinessClientAccess.objects.all()
             )
         )
-        self.assertEqual(BusinessClientAuthorizedContact.objects.filter(business=business).count(), 1)
+        self.assertEqual(BusinessClientAuthorizedContact.objects.filter(business=business).count(), 2)
         self.assertEqual(BusinessClosure.objects.filter(business=business, is_active=True).count(), 2)
         self.assertEqual(OfficialHoliday.objects.filter(name="Fiesta nacional").count(), 1)
         self.assertEqual(HolidaySyncRun.objects.filter(source_name="Calendario local AgendaSalon").count(), 1)

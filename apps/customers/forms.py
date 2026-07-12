@@ -172,7 +172,8 @@ class ProfessionalClientQuickForm(forms.Form):
         ),
     )
     phone = forms.CharField(
-        label="Teléfono",
+        label="Teléfono propio (opcional)",
+        required=False,
         max_length=32,
         widget=forms.TelInput(
             attrs={
@@ -214,7 +215,9 @@ class ProfessionalClientQuickForm(forms.Form):
         return full_name
 
     def clean_phone(self):
-        phone = self.cleaned_data["phone"]
+        phone = (self.cleaned_data.get("phone") or "").strip()
+        if not phone:
+            return ""
         try:
             normalize_phone(phone)
         except DjangoValidationError as exc:
@@ -245,7 +248,8 @@ class ProfessionalClientEditForm(forms.Form):
         widget=forms.TextInput(attrs={"autocomplete": "name", "placeholder": "Nombre completo"}),
     )
     phone = forms.CharField(
-        label="Teléfono",
+        label="Teléfono propio (opcional)",
+        required=False,
         max_length=32,
         widget=forms.TextInput(attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}),
     )
@@ -282,7 +286,9 @@ class ProfessionalClientEditForm(forms.Form):
         return full_name
 
     def clean_phone(self):
-        phone = self.cleaned_data["phone"]
+        phone = (self.cleaned_data.get("phone") or "").strip()
+        if not phone:
+            return ""
         try:
             normalize_phone(phone)
         except DjangoValidationError as exc:

@@ -43,7 +43,7 @@
         <div>
           <span>Contacto principal</span>
           <h2>{{ business_client.full_name }}</h2>
-          <p>{{ business_client.phone|format_phone }}</p>
+          <p>{% if business_client.phone %}{{ business_client.phone|format_phone }}{% else %}Sin teléfono propio{% endif %}</p>
           {% if business_client.email %}
             <p>{{ business_client.email }}</p>
           {% endif %}
@@ -108,14 +108,16 @@
                 {% csrf_token %}
                 <button class="button button--secondary" type="submit">Revocar invitación</button>
               </form>
-            {% elif business_client.is_active %}
+            {% elif business_client.is_active and business_client.phone %}
               <small>Crea un enlace de un solo uso para que esta persona active exactamente esta ficha.</small>
               <form method="post" action="{% url 'customers:professional_client_invitation_create' business_client.id %}">
                 {% csrf_token %}
                 <button class="button" type="submit">Crear invitación segura</button>
               </form>
-            {% else %}
+            {% elif not business_client.is_active %}
               <small>Reactiva la ficha para poder crear una invitación.</small>
+            {% else %}
+              <small>Esta ficha se gestiona mediante una persona autorizada. Vincula su cuenta desde el bloque «Pueden pedir cita».</small>
             {% endif %}
           {% endif %}
         </div>
@@ -211,9 +213,24 @@
               {% if contact.is_primary_contact %}
                 <small>Contacto principal</small>
               {% endif %}
+              {% if contact.online_access and contact.online_access.is_active and contact.online_grant and contact.online_grant.is_active %}
+                <small class="authorized-contact__online-state">Puede reservar por teléfono, en el local y online.</small>
+              {% elif contact.online_access and contact.online_access.is_active %}
+                <small>Tiene cuenta online, pero aún no puede reservar para esta ficha.</small>
+              {% else %}
+                <small>Puede pedir cita por teléfono o en el local.</small>
+              {% endif %}
               {% if contact.notes %}<p>{{ contact.notes }}</p>{% endif %}
               <div class="authorized-contact__actions">
                 <a class="appointment-inline-link" href="{% url 'customers:professional_contact_edit' business_client.id contact.id %}">Editar</a>
+                {% if contact.online_access and contact.online_access.is_active and contact.is_active %}
+                  <form method="post" action="{% url 'customers:professional_contact_online_toggle' business_client.id contact.id %}" data-confirm-message="Vas a cambiar si esta persona puede reservar online para esta ficha. ¿Quieres continuar?">
+                    {% csrf_token %}
+                    <button class="text-action" type="submit">
+                      {% if contact.online_grant and contact.online_grant.is_active %}Quitar reserva online{% else %}Permitir reserva online{% endif %}
+                    </button>
+                  </form>
+                {% endif %}
                 <form method="post" action="{% url 'customers:professional_contact_toggle' business_client.id contact.id %}" data-confirm-message="Vas a cambiar si esta persona puede pedir citas para la ficha. ¿Quieres continuar?">
                   {% csrf_token %}
                   <button class="text-action" type="submit">{% if contact.is_active %}Pausar{% else %}Reactivar{% endif %}</button>

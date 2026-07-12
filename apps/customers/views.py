@@ -29,7 +29,9 @@ from apps.customers.forms import (
 )
 from apps.customers.models import (
     BusinessClient,
+    BusinessClientAccess,
     BusinessClientAccessInvitation,
+    BusinessClientAccessGrant,
     BusinessClientAuthorizedContact,
 )
 from apps.customers.services import (
@@ -45,6 +47,7 @@ from apps.customers.services import (
     set_client_access_active,
     set_professional_client_active,
     store_invitation_claim,
+    toggle_contact_online_booking,
 )
 from apps.core.security_throttle import (
     THROTTLE_MESSAGE,
@@ -269,6 +272,37 @@ def professional_contact_toggle(request, client_id, contact_id):
 
 @login_required
 @require_POST
+def professional_contact_online_toggle(request, client_id, contact_id):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+    business_client = _get_professional_client(business, client_id)
+    contact = get_object_or_404(
+        BusinessClientAuthorizedContact,
+        id=contact_id,
+        business=business,
+        business_client=business_client,
+    )
+    try:
+        grant = toggle_contact_online_booking(contact=contact)
+    except ValidationError as exc:
+        messages.error(request, _validation_message(exc))
+    else:
+        if grant.is_active:
+            messages.success(
+                request,
+                f"{contact.full_name} ya puede reservar online para {business_client.full_name}.",
+            )
+        else:
+            messages.success(
+                request,
+                f"{contact.full_name} ya no puede reservar online para esta ficha.",
+            )
+    return redirect("customers:professional_client_detail", client_id=business_client.id)
+
+
+@login_required
+@require_POST
 def professional_client_access_toggle(request, client_id):
     business = get_primary_business_for_user(request.user)
     if business is None:
@@ -403,17 +437,35 @@ def _professional_client_context(business, business_client):
         revoked_at__isnull=True,
         expires_at__gt=now,
     ).order_by("-created_at").first()
+    authorized_contacts = list(
+        business_client.authorized_contacts.all().order_by(
+            "-is_active", "-is_primary_contact", "full_name", "pk"
+        )
+    )
+    access_by_phone = {
+        access.phone_normalized: access
+        for access in BusinessClientAccess.objects.filter(
+            business=business,
+            phone_normalized__in=[contact.phone_normalized for contact in authorized_contacts],
+        )
+    }
+    grant_by_contact = {
+        grant.authorized_contact_id: grant
+        for grant in BusinessClientAccessGrant.objects.filter(
+            business_client=business_client,
+            authorized_contact__in=authorized_contacts,
+        )
+    }
+    for contact in authorized_contacts:
+        contact.online_access = access_by_phone.get(contact.phone_normalized)
+        contact.online_grant = grant_by_contact.get(contact.id)
+
     return {
         "business": business,
         "business_client": business_client,
         "upcoming_appointments": upcoming_appointments,
         "history_appointments": history_appointments,
-        "authorized_contacts": business_client.authorized_contacts.all().order_by(
-            "-is_active",
-            "-is_primary_contact",
-            "full_name",
-            "pk",
-        ),
+        "authorized_contacts": authorized_contacts,
         "active_contacts_count": business_client.authorized_contacts.filter(is_active=True).count(),
         "client_access": client_access,
         "active_invitation": active_invitation,

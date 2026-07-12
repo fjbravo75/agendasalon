@@ -55,7 +55,7 @@
             <article class="client-row{% if not client.is_active %} client-row--paused{% endif %}">
               <div class="client-row__main">
                 <strong>{{ client.full_name }}</strong>
-                <span>{{ client.phone|format_phone }}</span>
+                <span>{% if client.phone %}{{ client.phone|format_phone }}{% else %}Sin teléfono propio{% endif %}</span>
                 {% if not client.is_active %}<small>Ficha pausada</small>{% endif %}
               </div>
               <div class="client-row__meta">
@@ -91,8 +91,8 @@
           </div>
         </div>
         <p class="soft-note">
-          Para una llamada o una persona en mostrador. Con nombre y teléfono ya
-          puedes dejar la ficha preparada para agendar.
+          Para una llamada o una persona en mostrador. El nombre es suficiente;
+          el teléfono puede quedar en la ficha de una persona autorizada.
         </p>
 
         <form class="quick-client-card quick-client-card--flat" method="post">

@@ -352,6 +352,24 @@ class Appointment(models.Model):
         related_name="created_appointments",
         verbose_name="creado por",
     )
+    requested_by_client_access = models.ForeignKey(
+        "customers.BusinessClientAccess",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requested_appointments",
+        verbose_name="cuenta que solicitó la cita",
+    )
+    requested_by_name_snapshot = models.CharField(
+        "nombre de quien solicitó la cita",
+        max_length=160,
+        blank=True,
+    )
+    requested_by_relationship_snapshot = models.CharField(
+        "relación de quien solicitó la cita",
+        max_length=80,
+        blank=True,
+    )
     cancelled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -427,6 +445,9 @@ class Appointment(models.Model):
         if self.business_client_id and self.business_id:
             if self.business_client.business_id != self.business_id:
                 errors["business_client"] = "La ficha debe pertenecer al mismo negocio."
+        if self.requested_by_client_access_id and self.business_id:
+            if self.requested_by_client_access.business_id != self.business_id:
+                errors["requested_by_client_access"] = "La cuenta debe pertenecer al mismo negocio."
         if self.work_line_id and self.business_id:
             if self.work_line.business_id != self.business_id:
                 errors["work_line"] = "La línea debe pertenecer al mismo negocio."

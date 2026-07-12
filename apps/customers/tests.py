@@ -18,6 +18,7 @@ from apps.customers.models import (
     BusinessClient,
     BusinessClientAccess,
     BusinessClientAccessInvitation,
+    BusinessClientAccessGrant,
     BusinessClientAuthorizedContact,
 )
 from apps.customers.services import (
@@ -678,6 +679,24 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(client.phone_normalized, "+34600333111")
         self.assertEqual(client.source, BusinessClient.Source.PROFESSIONAL)
 
+    def test_professional_can_create_profile_without_own_phone(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("customers:professional_client_list"),
+            {
+                "full_name": "Leo López",
+                "phone": "",
+                "email": "",
+                "internal_notes": "Menor gestionado por su madre.",
+            },
+        )
+
+        profile = BusinessClient.objects.get(business=self.business, full_name="Leo López")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(profile.phone, "")
+        self.assertEqual(profile.phone_normalized, "")
+
     def test_professional_client_detail_is_scoped_to_business(self):
         self.client.force_login(self.professional)
         client = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
@@ -908,6 +927,58 @@ class ProfessionalClientViewTests(TestCase):
         self.client.post(toggle_url)
         contact.refresh_from_db()
         self.assertTrue(contact.is_active)
+
+    def test_professional_can_enable_online_booking_for_authorized_contact(self):
+        self.client.force_login(self.professional)
+        beneficiary = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Lucía Gómez",
+        )
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        contact = BusinessClientAuthorizedContact.objects.create(
+            business=self.business,
+            business_client=beneficiary,
+            full_name="María López",
+            phone=access.phone,
+            relationship_label=BusinessClientAuthorizedContact.Relationship.MOTHER,
+        )
+        toggle_url = reverse(
+            "customers:professional_contact_online_toggle",
+            args=[beneficiary.id, contact.id],
+        )
+
+        response = self.client.post(toggle_url, follow=True)
+
+        self.assertContains(response, "ya puede reservar online")
+        grant = BusinessClientAccessGrant.objects.get(
+            access=access,
+            business_client=beneficiary,
+        )
+        self.assertTrue(grant.is_active)
+        self.assertEqual(grant.authorized_contact, contact)
+
+        self.client.post(toggle_url)
+        grant.refresh_from_db()
+        self.assertFalse(grant.is_active)
+
+        self.client.post(toggle_url)
+        self.client.post(
+            reverse(
+                "customers:professional_contact_edit",
+                args=[beneficiary.id, contact.id],
+            ),
+            {
+                "full_name": contact.full_name,
+                "phone": "600111299",
+                "relationship_label": contact.relationship_label,
+                "notes": "Teléfono actualizado.",
+            },
+        )
+        grant.refresh_from_db()
+        self.assertFalse(grant.is_active)
 
     def test_professional_contact_routes_are_scoped_to_business(self):
         self.client.force_login(self.professional)

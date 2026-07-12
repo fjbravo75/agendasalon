@@ -80,6 +80,11 @@ class AppointmentSearchForm(forms.Form):
         initial=Appointment.ManualChannel.PHONE,
         error_messages={"required": "Selecciona el canal."},
     )
+    requested_by_contact = forms.ChoiceField(
+        label="¿Quién pide la cita?",
+        required=False,
+        choices=(("self", "El propio cliente"),),
+    )
     services = forms.ModelMultipleChoiceField(
         label="Servicios",
         queryset=Service.objects.none(),
@@ -121,6 +126,22 @@ class AppointmentSearchForm(forms.Form):
             lambda service: f"{service.name} - {service.duration_minutes} min"
         )
 
+        selected_client_id = self.data.get("business_client") or self.initial.get("business_client")
+        try:
+            selected_client = self.fields["business_client"].queryset.get(pk=selected_client_id)
+        except (BusinessClient.DoesNotExist, TypeError, ValueError):
+            selected_client = None
+        if selected_client is not None:
+            self.fields["requested_by_contact"].choices = [
+                ("self", f"{selected_client.full_name} (para sí)"),
+                *[
+                    (f"contact:{contact.id}", f"{contact.full_name} · {contact.get_relationship_label_display()}")
+                    for contact in selected_client.authorized_contacts.filter(is_active=True).order_by(
+                        "-is_primary_contact", "full_name", "pk"
+                    )
+                ],
+            ]
+
         self.fields["adjusted_duration_minutes"].widget.attrs.update(
             {
                 "step": "15",
@@ -160,6 +181,22 @@ class AppointmentSearchForm(forms.Form):
                     "Indica el motivo si ajustas la duración calculada.",
                 )
         return cleaned_data
+
+    def clean_requested_by_contact(self):
+        value = self.cleaned_data.get("requested_by_contact") or "self"
+        client = self.cleaned_data.get("business_client")
+        if value == "self":
+            return None
+        if not value.startswith("contact:") or client is None:
+            raise forms.ValidationError("Elige quién ha pedido la cita.")
+        try:
+            contact_id = int(value.split(":", 1)[1])
+        except (TypeError, ValueError):
+            raise forms.ValidationError("Elige quién ha pedido la cita.")
+        contact = client.authorized_contacts.filter(pk=contact_id, is_active=True).first()
+        if contact is None:
+            raise forms.ValidationError("Esa persona ya no está autorizada para pedir citas.")
+        return contact
 
 
 class AppointmentCancelForm(forms.Form):

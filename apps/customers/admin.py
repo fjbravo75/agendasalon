@@ -4,8 +4,28 @@ from .models import (
     BusinessClient,
     BusinessClientAccess,
     BusinessClientAccessInvitation,
+    BusinessClientAccessGrant,
     BusinessClientAuthorizedContact,
 )
+
+
+@admin.register(BusinessClientAccessGrant)
+class BusinessClientAccessGrantAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_client",
+        "access",
+        "relationship_label",
+        "is_active",
+        "updated_at",
+    )
+    list_filter = ("relationship_label", "is_active", "business")
+    search_fields = (
+        "business_client__full_name",
+        "access__business_client__full_name",
+        "access__phone",
+    )
+    autocomplete_fields = ("business", "access", "business_client", "authorized_contact")
+    readonly_fields = ("created_at", "updated_at")
 
 
 class BusinessClientAuthorizedContactInline(admin.TabularInline):

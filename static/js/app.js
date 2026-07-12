@@ -10,6 +10,14 @@ document.addEventListener("submit", (event) => {
   }
 });
 
+const appointmentClient = document.querySelector('[name="business_client"]');
+const appointmentRequester = document.querySelector('[name="requested_by_contact"]');
+if (appointmentClient && appointmentRequester) {
+  appointmentClient.addEventListener("change", () => {
+    appointmentRequester.value = "self";
+  });
+}
+
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-copy-target]");
   if (!button) {
