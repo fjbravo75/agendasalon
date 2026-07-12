@@ -298,6 +298,25 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "/static/js/public_booking.js")
         self.assertNotContains(response, "<script>\n    (() => {")
 
+    def test_public_service_list_uses_checkboxes_and_only_scrolls_above_five_services(self):
+        response = self.client.get(reverse("public_booking", args=[self.business.slug]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-service-count="6"')
+        self.assertContains(response, "service-choice-list--scrollable")
+        self.assertContains(response, 'type="checkbox"', count=6)
+
+        service = self.business.services.filter(is_active=True).order_by("display_order", "pk").last()
+        service.is_active = False
+        service.save(update_fields=["is_active"])
+
+        response = self.client.get(reverse("public_booking", args=[self.business.slug]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-service-count="5"')
+        self.assertContains(response, 'type="checkbox"', count=5)
+        self.assertNotContains(response, "service-choice-list--scrollable")
+
     def test_public_booking_shows_optimized_options_without_internal_agenda(self):
         self._login_demo_client()
         service_ids = self._combined_service_ids()

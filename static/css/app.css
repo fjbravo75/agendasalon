@@ -2970,9 +2970,10 @@ a {
 .service-choice-list--scrollable {
   --visible-service-rows: 5;
   --service-row-height: var(--control-height-md);
+  --service-row-gap: 7px;
   max-height: calc(
     (var(--visible-service-rows) * var(--service-row-height)) +
-    ((var(--visible-service-rows) - 1) * 7px)
+    ((var(--visible-service-rows) - 1) * var(--service-row-gap))
   );
   overflow-y: scroll;
   overscroll-behavior: contain;
@@ -3854,29 +3855,29 @@ a {
   gap: 8px;
 }
 
+.public-service-list.service-choice-list--scrollable {
+  --service-row-height: 76px;
+  --service-row-gap: 8px;
+}
+
 .public-service-choice {
-  grid-template-columns: 8px minmax(0, 1fr) auto;
+  min-height: 76px;
+  grid-template-columns: 8px 18px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   padding: 12px;
 }
 
 .public-service-choice input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+  position: static;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .public-service-choice:has(input:checked) {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
   box-shadow: 0 0 0 1px rgba(6, 117, 104, 0.08);
-}
-
-.public-service-choice:has(input:checked) .service-choice__dot {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  box-shadow: inset 0 0 0 4px var(--color-accent-soft);
 }
 
 .public-service-choice__body,
@@ -4127,12 +4128,12 @@ a {
   }
 
   .public-service-choice {
-    grid-template-columns: 8px minmax(0, 1fr) minmax(64px, auto);
+    grid-template-columns: 8px 18px minmax(0, 1fr) minmax(56px, auto);
     gap: 8px;
   }
 
   .public-service-choice__meta {
-    min-width: 64px;
+    min-width: 56px;
   }
 
   .public-booking .assistant-card-head > div {
@@ -5592,6 +5593,7 @@ a {
 
 .settings-shell,
 .settings-form {
+  min-width: 0;
   display: grid;
   gap: 20px;
 }
@@ -5601,6 +5603,7 @@ a {
 }
 
 .settings-grid {
+  min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
@@ -5608,6 +5611,7 @@ a {
 }
 
 .settings-panel {
+  min-width: 0;
   display: grid;
   gap: 16px;
   border: 1px solid var(--color-line);

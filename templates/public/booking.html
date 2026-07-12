@@ -153,13 +153,14 @@
 
           <div class="form-section">
             <div class="section-title-row">
-              <h3>Servicios</h3>
+              <h3 id="public-services-heading">Servicios</h3>
               <span>Duración y precio</span>
             </div>
             {{ form.services.errors }}
-            <div class="service-choice-list public-service-list">
+            <div class="service-choice-list public-service-list{% if available_services|length > 5 %} service-choice-list--scrollable{% endif %}" role="group" aria-labelledby="public-services-heading" data-service-count="{{ available_services|length }}">
               {% for service in available_services %}
                 <label class="service-choice public-service-choice">
+                  <span class="service-choice__dot" aria-hidden="true"></span>
                   <input
                     type="checkbox"
                     name="services"
@@ -169,7 +170,6 @@
                     data-price="{% if service.price_amount is not None %}{{ service.price_amount|unlocalize }}{% endif %}"
                     {% if service.id in selected_service_ids %}checked{% endif %}
                   >
-                  <span class="service-choice__dot" aria-hidden="true"></span>
                   <span class="public-service-choice__body">
                     <strong>{{ service.name }}</strong>
                     {% if service.description %}<small>{{ service.description }}</small>{% endif %}
