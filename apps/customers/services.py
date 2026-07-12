@@ -2,7 +2,9 @@ import hashlib
 import hmac
 import secrets
 from datetime import datetime, timedelta
+from functools import lru_cache
 
+from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db import models
@@ -75,9 +77,19 @@ def authenticate_client_access(*, business, phone: str, password: str):
         )
         .first()
     )
-    if access is None or not access.check_password(password):
+    if access is None:
+        check_password(password, _dummy_client_password_hash())
+        return None
+    if not access.check_password(password):
         return None
     return access
+
+
+@lru_cache(maxsize=1)
+def _dummy_client_password_hash():
+    """Iguala el coste de la rama sin cuenta sin persistir una credencial real."""
+
+    return make_password("agendasalon-dummy-client-password")
 
 
 def get_session_client_access(request, business):

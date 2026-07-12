@@ -24,6 +24,7 @@ from apps.customers.models import (
 from apps.customers.services import (
     CLIENT_ACCESS_LAST_SEEN_SESSION_KEY,
     CLIENT_ACCESS_SESSION_KEY,
+    authenticate_client_access,
     register_client_access,
 )
 
@@ -58,6 +59,20 @@ class CustomerModelTests(TestCase):
                 full_name="Maria   Lopez",
                 phone="+34 600 111 222",
             )
+
+    @patch("apps.customers.services.check_password")
+    def test_unknown_client_login_executes_a_dummy_password_check(self, check_password_mock):
+        check_password_mock.return_value = False
+
+        access = authenticate_client_access(
+            business=self.business,
+            phone="600999888",
+            password="incorrecta",
+        )
+
+        self.assertIsNone(access)
+        check_password_mock.assert_called_once()
+        self.assertTrue(check_password_mock.call_args.args[1].startswith("argon2$"))
 
     def test_authorized_contact_must_belong_to_same_business(self):
         other_business = Business.objects.create(

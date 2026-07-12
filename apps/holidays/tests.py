@@ -20,6 +20,13 @@ class FakeResponse:
     def __init__(self, text, status_code=200):
         self.text = text
         self.status_code = status_code
+        self.headers = {}
+        self.encoding = "utf-8"
+
+    def iter_content(self, chunk_size):
+        content = self.text.encode(self.encoding)
+        for offset in range(0, len(content), chunk_size):
+            yield content[offset : offset + chunk_size]
 
 
 class FakeSession:
@@ -66,6 +73,8 @@ class BoeNationalHolidaySyncServiceTests(TestCase):
         self.assertNotIn(date(2026, 1, 6), {holiday.day for holiday in holidays})
         self.assertEqual(session.calls[0][0], BoeNationalHolidaySyncService.SEARCH_URL)
         self.assertEqual(session.calls[0][1]["params"]["dato[6][0]"], "2025-01-01")
+        self.assertFalse(session.calls[0][1]["allow_redirects"])
+        self.assertTrue(session.calls[0][1]["stream"])
 
     def test_fetch_rejects_an_implausible_number_of_holidays(self):
         service = BoeNationalHolidaySyncService(
@@ -81,6 +90,20 @@ class BoeNationalHolidaySyncServiceTests(TestCase):
 
         with self.assertRaises(BoeSyncError):
             service.fetch_national_holidays(2026)
+
+    def test_fetch_rejects_redirects_and_oversized_responses(self):
+        redirected = FakeResponse("", status_code=302)
+        redirected.headers["Location"] = "http://127.0.0.1/internal"
+        with self.assertRaises(BoeSyncError):
+            BoeNationalHolidaySyncService(
+                session=FakeSession([redirected])
+            ).find_resolution(2026)
+
+        oversized = FakeResponse("x" * (BoeNationalHolidaySyncService.MAX_RESPONSE_BYTES + 1))
+        with self.assertRaises(BoeSyncError):
+            BoeNationalHolidaySyncService(
+                session=FakeSession([oversized])
+            ).find_resolution(2026)
 
 
 class NationalHolidayReconciliationTests(TestCase):

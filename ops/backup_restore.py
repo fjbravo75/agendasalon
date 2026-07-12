@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -35,6 +36,7 @@ def create_backup(
     backup_root: Path,
     pg_dump_executable: str = "pg_dump",
     now: datetime | None = None,
+    integrity_key: str | None = None,
 ) -> Path:
     database = postgres_database_config(database_url)
     now = now or datetime.now(timezone.utc)
@@ -79,6 +81,11 @@ def create_backup(
                 "sha256": _sha256(media_archive),
             },
         }
+        if integrity_key:
+            manifest["authenticity"] = {
+                "algorithm": "hmac-sha256",
+                "digest": _manifest_hmac(manifest, integrity_key),
+            }
         (backup_dir / MANIFEST_NAME).write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -89,13 +96,33 @@ def create_backup(
         raise
 
 
-def verify_backup(backup_dir: Path) -> dict:
+def verify_backup(
+    backup_dir: Path,
+    *,
+    integrity_key: str | None = None,
+    require_authenticity: bool = False,
+) -> dict:
     manifest_path = backup_dir / MANIFEST_NAME
     if not manifest_path.is_file():
         raise BackupError("La copia no contiene manifest.json.")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != 1:
         raise BackupError("La versión del manifiesto no es compatible.")
+
+    authenticity = manifest.get("authenticity")
+    if authenticity:
+        if authenticity.get("algorithm") != "hmac-sha256" or not integrity_key:
+            raise BackupError("La copia requiere una clave de autenticidad válida.")
+        expected_digest = authenticity.get("digest", "")
+        unsigned_manifest = dict(manifest)
+        unsigned_manifest.pop("authenticity", None)
+        if not hmac.compare_digest(
+            expected_digest,
+            _manifest_hmac(unsigned_manifest, integrity_key),
+        ):
+            raise BackupError("La autenticidad del manifiesto no coincide.")
+    elif require_authenticity:
+        raise BackupError("La copia no contiene una prueba de autenticidad.")
 
     expected_files = {
         "database": DATABASE_DUMP_NAME,
@@ -122,12 +149,18 @@ def restore_backup(
     confirm_restore: bool,
     replace_media: bool = False,
     pg_restore_executable: str = "pg_restore",
+    integrity_key: str | None = None,
+    require_authenticity: bool = False,
 ) -> Path | None:
     if not confirm_restore:
         raise BackupError("La restauración requiere --confirm-restore.")
 
     database = postgres_database_config(database_url)
-    manifest = verify_backup(backup_dir)
+    manifest = verify_backup(
+        backup_dir,
+        integrity_key=integrity_key,
+        require_authenticity=require_authenticity,
+    )
     database_dump = backup_dir / manifest["database"]["file"]
     media_archive = backup_dir / manifest["media"]["file"]
 
@@ -210,6 +243,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _manifest_hmac(manifest: dict, integrity_key: str) -> str:
+    canonical = json.dumps(
+        manifest,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hmac.new(integrity_key.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -234,17 +277,25 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _parser().parse_args()
     database_url = os.environ.get("DJANGO_DATABASE_URL", "")
+    integrity_key = os.environ.get("AGENDA_BACKUP_HMAC_KEY", "")
     try:
+        if not integrity_key:
+            raise BackupError("Define AGENDA_BACKUP_HMAC_KEY para operar con copias auténticas.")
         if args.command == "backup":
             backup_dir = create_backup(
                 database_url=database_url,
                 media_root=args.media_root,
                 backup_root=args.backup_root,
                 pg_dump_executable=args.pg_dump,
+                integrity_key=integrity_key,
             )
             print(backup_dir)
         elif args.command == "verify":
-            verify_backup(args.backup_dir)
+            verify_backup(
+                args.backup_dir,
+                integrity_key=integrity_key,
+                require_authenticity=True,
+            )
             print("Copia verificada.")
         else:
             rollback_dir = restore_backup(
@@ -254,6 +305,8 @@ def main() -> int:
                 confirm_restore=args.confirm_restore,
                 replace_media=args.replace_media,
                 pg_restore_executable=args.pg_restore,
+                integrity_key=integrity_key,
+                require_authenticity=True,
             )
             print("Restauración completada.")
             if rollback_dir:

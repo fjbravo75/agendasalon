@@ -10,8 +10,8 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 from django.views.decorators.vary import vary_on_cookie
 
-from apps.booking.models import Appointment
-from apps.businesses.models import Business, BusinessActivityEvent
+from apps.booking.models import Appointment, AvailabilityRule, Service, WorkLine
+from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 from apps.customers.models import BusinessClient
 
 
@@ -32,69 +32,26 @@ def superadmin_dashboard_data(request):
         )
 
     now = timezone.now()
-    businesses = list(
-        Business.objects.annotate(
-            active_services_count=Count(
-                "services",
-                filter=Q(services__is_active=True),
-                distinct=True,
-            ),
-            active_lines_count=Count(
-                "work_lines",
-                filter=Q(work_lines__is_active=True),
-                distinct=True,
-            ),
-            active_rules_count=Count(
-                "availability_rules",
-                filter=Q(availability_rules__is_active=True),
-                distinct=True,
-            ),
-            clients_total=Count(
-                "clients",
-                filter=Q(clients__is_active=True),
-                distinct=True,
-            ),
-            appointments_total=Count("appointments", distinct=True),
-            professionals_total=Count(
-                "memberships",
-                filter=Q(memberships__is_active=True),
-                distinct=True,
-            ),
-            upcoming_confirmed_count=Count(
-                "appointments",
-                filter=Q(
-                    appointments__status=Appointment.Status.CONFIRMED,
-                    appointments__ends_at__gt=now,
-                ),
-                distinct=True,
-            ),
-            pending_closure_count=Count(
-                "appointments",
-                filter=Q(
-                    appointments__status=Appointment.Status.CONFIRMED,
-                    appointments__ends_at__lte=now,
-                ),
-                distinct=True,
-            ),
-        ).order_by("commercial_name", "pk")
-    )
+    businesses = list(Business.objects.order_by("commercial_name", "pk"))
+    _attach_business_counts(businesses, now=now)
     business_payloads = [_business_payload(business) for business in businesses]
 
-    status_counts = {
-        item["status"]: item["total"]
-        for item in Appointment.objects.values("status").annotate(total=Count("id"))
-    }
-    channel_counts = {
-        item["manual_channel"]: item["total"]
-        for item in Appointment.objects.values("manual_channel").annotate(total=Count("id"))
-    }
-    upcoming_confirmed_count = Appointment.objects.filter(
-        status=Appointment.Status.CONFIRMED,
-        ends_at__gt=now,
-    ).count()
+    status_counts = {}
+    channel_counts = {}
+    for item in (
+        Appointment.objects.values("status", "manual_channel").annotate(total=Count("id"))
+    ):
+        status_counts[item["status"]] = status_counts.get(item["status"], 0) + item["total"]
+        channel_counts[item["manual_channel"]] = (
+            channel_counts.get(item["manual_channel"], 0) + item["total"]
+        )
+    upcoming_confirmed_count = sum(
+        business["counts"]["upcoming_confirmed"] for business in business_payloads
+    )
     pending_closure_count = sum(
         business["counts"]["pending_closure"] for business in business_payloads
     )
+
 
     return JsonResponse(
         {
@@ -121,8 +78,10 @@ def superadmin_dashboard_data(request):
                 "professionals_active": sum(
                     item["counts"]["professionals"] for item in business_payloads
                 ),
-                "clients_total": BusinessClient.objects.count(),
-                "appointments_total": Appointment.objects.count(),
+                "clients_total": sum(business._all_clients_count for business in businesses),
+                "appointments_total": sum(
+                    business.appointments_total for business in businesses
+                ),
             },
             "businesses": business_payloads,
             "recent_activity": _recent_activity_payload(),
@@ -156,6 +115,79 @@ def superadmin_dashboard_data(request):
             ],
         }
     )
+
+
+def _attach_business_counts(businesses, *, now):
+    """Carga métricas por relación sin formar un producto cartesiano gigante."""
+
+    business_ids = [business.pk for business in businesses]
+    if not business_ids:
+        return
+
+    count_maps = {
+        "active_services_count": _grouped_counts(
+            Service.objects.filter(business_id__in=business_ids, is_active=True)
+        ),
+        "active_lines_count": _grouped_counts(
+            WorkLine.objects.filter(business_id__in=business_ids, is_active=True)
+        ),
+        "active_rules_count": _grouped_counts(
+            AvailabilityRule.objects.filter(business_id__in=business_ids, is_active=True)
+        ),
+        "professionals_total": _grouped_counts(
+            BusinessMembership.objects.filter(business_id__in=business_ids, is_active=True)
+        ),
+    }
+    client_counts = {
+        row["business_id"]: row
+        for row in (
+            BusinessClient.objects.filter(business_id__in=business_ids)
+            .values("business_id")
+            .annotate(
+                clients_total=Count("id", filter=Q(is_active=True)),
+                all_clients_count=Count("id"),
+            )
+        )
+    }
+    appointment_counts = {
+        row["business_id"]: row
+        for row in (
+            Appointment.objects.filter(business_id__in=business_ids)
+            .values("business_id")
+            .annotate(
+                appointments_total=Count("id"),
+                upcoming_confirmed_count=Count(
+                    "id",
+                    filter=Q(status=Appointment.Status.CONFIRMED, ends_at__gt=now),
+                ),
+                pending_closure_count=Count(
+                    "id",
+                    filter=Q(status=Appointment.Status.CONFIRMED, ends_at__lte=now),
+                ),
+            )
+        )
+    }
+
+    for business in businesses:
+        for attribute, counts in count_maps.items():
+            setattr(business, attribute, counts.get(business.pk, 0))
+        client_row = client_counts.get(business.pk, {})
+        business.clients_total = client_row.get("clients_total", 0)
+        business._all_clients_count = client_row.get("all_clients_count", 0)
+        appointment_row = appointment_counts.get(business.pk, {})
+        for attribute in (
+            "appointments_total",
+            "upcoming_confirmed_count",
+            "pending_closure_count",
+        ):
+            setattr(business, attribute, appointment_row.get(attribute, 0))
+
+
+def _grouped_counts(queryset):
+    return {
+        row["business_id"]: row["total"]
+        for row in queryset.values("business_id").annotate(total=Count("id"))
+    }
 
 
 def _business_payload(business):
