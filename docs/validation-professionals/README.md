@@ -46,4 +46,3 @@ No explicar dónde pulsar. Leer cada tarea, pedir que piense en voz alta y regis
 ## Regla de honestidad
 
 No se sustituirá una sesión real por una simulación de IA ni se presentarán estos criterios como resultados. Tras las sesiones se conservarán únicamente métricas y observaciones anonimizadas necesarias para mejorar el producto.
-

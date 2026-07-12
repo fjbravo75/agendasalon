@@ -23,4 +23,3 @@ Este índice separa hechos reproducibles, validaciones pendientes de entorno y t
 ## Evidencia humana pendiente
 
 La validación con profesionales reales no se ha ejecutado todavía. El protocolo, consentimiento mínimo y hoja de observación están en [`validation-professionals/README.md`](validation-professionals/README.md). Los campos de resultados permanecen vacíos hasta disponer de participantes reales.
-
