@@ -179,7 +179,12 @@ Registra cambios reales de estado: citas creadas, canceladas o cerradas;
 servicios, horarios, cierres y líneas modificados; y cambios de negocio,
 reserva pública o accesos profesionales. Cada movimiento conserva fecha,
 categoría, responsable y canal, sin guardar contraseñas ni datos personales
-innecesarios. El historial completo admite filtros y paginación por cursor.
+innecesarios. La ficha resume seis movimientos y el historial completo admite
+filtros y paginación numerada de diez en diez.
+
+El listado profesional de clientes presenta seis fichas por página y conserva
+búsqueda y estado al navegar. En el dashboard global, la actividad reciente
+mantiene seis movimientos visibles y desplaza el resto dentro del mismo panel.
 
 También existe una semilla de demostración reproducible:
 

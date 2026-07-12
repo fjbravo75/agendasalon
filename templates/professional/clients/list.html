@@ -81,6 +81,22 @@
             </div>
           {% endfor %}
         </div>
+
+        {% if clients_page.paginator.num_pages > 1 %}
+          <nav class="text-pagination" aria-label="Páginas de clientes">
+            {% if clients_page.has_previous %}
+              <a href="?status={{ status_filter }}{% if search %}&amp;q={{ search|urlencode }}{% endif %}&amp;page={{ clients_page.previous_page_number }}" rel="prev">Anterior</a>
+            {% else %}
+              <span aria-disabled="true">Anterior</span>
+            {% endif %}
+            <span>Página {{ clients_page.number }} de {{ clients_page.paginator.num_pages }}</span>
+            {% if clients_page.has_next %}
+              <a href="?status={{ status_filter }}{% if search %}&amp;q={{ search|urlencode }}{% endif %}&amp;page={{ clients_page.next_page_number }}" rel="next">Siguiente</a>
+            {% else %}
+              <span aria-disabled="true">Siguiente</span>
+            {% endif %}
+          </nav>
+        {% endif %}
       </section>
 
       <aside class="client-quick-panel" aria-label="Crear cliente">

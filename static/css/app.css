@@ -6543,6 +6543,58 @@ a {
   justify-self: start;
 }
 
+.text-action-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  width: fit-content;
+  color: var(--color-accent-strong);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.text-action-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.text-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-line);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.text-pagination a,
+.text-pagination span[aria-disabled="true"] {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 4px;
+}
+
+.text-pagination a {
+  color: var(--color-accent-strong);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.text-pagination a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.text-pagination span[aria-disabled="true"] {
+  opacity: 0.45;
+}
+
 .saas-fact-list {
   display: grid;
   gap: 1px;

@@ -50,8 +50,20 @@
         {% endfor %}
       </div>
 
-      {% if has_more_activity %}
-        <a class="button button--secondary business-activity-panel__more" href="?activity={{ activity_category }}&amp;before={{ next_activity_cursor }}">Mostrar movimientos anteriores</a>
+      {% if activity_page.paginator.num_pages > 1 %}
+        <nav class="text-pagination" aria-label="Páginas del historial">
+          {% if activity_page.has_previous %}
+            <a href="?activity={{ activity_category }}&amp;page={{ activity_page.previous_page_number }}" rel="prev">Anterior</a>
+          {% else %}
+            <span aria-disabled="true">Anterior</span>
+          {% endif %}
+          <span>Página {{ activity_page.number }} de {{ activity_page.paginator.num_pages }}</span>
+          {% if activity_page.has_next %}
+            <a href="?activity={{ activity_category }}&amp;page={{ activity_page.next_page_number }}" rel="next">Siguiente</a>
+          {% else %}
+            <span aria-disabled="true">Siguiente</span>
+          {% endif %}
+        </nav>
       {% endif %}
     </section>
   </section>

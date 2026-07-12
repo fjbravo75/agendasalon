@@ -3,6 +3,7 @@ from functools import wraps
 import requests
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpResponseForbidden
@@ -183,7 +184,7 @@ def superadmin_business_detail(request, business_id):
             "memberships": memberships,
             "pending_closure_count": pending_closure_count,
             "upcoming_count": upcoming_count,
-            "activity_events": tuple(activity_queryset[:8]),
+            "activity_events": tuple(activity_queryset[:6]),
             "activity_total": activity_queryset.count(),
             "activity_category": activity_category,
             "activity_filters": ACTIVITY_FILTERS,
@@ -199,27 +200,17 @@ def superadmin_business_activity(request, business_id):
     activity_category = _activity_category(request.GET.get("activity", "all"))
     activity_queryset = _business_activity_queryset(business, activity_category)
 
-    before = request.GET.get("before", "").strip()
-    if before.isdigit():
-        activity_queryset = activity_queryset.filter(pk__lt=int(before))
-
-    page_size = 30
-    activity_events = list(activity_queryset[: page_size + 1])
-    has_more_activity = len(activity_events) > page_size
-    if has_more_activity:
-        activity_events = activity_events[:page_size]
-    next_activity_cursor = activity_events[-1].pk if has_more_activity else None
+    activity_page = Paginator(activity_queryset, 10).get_page(request.GET.get("page"))
 
     return render(
         request,
         "superadmin/businesses/activity.html",
         {
             "business": business,
-            "activity_events": activity_events,
+            "activity_events": activity_page,
+            "activity_page": activity_page,
             "activity_category": activity_category,
             "activity_filters": ACTIVITY_FILTERS,
-            "has_more_activity": has_more_activity,
-            "next_activity_cursor": next_activity_cursor,
         },
     )
 
