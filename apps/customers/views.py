@@ -3,11 +3,12 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Max, Min, Q
 from django.forms import ValidationError as FormValidationError
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from apps.booking.models import Appointment
 from apps.booking.public_booking_drafts import get_public_booking_draft
@@ -57,6 +58,7 @@ from apps.core.security_throttle import (
     record_failed_attempt,
     request_ip,
 )
+from apps.core.text import normalize_search_text
 
 
 @login_required
@@ -116,6 +118,20 @@ def professional_client_list(request):
         .order_by("full_name", "pk")
     )
 
+    selected_authorized_client = None
+    selected_authorized_client_id = quick_form["authorized_business_client"].value()
+    if selected_authorized_client_id:
+        selected_authorized_client = BusinessClient.objects.filter(
+            business=business,
+            is_active=True,
+            pk=selected_authorized_client_id,
+        ).select_related("access").first()
+    selected_authorized_access = (
+        getattr(selected_authorized_client, "access", None)
+        if selected_authorized_client is not None
+        else None
+    )
+
     return render(
         request,
         "professional/clients/list.html",
@@ -125,6 +141,9 @@ def professional_client_list(request):
             "search": search,
             "status_filter": status_filter,
             "quick_form": quick_form,
+            "client_search_url": reverse("customers:professional_client_lookup"),
+            "selected_authorized_client": selected_authorized_client,
+            "selected_authorized_access": selected_authorized_access,
             "clients_count": clients.count(),
             "active_clients_count": BusinessClient.objects.filter(
                 business=business,
@@ -268,6 +287,68 @@ def professional_contact_toggle(request, client_id, contact_id):
         else:
             messages.success(request, f"{contact.full_name} queda pausado como persona autorizada.")
     return redirect("customers:professional_client_detail", client_id=business_client.id)
+
+
+@login_required
+@require_GET
+def professional_client_search(request, client_id):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return JsonResponse({"results": []}, status=403)
+    business_client = _get_professional_client(business, client_id)
+    return _professional_client_search_response(
+        request,
+        business=business,
+        excluded_client_id=business_client.id,
+    )
+
+
+@login_required
+@require_GET
+def professional_client_lookup(request):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return JsonResponse({"results": []}, status=403)
+    return _professional_client_search_response(request, business=business)
+
+
+def _professional_client_search_response(request, *, business, excluded_client_id=None):
+    query = (request.GET.get("q") or "").strip()
+    if len(query) < 2:
+        return JsonResponse({"results": []})
+
+    normalized_query = normalize_search_text(query)
+    phone_digits = "".join(character for character in query if character.isdigit())
+    filters = Q(full_name_normalized__contains=normalized_query)
+    if phone_digits:
+        filters |= Q(phone_normalized__contains=phone_digits)
+    clients = BusinessClient.objects.filter(business=business, is_active=True)
+    if excluded_client_id is not None:
+        clients = clients.exclude(pk=excluded_client_id)
+    clients = (
+        clients.filter(filters)
+        .select_related("access")
+        .order_by("full_name", "pk")[:8]
+    )
+    results = []
+    for client in clients:
+        access = getattr(client, "access", None)
+        results.append(
+            {
+                "id": client.id,
+                "name": client.full_name,
+                "phone": client.phone,
+                "has_phone": bool(client.phone_normalized),
+                "online_status": (
+                    "active" if access is not None and access.is_active else "inactive"
+                    if access is not None
+                    else "none"
+                ),
+            }
+        )
+    response = JsonResponse({"results": results})
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @login_required
@@ -438,17 +519,12 @@ def _professional_client_context(business, business_client):
         expires_at__gt=now,
     ).order_by("-created_at").first()
     authorized_contacts = list(
-        business_client.authorized_contacts.all().order_by(
+        business_client.authorized_contacts.select_related(
+            "linked_business_client__access"
+        ).order_by(
             "-is_active", "-is_primary_contact", "full_name", "pk"
         )
     )
-    access_by_phone = {
-        access.phone_normalized: access
-        for access in BusinessClientAccess.objects.filter(
-            business=business,
-            phone_normalized__in=[contact.phone_normalized for contact in authorized_contacts],
-        )
-    }
     grant_by_contact = {
         grant.authorized_contact_id: grant
         for grant in BusinessClientAccessGrant.objects.filter(
@@ -457,7 +533,11 @@ def _professional_client_context(business, business_client):
         )
     }
     for contact in authorized_contacts:
-        contact.online_access = access_by_phone.get(contact.phone_normalized)
+        contact.online_access = (
+            getattr(contact.linked_business_client, "access", None)
+            if contact.linked_business_client_id
+            else None
+        )
         contact.online_grant = grant_by_contact.get(contact.id)
 
     return {
@@ -493,6 +573,20 @@ def _professional_contact_form_view(request, *, business, business_client, conta
             messages.success(request, f"Persona autorizada guardada: {contact.full_name}.")
             return redirect("customers:professional_client_detail", client_id=business_client.id)
 
+    selected_linked_client = None
+    selected_linked_client_id = contact_form["linked_business_client"].value()
+    if selected_linked_client_id:
+        selected_linked_client = BusinessClient.objects.filter(
+            business=business,
+            is_active=True,
+            pk=selected_linked_client_id,
+        ).select_related("access").first()
+    selected_access = (
+        getattr(selected_linked_client, "access", None)
+        if selected_linked_client is not None
+        else None
+    )
+
     return render(
         request,
         "professional/clients/contact_form.html",
@@ -500,6 +594,12 @@ def _professional_contact_form_view(request, *, business, business_client, conta
             **_professional_client_context(business, business_client),
             "contact_form": contact_form,
             "editing_contact": contact,
+            "selected_linked_client": selected_linked_client,
+            "selected_access": selected_access,
+            "client_search_url": reverse(
+                "customers:professional_client_search",
+                args=[business_client.id],
+            ),
         },
     )
 

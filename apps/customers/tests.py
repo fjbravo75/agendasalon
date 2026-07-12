@@ -697,6 +697,60 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(profile.phone, "")
         self.assertEqual(profile.phone_normalized, "")
 
+    def test_new_profile_can_include_registered_authorized_person(self):
+        self.client.force_login(self.professional)
+        authorized_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+
+        response = self.client.post(
+            reverse("customers:professional_client_list"),
+            {
+                "full_name": "Leo López",
+                "phone": "",
+                "email": "",
+                "internal_notes": "Menor gestionado por su madre.",
+                "authorized_business_client": authorized_client.id,
+                "authorized_client_search": authorized_client.full_name,
+                "authorized_relationship": BusinessClientAuthorizedContact.Relationship.MOTHER,
+                "authorized_allow_online": "on",
+            },
+        )
+
+        profile = BusinessClient.objects.get(business=self.business, full_name="Leo López")
+        self.assertRedirects(
+            response,
+            reverse("customers:professional_client_detail", args=[profile.id]),
+        )
+        contact = profile.authorized_contacts.get()
+        self.assertEqual(contact.linked_business_client, authorized_client)
+        self.assertEqual(contact.phone_normalized, authorized_client.phone_normalized)
+        self.assertTrue(contact.is_active)
+        self.assertTrue(contact.is_primary_contact)
+        self.assertTrue(
+            BusinessClientAccessGrant.objects.filter(
+                access=authorized_client.access,
+                business_client=profile,
+                authorized_contact=contact,
+                is_active=True,
+            ).exists()
+        )
+
+    def test_professional_client_lookup_is_scoped_and_reports_online_status(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.get(
+            reverse("customers:professional_client_lookup"),
+            {"q": "María"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["results"]
+        self.assertEqual([result["name"] for result in payload], ["María López"])
+        self.assertEqual(payload[0]["online_status"], "active")
+        self.assertNotIn("Javier Martín", [result["name"] for result in payload])
+
     def test_professional_client_detail_is_scoped_to_business(self):
         self.client.force_login(self.professional)
         client = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
@@ -740,7 +794,6 @@ class ProfessionalClientViewTests(TestCase):
             business=self.business,
             full_name="María López",
         )
-
         response = self.client.get(
             reverse("customers:professional_client_edit", args=[business_client.id])
         )
@@ -755,6 +808,7 @@ class ProfessionalClientViewTests(TestCase):
             business=self.business,
             full_name="María López",
         )
+        linked_contact = business_client.authorizations_as_contact.get()
         appointments_before = business_client.appointments.count()
 
         response = self.client.post(
@@ -776,6 +830,9 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(business_client.full_name, "María López Romero")
         self.assertEqual(business_client.phone_normalized, "+34600333444")
         self.assertEqual(business_client.access.phone_normalized, "+34600333444")
+        linked_contact.refresh_from_db()
+        self.assertEqual(linked_contact.full_name, "María López Romero")
+        self.assertEqual(linked_contact.phone_normalized, "+34600333444")
         self.assertEqual(business_client.appointments.count(), appointments_before)
 
     def test_professional_edit_rejects_phone_used_by_other_online_account(self):
@@ -889,6 +946,74 @@ class ProfessionalClientViewTests(TestCase):
         self.assertTrue(new_primary.is_primary_contact)
         self.assertFalse(previous_primary.is_primary_contact)
 
+    def test_professional_can_link_registered_client_as_authorized_person(self):
+        self.client.force_login(self.professional)
+        beneficiary = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Carmen Ruiz",
+        )
+        authorized_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+
+        response = self.client.post(
+            reverse("customers:professional_contact_create", args=[beneficiary.id]),
+            {
+                "contact_type": "registered",
+                "linked_business_client": authorized_client.id,
+                "client_search": authorized_client.full_name,
+                "relationship_label": BusinessClientAuthorizedContact.Relationship.DAUGHTER,
+                "allow_online_booking": "on",
+                "notes": "Gestiona sus citas.",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("customers:professional_client_detail", args=[beneficiary.id]),
+        )
+        contact = beneficiary.authorized_contacts.get(linked_business_client=authorized_client)
+        self.assertEqual(contact.full_name, authorized_client.full_name)
+        self.assertEqual(contact.phone_normalized, authorized_client.phone_normalized)
+        self.assertTrue(
+            BusinessClientAccessGrant.objects.filter(
+                access=authorized_client.access,
+                business_client=beneficiary,
+                authorized_contact=contact,
+                is_active=True,
+            ).exists()
+        )
+
+    def test_professional_cannot_link_authorized_client_from_another_business(self):
+        self.client.force_login(self.professional)
+        beneficiary = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Carmen Ruiz",
+        )
+        other_client = BusinessClient.objects.get(
+            business=self.other_business,
+            full_name="Javier Martín",
+        )
+
+        response = self.client.post(
+            reverse("customers:professional_contact_create", args=[beneficiary.id]),
+            {
+                "contact_type": "registered",
+                "linked_business_client": other_client.id,
+                "client_search": other_client.full_name,
+                "relationship_label": BusinessClientAuthorizedContact.Relationship.FAMILY,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecciona una persona de la lista")
+        self.assertFalse(
+            beneficiary.authorized_contacts.filter(
+                linked_business_client=other_client,
+            ).exists()
+        )
+
     def test_professional_can_edit_pause_and_reactivate_authorized_contact(self):
         self.client.force_login(self.professional)
         business_client = BusinessClient.objects.get(
@@ -941,6 +1066,7 @@ class ProfessionalClientViewTests(TestCase):
         contact = BusinessClientAuthorizedContact.objects.create(
             business=self.business,
             business_client=beneficiary,
+            linked_business_client=access.business_client,
             full_name="María López",
             phone=access.phone,
             relationship_label=BusinessClientAuthorizedContact.Relationship.MOTHER,

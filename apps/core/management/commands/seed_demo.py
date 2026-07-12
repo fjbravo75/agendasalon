@@ -413,6 +413,9 @@ class DemoSeeder:
             relationship=BusinessClientAuthorizedContact.Relationship.FAMILY,
             is_primary=True,
         )
+        contact.linked_business_client = self.clients["maria"]
+        contact.full_clean()
+        contact.save(update_fields=["linked_business_client", "full_name", "phone", "phone_normalized", "updated_at"])
         grant, _ = BusinessClientAccessGrant.objects.update_or_create(
             access=access,
             business_client=self.clients["rosa"],

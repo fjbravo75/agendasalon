@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load core_extras %}
+{% load static core_extras %}
 
 {% block title %}Clientes - AgendaSalon{% endblock %}
 
@@ -95,8 +95,9 @@
           el teléfono puede quedar en la ficha de una persona autorizada.
         </p>
 
-        <form class="quick-client-card quick-client-card--flat" method="post">
+        <form class="quick-client-card quick-client-card--flat" method="post" data-authorized-person-form data-client-search-url="{{ client_search_url }}">
           {% csrf_token %}
+          {{ quick_form.authorized_business_client }}
           {% if quick_form.non_field_errors %}
             <div class="alert">{{ quick_form.non_field_errors }}</div>
           {% endif %}
@@ -122,9 +123,59 @@
             {{ quick_form.internal_notes.errors }}
           </div>
 
+          <details class="new-client-authorized"{% if selected_authorized_client or quick_form.authorized_client_search.errors or quick_form.authorized_relationship.errors or quick_form.authorized_allow_online.errors %} open{% endif %}>
+            <summary>
+              <span>
+                <strong>Persona autorizada</strong>
+                <small>Opcional</small>
+              </span>
+              <span class="new-client-authorized__icon" aria-hidden="true"></span>
+            </summary>
+            <div class="new-client-authorized__content">
+              <p>Puede pedir y, si tiene una cuenta activa, reservar citas en nombre del titular de esta ficha.</p>
+              <div class="field authorized-client-search">
+                {{ quick_form.authorized_client_search.label_tag }}
+                {{ quick_form.authorized_client_search }}
+                <small class="field-help">Selecciona una persona que ya sea cliente del negocio.</small>
+                {{ quick_form.authorized_client_search.errors }}
+                <div id="new-client-authorized-results" class="authorized-client-results" role="listbox" aria-label="Clientes encontrados" data-client-search-results hidden></div>
+              </div>
+
+              <div class="authorized-client-selection{% if not selected_authorized_client %} is-empty{% endif %}" data-client-selection data-online-active="{% if selected_authorized_access and selected_authorized_access.is_active %}true{% else %}false{% endif %}">
+                <div>
+                  <span>Persona seleccionada</span>
+                  <strong data-selected-name>{% if selected_authorized_client %}{{ selected_authorized_client.full_name }}{% else %}Ninguna todavía{% endif %}</strong>
+                  <small data-selected-account-status>{% if selected_authorized_access and selected_authorized_access.is_active %}Cuenta online activa{% elif selected_authorized_access %}Cuenta online pausada{% elif selected_authorized_client %}Sin cuenta online{% else %}Elige un resultado para continuar{% endif %}</small>
+                </div>
+                <div class="field">
+                  <label for="new-client-authorized-phone">Teléfono sincronizado</label>
+                  <input id="new-client-authorized-phone" type="text" value="{% if selected_authorized_client %}{{ selected_authorized_client.phone|format_phone }}{% endif %}" placeholder="Se completará al elegir" readonly data-selected-phone>
+                </div>
+              </div>
+
+              <div class="field">
+                {{ quick_form.authorized_relationship.label_tag }}
+                {{ quick_form.authorized_relationship }}
+                {{ quick_form.authorized_relationship.errors }}
+              </div>
+              <label class="client-primary-check authorized-online-check">
+                {{ quick_form.authorized_allow_online }}
+                <span>
+                  <strong>También puede reservar online</strong>
+                  <small data-online-help>{% if selected_authorized_access and selected_authorized_access.is_active %}Podrá elegir esta ficha desde su cuenta.{% else %}Disponible cuando la persona tenga una cuenta online activa.{% endif %}</small>
+                </span>
+              </label>
+              {{ quick_form.authorized_allow_online.errors }}
+            </div>
+          </details>
+
           <button class="button button--wide" type="submit">Guardar cliente</button>
         </form>
       </aside>
     </div>
   </section>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/authorized_contact_autocomplete.js' %}?v=20260712-linked-client-v1" defer></script>
 {% endblock %}
