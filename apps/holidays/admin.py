@@ -12,7 +12,18 @@ class OfficialHolidayAdmin(admin.ModelAdmin):
 
 @admin.register(HolidaySyncRun)
 class HolidaySyncRunAdmin(admin.ModelAdmin):
-    list_display = ("year", "source_name", "status", "items_loaded", "started_at", "finished_at")
+    list_display = (
+        "year",
+        "source_name",
+        "status",
+        "items_loaded",
+        "items_created",
+        "items_updated",
+        "items_removed",
+        "affected_appointments",
+        "started_at",
+        "finished_at",
+    )
     list_filter = ("status", "year", "source_name")
     search_fields = ("source_name", "source_url", "error_detail")
     autocomplete_fields = ("created_by",)

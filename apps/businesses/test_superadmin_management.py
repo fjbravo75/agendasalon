@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
+from apps.booking.models import BusinessCalendarSettings
 from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 
 
@@ -139,6 +140,12 @@ class SuperadminBusinessManagementTests(TestCase):
                 business=business,
                 event_type=BusinessActivityEvent.EventType.BUSINESS_CREATED,
                 actor_user=self.superadmin,
+            ).exists()
+        )
+        self.assertTrue(
+            BusinessCalendarSettings.objects.filter(
+                business=business,
+                apply_national_holidays=True,
             ).exists()
         )
         self.assertTrue(

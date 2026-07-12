@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.booking.models import Appointment, AvailabilityRule, BusinessClosure, WorkLine
 from apps.businesses.models import Business, BusinessActivityEvent
+from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 
 
 class ProfessionalScheduleTests(TestCase):
@@ -36,8 +37,61 @@ class ProfessionalScheduleTests(TestCase):
         self.assertContains(response, "Semana tipo")
         self.assertContains(response, "Líneas de trabajo")
         self.assertContains(response, "Cierres y bloqueos")
+        self.assertContains(response, "Festivos nacionales")
         self.assertNotContains(response, "Barbería Norte")
         self.assertNotContains(response, "MVP")
+
+    def test_professional_can_disable_national_holidays_for_own_business(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("booking:professional_national_holidays_update"),
+            {"apply_national_holidays": "false"},
+            follow=True,
+        )
+
+        self.business.calendar_settings.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.business.calendar_settings.apply_national_holidays)
+        self.assertContains(response, "La agenda permanecerá abierta en festivos nacionales")
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                event_type=BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_DISABLED,
+            ).exists()
+        )
+
+    def test_schedule_shows_upcoming_national_holidays_and_source_trace(self):
+        holiday = OfficialHoliday.objects.create(
+            date=date(2027, 1, 1),
+            name="Año Nuevo",
+            scope=OfficialHoliday.Scope.NATIONAL,
+            year=2027,
+            source_name="BOE - calendario laboral nacional",
+            official_reference="BOE-A-2026-TEST",
+        )
+        HolidaySyncRun.objects.create(
+            year=2027,
+            source_name="BOE - calendario laboral nacional",
+            official_reference="BOE-A-2026-TEST",
+            status=HolidaySyncRun.Status.SUCCESS,
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            items_loaded=1,
+        )
+        self.client.force_login(self.professional)
+
+        response = self.client.get(reverse("booking:professional_schedule"))
+
+        self.assertContains(response, holiday.name)
+        self.assertContains(response, "BOE-A-2026-TEST")
+
+    def test_national_holiday_setting_rejects_get(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.get(reverse("booking:professional_national_holidays_update"))
+
+        self.assertEqual(response.status_code, 405)
 
     def test_professional_can_create_availability_rule(self):
         self.client.force_login(self.professional)

@@ -123,5 +123,98 @@
         <button class="button" type="submit">Guardar ajustes</button>
       </div>
     </form>
+
+    <section id="festivos-nacionales" class="settings-panel holiday-settings-panel" aria-labelledby="holiday-settings-title">
+      <div class="ops-section-head ops-section-head--compact">
+        <div>
+          <span>Calendario oficial</span>
+          <h2 id="holiday-settings-title">Festivos nacionales</h2>
+        </div>
+        {% if latest_holiday_run %}
+          <span class="settings-state{% if latest_holiday_run.status == 'failed' %} settings-state--danger{% endif %}">
+            {{ latest_holiday_run.get_status_display }}
+          </span>
+        {% else %}
+          <span class="settings-state">Sin actualizar</span>
+        {% endif %}
+      </div>
+
+      <p class="settings-panel__intro">
+        AgendaSalon mantiene un único calendario nacional para todos los negocios.
+        Cada salón decide desde sus horarios si estas fechas cierran o no su agenda.
+      </p>
+
+      <div class="holiday-settings-layout">
+        <form class="holiday-sync-form" method="post" action="{% url 'platform_settings:superadmin_holiday_sync' %}" data-confirm-message="Se consultará el BOE y se reconciliará el calendario nacional del año indicado. Las citas existentes no se cancelarán ni se moverán. ¿Quieres continuar?">
+          {% csrf_token %}
+          <div class="field">
+            {{ holiday_sync_form.year.label_tag }}
+            {{ holiday_sync_form.year }}
+            <p class="help-text">{{ holiday_sync_form.year.help_text }}</p>
+            {{ holiday_sync_form.year.errors }}
+          </div>
+          <button class="button" type="submit">Sincronizar con BOE</button>
+        </form>
+
+        <div class="holiday-sync-summary" aria-label="Resultado de la última actualización de {{ holiday_year }}">
+          {% if latest_holiday_run %}
+            <div class="holiday-sync-summary__header">
+              <div>
+                <span>Última actualización de {{ holiday_year }}</span>
+                <strong>{{ latest_holiday_run.started_at|date:"d/m/Y H:i" }}</strong>
+              </div>
+              {% if latest_holiday_run.source_url %}
+                <a href="{{ latest_holiday_run.source_url }}" target="_blank" rel="noopener noreferrer">
+                  {{ latest_holiday_run.official_reference|default:"Ver fuente oficial" }}
+                </a>
+              {% endif %}
+            </div>
+            <div class="holiday-sync-metrics">
+              <div><strong>{{ latest_holiday_run.items_loaded }}</strong><span>Cargados</span></div>
+              <div><strong>{{ latest_holiday_run.items_created }}</strong><span>Creados</span></div>
+              <div><strong>{{ latest_holiday_run.items_updated }}</strong><span>Actualizados</span></div>
+              <div><strong>{{ latest_holiday_run.items_removed }}</strong><span>Retirados</span></div>
+            </div>
+            {% if latest_holiday_run.error_detail %}
+              <div class="alert">{{ latest_holiday_run.error_detail }}</div>
+            {% elif latest_holiday_run.affected_appointments %}
+              <div class="soft-note">
+                {{ latest_holiday_run.affected_appointments }} cita{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %}
+                futura{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %} coincide{% if latest_holiday_run.affected_appointments != 1 %}n{% endif %}
+                con estas fechas en {{ latest_holiday_run.affected_businesses }} negocio{% if latest_holiday_run.affected_businesses != 1 %}s{% endif %}.
+                No se ha cancelado ni movido ninguna.
+              </div>
+            {% endif %}
+          {% else %}
+            <div class="empty">Todavía no hay una actualización registrada para {{ holiday_year }}.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if holiday_years %}
+        <nav class="holiday-year-nav" aria-label="Calendarios nacionales disponibles">
+          {% for year in holiday_years %}
+            <a href="?holiday_year={{ year }}#festivos-nacionales"{% if year == holiday_year %} class="is-active" aria-current="page"{% endif %}>{{ year }}</a>
+          {% endfor %}
+        </nav>
+      {% endif %}
+
+      <div class="holiday-calendar-list" role="list" aria-label="Festivos nacionales de {{ holiday_year }}">
+        {% for holiday in national_holidays %}
+          <article class="holiday-calendar-row" role="listitem">
+            <time datetime="{{ holiday.date|date:'Y-m-d' }}">
+              <strong>{{ holiday.date|date:"d" }}</strong>
+              <span>{{ holiday.date|date:"M" }}</span>
+            </time>
+            <div>
+              <strong>{{ holiday.name }}</strong>
+              <span>{{ holiday.get_scope_display }} · {{ holiday.source_name }}</span>
+            </div>
+          </article>
+        {% empty %}
+          <div class="empty">No hay festivos nacionales cargados para {{ holiday_year }}.</div>
+        {% endfor %}
+      </div>
+    </section>
   </section>
 {% endblock %}

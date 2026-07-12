@@ -164,6 +164,62 @@
             {% endfor %}
           </div>
         </section>
+
+        <section id="festivos-nacionales" class="schedule-panel holiday-business-panel" aria-labelledby="business-holiday-title">
+          <div class="ops-section-head ops-section-head--compact">
+            <div>
+              <span>Calendario oficial</span>
+              <h2 id="business-holiday-title">Festivos nacionales</h2>
+              <p>Estas fechas proceden del calendario común de AgendaSalon y no se mezclan con vacaciones, fiestas locales ni bloqueos propios.</p>
+            </div>
+            <span class="schedule-status{% if apply_national_holidays %} schedule-status--active{% endif %}">
+              {% if apply_national_holidays %}Aplicados{% else %}No aplicados{% endif %}
+            </span>
+          </div>
+
+          <div class="holiday-business-control">
+            <div>
+              {% if apply_national_holidays %}
+                <strong>La agenda se cierra en festivos nacionales</strong>
+                <p>No se ofrecerán nuevas horas en las fechas oficiales cargadas.</p>
+              {% else %}
+                <strong>La agenda permanece abierta en festivos nacionales</strong>
+                <p>Solo se cerrará si registras un cierre manual para esa fecha.</p>
+              {% endif %}
+            </div>
+            <form method="post" action="{% url 'booking:professional_national_holidays_update' %}" data-confirm-message="Vas a cambiar cómo afectan los festivos nacionales a las nuevas horas disponibles. Las citas existentes no se cancelarán ni se moverán. ¿Quieres continuar?">
+              {% csrf_token %}
+              <input type="hidden" name="apply_national_holidays" value="{% if apply_national_holidays %}false{% else %}true{% endif %}">
+              <button class="button{% if apply_national_holidays %} button--secondary{% endif %}" type="submit">
+                {% if apply_national_holidays %}No aplicar{% else %}Aplicar festivos{% endif %}
+              </button>
+            </form>
+          </div>
+
+          {% if latest_holiday_sync %}
+            <p class="holiday-source-note">
+              Calendario actualizado el {{ latest_holiday_sync.finished_at|date:"d/m/Y H:i" }}
+              {% if latest_holiday_sync.official_reference %}· {{ latest_holiday_sync.official_reference }}{% endif %}
+            </p>
+          {% endif %}
+
+          <div class="holiday-business-list" role="list" aria-label="Próximos festivos nacionales">
+            {% for holiday in upcoming_national_holidays %}
+              <article role="listitem">
+                <time datetime="{{ holiday.date|date:'Y-m-d' }}">
+                  <strong>{{ holiday.date|date:"d" }}</strong>
+                  <span>{{ holiday.date|date:"M" }}</span>
+                </time>
+                <div>
+                  <strong>{{ holiday.name }}</strong>
+                  <span>{{ holiday.date|date:"l, j \d\e F \d\e Y" }}</span>
+                </div>
+              </article>
+            {% empty %}
+              <div class="empty">Todavía no hay próximos festivos nacionales cargados. La plataforma debe actualizar el calendario desde BOE.</div>
+            {% endfor %}
+          </div>
+        </section>
       </div>
 
       <aside class="schedule-side-stack" aria-label="Ajustes de capacidad">

@@ -18,6 +18,7 @@ class OfficialHoliday(models.Model):
     source_url = models.URLField("url fuente", blank=True)
     official_reference = models.CharField("referencia oficial", max_length=180, blank=True)
     loaded_at = models.DateTimeField("fecha de carga", auto_now_add=True)
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
 
     class Meta:
         verbose_name = "festivo oficial"
@@ -25,7 +26,7 @@ class OfficialHoliday(models.Model):
         ordering = ["date", "name"]
         constraints = [
             models.UniqueConstraint(
-                fields=["date", "name", "scope"],
+                fields=["date", "scope"],
                 name="unique_official_holiday",
             )
         ]
@@ -49,10 +50,17 @@ class HolidaySyncRun(models.Model):
     year = models.PositiveSmallIntegerField("año")
     source_name = models.CharField("fuente", max_length=160)
     source_url = models.URLField("url fuente", blank=True)
+    official_reference = models.CharField("referencia oficial", max_length=180, blank=True)
     status = models.CharField("estado", max_length=20, choices=Status.choices)
     started_at = models.DateTimeField("inicio")
     finished_at = models.DateTimeField("fin", null=True, blank=True)
     items_loaded = models.PositiveIntegerField("elementos cargados", default=0)
+    items_created = models.PositiveIntegerField("elementos creados", default=0)
+    items_updated = models.PositiveIntegerField("elementos actualizados", default=0)
+    items_removed = models.PositiveIntegerField("elementos retirados", default=0)
+    items_skipped = models.PositiveIntegerField("elementos conservados", default=0)
+    affected_appointments = models.PositiveIntegerField("citas afectadas", default=0)
+    affected_businesses = models.PositiveIntegerField("negocios afectados", default=0)
     error_detail = models.TextField("detalle de error", blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

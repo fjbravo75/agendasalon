@@ -335,6 +335,8 @@ class BusinessActivityEvent(models.Model):
         CLIENT_INVITATION_CREATED = "client_invitation_created", "Invitación de cliente creada"
         CLIENT_INVITATION_REVOKED = "client_invitation_revoked", "Invitación de cliente revocada"
         CLIENT_ACCESS_ACTIVATED = "client_access_activated", "Cuenta de cliente activada"
+        NATIONAL_HOLIDAYS_ENABLED = "national_holidays_enabled", "Festivos nacionales aplicados"
+        NATIONAL_HOLIDAYS_DISABLED = "national_holidays_disabled", "Festivos nacionales desactivados"
 
     business = models.ForeignKey(
         Business,

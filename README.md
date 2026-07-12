@@ -198,7 +198,8 @@ comando puede ejecutarse varias veces sin duplicar los registros principales.
 - `/profesional/citas/nueva/`: asistente de nueva cita.
 - `/profesional/citas/pendientes/`: revisión completa de citas pendientes de cierre.
 - `/profesional/servicios/`: catálogo profesional.
-- `/profesional/horarios/`: disponibilidad, cierres y líneas.
+- `/profesional/horarios/`: disponibilidad, cierres, líneas y aplicación del
+  calendario nacional sincronizado.
 - `/profesional/ajustes/`: modo del panel e imagen pública del negocio.
 - `/clientes/profesional/`: fichas de cliente.
 - `/superadmin/dashboard/`: estado general de AgendaSalon.
@@ -272,3 +273,18 @@ que deben cerrarse durante el despliegue están reunidos en
 La memoria técnica previa al despliegue, con capturas y diagramas basados en la
 aplicación real, está disponible en
 [`docs/memoria/Memoria_tecnica_AgendaSalon.docx`](docs/memoria/Memoria_tecnica_AgendaSalon.docx).
+
+## Calendario nacional BOE
+
+AgendaSalon mantiene un único catálogo de festivos nacionales para todos los
+negocios. El superadministrador puede sincronizar un año desde `Ajustes`, y cada
+negocio decide en `Horarios` si esas fechas cierran su agenda.
+
+La misma operación está disponible por consola:
+
+```bash
+python manage.py sync_national_holidays --year 2026
+```
+
+La sincronización registra la referencia oficial, reconcilia cambios sin
+duplicar fechas y avisa de citas futuras afectadas sin cancelarlas ni moverlas.
