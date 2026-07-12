@@ -17,6 +17,7 @@ from apps.booking.views import (
     professional_availability_toggle,
     professional_closure_edit,
     professional_closure_toggle,
+    professional_national_holidays_update,
     professional_schedule,
     professional_service_edit,
     professional_service_list,
@@ -47,6 +48,11 @@ urlpatterns = [
     path("servicios/<int:service_id>/", professional_service_edit, name="professional_service_edit"),
     path("servicios/<int:service_id>/estado/", professional_service_toggle, name="professional_service_toggle"),
     path("horarios/", professional_schedule, name="professional_schedule"),
+    path(
+        "horarios/festivos-nacionales/",
+        professional_national_holidays_update,
+        name="professional_national_holidays_update",
+    ),
     path("horarios/tramos/<int:rule_id>/", professional_availability_edit, name="professional_availability_edit"),
     path(
         "horarios/tramos/<int:rule_id>/estado/",

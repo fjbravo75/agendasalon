@@ -1674,6 +1674,88 @@ a {
   gap: 12px;
 }
 
+.holiday-business-panel {
+  background:
+    linear-gradient(135deg, rgba(217, 244, 237, 0.36), rgba(255, 253, 249, 0.94));
+}
+
+.holiday-business-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--color-surface-soft);
+}
+
+.holiday-business-control > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.holiday-business-control p,
+.holiday-source-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.holiday-business-list,
+.holiday-calendar-list {
+  display: grid;
+  gap: 8px;
+}
+
+.holiday-business-list article,
+.holiday-calendar-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--color-surface);
+}
+
+.holiday-business-list time,
+.holiday-calendar-row time {
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--color-line);
+  padding-right: 10px;
+  color: var(--color-accent-strong);
+}
+
+.holiday-business-list time strong,
+.holiday-calendar-row time strong {
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.holiday-business-list time span,
+.holiday-calendar-row time span,
+.holiday-business-list article > div span,
+.holiday-calendar-row > div span {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.holiday-business-list article > div,
+.holiday-calendar-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
 .clients-empty {
   min-height: 180px;
   display: grid;
@@ -5945,6 +6027,105 @@ a {
   gap: 10px;
 }
 
+.holiday-settings-panel {
+  margin-top: 20px;
+}
+
+.settings-state--danger {
+  color: var(--color-danger);
+  background: rgba(197, 75, 65, 0.1);
+}
+
+.holiday-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.38fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.holiday-sync-form,
+.holiday-sync-summary {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: var(--color-surface-soft);
+}
+
+.holiday-sync-form .button {
+  justify-self: start;
+}
+
+.holiday-sync-summary__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.holiday-sync-summary__header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.holiday-sync-summary__header span,
+.holiday-sync-metrics span {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.holiday-sync-summary__header a {
+  color: var(--color-accent-strong);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.holiday-sync-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.holiday-sync-metrics > div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: var(--color-surface);
+}
+
+.holiday-sync-metrics strong {
+  font-family: var(--font-display);
+  font-size: 24px;
+}
+
+.holiday-year-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.holiday-year-nav a {
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.holiday-year-nav a:hover,
+.holiday-year-nav a:focus-visible,
+.holiday-year-nav a.is-active {
+  border-color: var(--color-accent);
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+}
+
 .theme-dark .quick-client-disclosure,
 .theme-dark .decision-strip,
 .theme-dark .preview-band,
@@ -6072,6 +6253,7 @@ a {
 .theme-dark .schedule-metric,
 .theme-dark .schedule-panel,
 .theme-dark .schedule-form-panel,
+.theme-dark .holiday-business-panel,
 .theme-dark .appointment-metric,
 .theme-dark .appointment-panel,
 .theme-dark .appointment-action-card {
@@ -6103,6 +6285,12 @@ a {
 .theme-dark .availability-pill,
 .theme-dark .closure-row,
 .theme-dark .capacity-line-row,
+.theme-dark .holiday-business-control,
+.theme-dark .holiday-business-list article,
+.theme-dark .holiday-calendar-row,
+.theme-dark .holiday-sync-form,
+.theme-dark .holiday-sync-summary,
+.theme-dark .holiday-sync-metrics > div,
 .theme-dark .appointment-history-card,
 .theme-dark .appointment-service-item,
 .theme-dark .appointment-audit-list article {
@@ -6458,6 +6646,21 @@ a {
 
   .settings-image-layout {
     grid-template-columns: 1fr;
+  }
+
+  .holiday-settings-layout,
+  .holiday-sync-metrics,
+  .holiday-business-control {
+    grid-template-columns: 1fr;
+  }
+
+  .holiday-sync-summary__header {
+    display: grid;
+  }
+
+  .holiday-sync-form .button,
+  .holiday-business-control .button {
+    width: 100%;
   }
 
   .settings-panel {

@@ -1,15 +1,17 @@
 from functools import wraps
 
+import requests
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from apps.booking.models import Appointment
+from apps.booking.models import Appointment, BusinessCalendarSettings
 from apps.businesses.activity import record_business_activity
 from apps.businesses.forms import (
     BusinessForm,
@@ -29,6 +31,9 @@ from apps.businesses.services import (
     get_platform_login_image_url,
     get_primary_business_for_user,
 )
+from apps.holidays.forms import NationalHolidaySyncForm
+from apps.holidays.models import HolidaySyncRun, OfficialHoliday
+from apps.holidays.services import BoeSyncError, sync_boe_national_holidays
 
 
 ACTIVITY_FILTERS = (
@@ -107,6 +112,7 @@ def superadmin_business_create(request):
         if business_valid and professional_valid:
             with transaction.atomic():
                 business = business_form.save()
+                BusinessCalendarSettings.objects.create(business=business)
                 professional = professional_form.create_professional(business=business)
                 record_business_activity(
                     business=business,
@@ -394,6 +400,25 @@ def superadmin_platform_settings(request):
             messages.info(request, "No había cambios pendientes en la apariencia.")
         return redirect("platform_settings:superadmin_platform_settings")
 
+    latest_holiday_run = HolidaySyncRun.objects.first()
+    try:
+        holiday_year = int(request.GET.get("holiday_year", ""))
+    except (TypeError, ValueError):
+        holiday_year = latest_holiday_run.year if latest_holiday_run else timezone.localdate().year
+    if not 2000 <= holiday_year <= 2100:
+        holiday_year = timezone.localdate().year
+
+    national_holidays = OfficialHoliday.objects.filter(
+        year=holiday_year,
+        scope=OfficialHoliday.Scope.NATIONAL,
+    ).order_by("date", "name")
+    holiday_years = tuple(
+        OfficialHoliday.objects.filter(scope=OfficialHoliday.Scope.NATIONAL)
+        .order_by()
+        .values_list("year", flat=True)
+        .distinct()
+    )
+
     return render(
         request,
         "superadmin/settings.html",
@@ -404,7 +429,51 @@ def superadmin_platform_settings(request):
             "login_image_is_custom": platform_settings.login_images.filter(
                 is_selected=True
             ).exists(),
+            "holiday_sync_form": NationalHolidaySyncForm(initial={"year": holiday_year}),
+            "holiday_year": holiday_year,
+            "holiday_years": holiday_years,
+            "national_holidays": national_holidays,
+            "latest_holiday_run": HolidaySyncRun.objects.filter(year=holiday_year).first(),
         },
+    )
+
+
+@superadmin_required
+@require_POST
+def superadmin_holiday_sync(request):
+    form = NationalHolidaySyncForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Indica un año válido entre 2000 y 2100.")
+        return redirect("platform_settings:superadmin_platform_settings")
+
+    target_year = form.cleaned_data["year"]
+    try:
+        result = sync_boe_national_holidays(target_year, created_by=request.user)
+    except (requests.RequestException, BoeSyncError) as error:
+        messages.error(
+            request,
+            f"No se pudo sincronizar el calendario BOE de {target_year}: {error}",
+        )
+    else:
+        run = result.run
+        messages.success(
+            request,
+            (
+                f"Calendario BOE {target_year} sincronizado: {run.items_created} creados, "
+                f"{run.items_updated} actualizados y {run.items_removed} retirados."
+            ),
+        )
+        if run.affected_appointments:
+            messages.warning(
+                request,
+                (
+                    f"Hay {run.affected_appointments} cita(s) futura(s) en festivos dentro de "
+                    f"{run.affected_businesses} negocio(s). No se ha cancelado ni movido ninguna."
+                ),
+            )
+    return redirect(
+        f"{reverse('platform_settings:superadmin_platform_settings')}"
+        f"?holiday_year={target_year}#festivos-nacionales"
     )
 
 

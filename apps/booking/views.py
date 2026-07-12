@@ -13,6 +13,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.views.decorators.http import require_POST
 
 from apps.booking.forms import (
     AppointmentCancelForm,
@@ -24,7 +25,14 @@ from apps.booking.forms import (
     ServiceForm,
     WorkLineForm,
 )
-from apps.booking.models import Appointment, AvailabilityRule, BusinessClosure, Service, WorkLine
+from apps.booking.models import (
+    Appointment,
+    AvailabilityRule,
+    BusinessCalendarSettings,
+    BusinessClosure,
+    Service,
+    WorkLine,
+)
 from apps.booking.public_booking_drafts import (
     clear_public_booking_draft,
     get_public_booking_draft,
@@ -60,6 +68,7 @@ from apps.customers.services import (
     get_session_client_access,
 )
 from apps.customers.models import BusinessClient
+from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 
 
 WEEKDAY_LABELS = (
@@ -593,6 +602,55 @@ def professional_schedule(request):
         editing_work_line=None,
     )
     return render(request, "professional/schedule.html", context)
+
+
+@login_required
+@require_POST
+def professional_national_holidays_update(request):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+
+    requested_value = request.POST.get("apply_national_holidays")
+    if requested_value not in {"true", "false"}:
+        messages.error(request, "No se ha podido reconocer el ajuste de festivos nacionales.")
+        return redirect("booking:professional_schedule")
+
+    calendar_settings, _created = BusinessCalendarSettings.objects.get_or_create(
+        business=business
+    )
+    should_apply = requested_value == "true"
+    if calendar_settings.apply_national_holidays == should_apply:
+        messages.info(request, "La aplicación de festivos nacionales no tenía cambios pendientes.")
+    else:
+        calendar_settings.apply_national_holidays = should_apply
+        calendar_settings.save(update_fields=["apply_national_holidays"])
+        _record_configuration_activity(
+            request,
+            business,
+            (
+                BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_ENABLED
+                if should_apply
+                else BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_DISABLED
+            ),
+            (
+                "Los festivos nacionales pasan a cerrar la agenda."
+                if should_apply
+                else "Los festivos nacionales dejan de cerrar la agenda."
+            ),
+            calendar_settings,
+            "business_calendar_settings",
+            {"apply_national_holidays": should_apply},
+        )
+        messages.success(
+            request,
+            (
+                "La agenda respetará los festivos nacionales sincronizados."
+                if should_apply
+                else "La agenda permanecerá abierta en festivos nacionales salvo cierre manual."
+            ),
+        )
+    return redirect(f"{reverse('booking:professional_schedule')}#festivos-nacionales")
 
 
 @login_required
@@ -1190,6 +1248,15 @@ def _schedule_management_context(
     for closure in closures:
         closure.type_label = _closure_type_label(closure.closure_type)
     calendar_settings = getattr(business, "calendar_settings", None)
+    upcoming_national_holidays = tuple(
+        OfficialHoliday.objects.filter(
+            date__gte=today,
+            scope=OfficialHoliday.Scope.NATIONAL,
+        ).order_by("date", "name")[:5]
+    )
+    latest_holiday_sync = HolidaySyncRun.objects.filter(
+        status=HolidaySyncRun.Status.SUCCESS
+    ).first()
 
     return {
         "business": business,
@@ -1226,6 +1293,8 @@ def _schedule_management_context(
             if calendar_settings is not None
             else True
         ),
+        "upcoming_national_holidays": upcoming_national_holidays,
+        "latest_holiday_sync": latest_holiday_sync,
     }
 
 

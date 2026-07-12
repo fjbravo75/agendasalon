@@ -1,10 +1,13 @@
 from io import BytesIO
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
 from apps.businesses.models import (
@@ -13,6 +16,7 @@ from apps.businesses.models import (
     PlatformLoginImage,
     PlatformSettings,
 )
+from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 
 
 class PlatformSettingsTests(TestCase):
@@ -77,6 +81,57 @@ class PlatformSettingsTests(TestCase):
         self.assertContains(response, "Seleccionar imagen")
         self.assertContains(response, "Ningún archivo seleccionado")
         self.assertContains(response, 'aria-current="page"')
+        self.assertContains(response, "Festivos nacionales")
+        self.assertContains(response, "Sincronizar con BOE")
+
+    def test_holiday_panel_lists_catalog_and_last_run(self):
+        OfficialHoliday.objects.create(
+            date="2026-01-01",
+            name="Año Nuevo",
+            scope=OfficialHoliday.Scope.NATIONAL,
+            year=2026,
+            source_name="BOE - calendario laboral nacional",
+        )
+        HolidaySyncRun.objects.create(
+            year=2026,
+            source_name="BOE - calendario laboral nacional",
+            source_url="https://www.boe.es/diario_boe/txt.php?id=BOE-A-2025-21667",
+            official_reference="BOE-A-2025-21667",
+            status=HolidaySyncRun.Status.SUCCESS,
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            items_loaded=1,
+            items_created=1,
+        )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(f"{self.url}?holiday_year=2026")
+
+        self.assertContains(response, "Año Nuevo")
+        self.assertContains(response, "BOE-A-2025-21667")
+        self.assertContains(response, "Cargados")
+
+    @patch("apps.businesses.views.sync_boe_national_holidays")
+    def test_only_superadmin_can_trigger_holiday_sync(self, mocked_sync):
+        run = SimpleNamespace(
+            items_created=8,
+            items_updated=0,
+            items_removed=0,
+            affected_appointments=0,
+            affected_businesses=0,
+        )
+        mocked_sync.return_value = SimpleNamespace(run=run)
+        sync_url = reverse("platform_settings:superadmin_holiday_sync")
+
+        self.client.force_login(self.professional)
+        self.assertEqual(self.client.post(sync_url, {"year": 2026}).status_code, 403)
+
+        self.client.force_login(self.superadmin)
+        response = self.client.post(sync_url, {"year": 2026})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("holiday_year=2026", response["Location"])
+        mocked_sync.assert_called_once_with(2026, created_by=self.superadmin)
 
     def test_superadmin_can_change_theme_and_standard_login_image(self):
         self.client.force_login(self.superadmin)
