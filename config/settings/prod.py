@@ -4,7 +4,15 @@ Deployment is not active yet. These settings force secrets and hosts to come
 from the environment when the deployment phase is explicitly opened.
 """
 
+import os
+
+from django.core.exceptions import ImproperlyConfigured
+
 from .base import *  # noqa: F403
+from .base import (
+    ADMIN_CONTENT_SECURITY_POLICY as BASE_ADMIN_CONTENT_SECURITY_POLICY,
+)
+from .base import CONTENT_SECURITY_POLICY as BASE_CONTENT_SECURITY_POLICY
 from .database import postgres_database_config
 
 
@@ -32,8 +40,10 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
-CONTENT_SECURITY_POLICY += "; upgrade-insecure-requests"
-ADMIN_CONTENT_SECURITY_POLICY += "; upgrade-insecure-requests"
+CONTENT_SECURITY_POLICY = f"{BASE_CONTENT_SECURITY_POLICY}; upgrade-insecure-requests"
+ADMIN_CONTENT_SECURITY_POLICY = (
+    f"{BASE_ADMIN_CONTENT_SECURITY_POLICY}; upgrade-insecure-requests"
+)
 
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True

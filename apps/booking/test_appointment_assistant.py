@@ -59,6 +59,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, 'class="required-mark"', count=5)
         self.assertContains(response, "service-choice-list--scrollable")
         self.assertContains(response, 'data-service-count="6"')
+        self.assertContains(response, 'data-service-count="6" tabindex="0"')
         self.assertContains(response, "data-appointment-search")
         self.assertContains(response, "data-appointment-service", count=6)
         self.assertContains(response, 'data-duration="15"')
@@ -80,6 +81,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-service-count="5"')
         self.assertNotContains(response, "service-choice-list--scrollable")
+        self.assertNotContains(response, 'data-service-count="5" tabindex="0"')
 
     def test_missing_services_uses_a_compact_actionable_message(self):
         self.client.force_login(self.professional)
@@ -304,6 +306,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-service-count="6"')
         self.assertContains(response, "service-choice-list--scrollable")
+        self.assertContains(response, 'data-service-count="6" tabindex="0"')
         self.assertContains(response, 'type="checkbox"', count=6)
 
         service = self.business.services.filter(is_active=True).order_by("display_order", "pk").last()
@@ -316,6 +319,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, 'data-service-count="5"')
         self.assertContains(response, 'type="checkbox"', count=5)
         self.assertNotContains(response, "service-choice-list--scrollable")
+        self.assertNotContains(response, 'data-service-count="5" tabindex="0"')
 
     def test_public_booking_shows_optimized_options_without_internal_agenda(self):
         self._login_demo_client()
@@ -457,7 +461,11 @@ class AppointmentAssistantTests(TestCase):
         )
         self.assertEqual(public_event.actor_type, BusinessActivityEvent.ActorType.CUSTOMER)
         self.assertEqual(public_event.origin, BusinessActivityEvent.Origin.PUBLIC_WEB)
+        self.assertEqual(public_event.actor_label, "Cliente online")
         self.assertNotIn("María López", public_event.summary)
+        self.assertNotIn("requested_for", public_event.changes)
+        self.assertNotIn("requested_by", public_event.changes)
+        self.assertNotIn("María López", str(public_event.changes))
         self.assertNotIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
 
     def test_online_account_can_book_for_an_authorized_family_profile(self):

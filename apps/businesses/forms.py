@@ -341,7 +341,7 @@ class BusinessVisualSettingsForm(forms.ModelForm):
             try:
                 image_id = int(choice.split(":", 1)[1])
             except (TypeError, ValueError):
-                raise forms.ValidationError("Selecciona una imagen disponible.")
+                raise forms.ValidationError("Selecciona una imagen disponible.") from None
             if self.instance.public_images.filter(pk=image_id).exists():
                 return choice
         raise forms.ValidationError("Selecciona una imagen disponible.")
@@ -492,7 +492,7 @@ class PlatformVisualSettingsForm(forms.ModelForm):
             try:
                 image_id = int(choice.split(":", 1)[1])
             except (TypeError, ValueError):
-                raise forms.ValidationError("Selecciona una imagen disponible.")
+                raise forms.ValidationError("Selecciona una imagen disponible.") from None
             if self.instance.login_images.filter(pk=image_id).exists():
                 return choice
         raise forms.ValidationError("Selecciona una imagen disponible.")

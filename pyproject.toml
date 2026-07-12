@@ -1,0 +1,35 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [
+  ".git",
+  ".venv",
+  "node_modules",
+  "apps/*/migrations",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+branch = true
+source = ["apps", "config", "ops"]
+omit = [
+  "*/admin.py",
+  "*/apps.py",
+  "*/migrations/*",
+  "*/test_*.py",
+  "*/tests.py",
+  "config/asgi.py",
+  "config/wsgi.py",
+]
+
+[tool.coverage.report]
+fail_under = 82
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+]
