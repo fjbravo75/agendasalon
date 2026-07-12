@@ -94,6 +94,25 @@ class SeedDemoCommandTests(TestCase):
         self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.CANCELLED).exists())
         self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.COMPLETED).exists())
         self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.NO_SHOW).exists())
+        self.assertEqual(Appointment.objects.filter(business=barberia).count(), 3)
+        self.assertTrue(
+            Appointment.objects.filter(
+                business=barberia,
+                status=Appointment.Status.CONFIRMED,
+            ).exists()
+        )
+        self.assertTrue(
+            Appointment.objects.filter(
+                business=barberia,
+                status=Appointment.Status.COMPLETED,
+            ).exists()
+        )
+        self.assertTrue(
+            Appointment.objects.filter(
+                business=barberia,
+                status=Appointment.Status.CANCELLED,
+            ).exists()
+        )
 
         combined = Appointment.objects.get(
             business=business,
@@ -141,6 +160,22 @@ class SeedDemoCommandTests(TestCase):
         ]
         self.assertEqual(matching_names, ["Moldeador clásico"])
         self.assertEqual(Service.objects.filter(business=business).count(), 7)
+
+    def test_seed_demo_resets_operational_records_when_the_demo_week_changes(self):
+        call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
+        old_appointment_ids = set(Appointment.objects.values_list("id", flat=True))
+
+        call_command("seed_demo", base_date="2026-07-13", stdout=StringIO())
+
+        self.assertFalse(
+            Appointment.objects.filter(pk__in=old_appointment_ids).exists()
+        )
+        self.assertTrue(
+            Appointment.objects.filter(
+                business__slug="peluqueria-mari",
+                starts_at__date=date(2026, 7, 13),
+            ).exists()
+        )
 
     def _counts(self):
         User = get_user_model()
