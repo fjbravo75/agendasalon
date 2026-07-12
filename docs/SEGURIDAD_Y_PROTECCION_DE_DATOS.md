@@ -75,7 +75,7 @@ La aplicación separa cuatro superficies:
 | CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; pantalla de rechazo sin detalles internos | `config/settings/base.py`, plantillas y prueba CSRF real de activación | Aplicado y verificado |
 | XSS y contenido activo | Autoescape de plantillas, ausencia de inserciones HTML inseguras en el código de producto y CSP con scripts limitados al mismo origen | `apps/core/middleware.py`, `config/settings/base.py` | Aplicado y verificado |
 | Cabeceras de navegador | `Permissions-Policy`, CORP `same-origin`, bloqueo de marcos y objetos mediante CSP | middleware y pruebas de cabeceras | Aplicado y verificado |
-| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y 201 pruebas Django | Aplicado y verificado |
+| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y 240 pruebas Django | Aplicado y verificado |
 | Integridad de citas | Revalidación del hueco antes de guardar, transacciones atómicas y bloqueo de filas en transiciones concurrentes | `apps/booking/services.py`, `test_postgres_concurrency.py` | Aplicado y verificado |
 | Subida de imágenes | JPG, PNG o WebP; 5 MB y 16 millones de píxeles; orientación, reducción a 2400 px y recodificación WebP sin EXIF | `apps/businesses/images.py`, pruebas de ajustes | Aplicado y verificado |
 | Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
@@ -213,6 +213,10 @@ información operativa y no deben utilizarse para almacenar información sensibl
 El historial de actividad conserva trazabilidad de acciones sin guardar
 contraseñas, tokens en claro ni datos personales innecesarios. La actividad
 global del superadministrador no muestra nombres ni teléfonos de clientes.
+Las reservas públicas registran el actor genérico `Cliente online` y omiten del
+detalle de cambios los nombres de quien solicita o recibe la cita. La migración
+`businesses.0009` aplica la misma minimización a los eventos públicos ya
+existentes, sin alterar la ficha de cita que necesita el profesional.
 
 Estas medidas técnicas no sustituyen las obligaciones jurídicas de una
 explotación comercial. Antes de producción deben cerrarse política de
@@ -221,12 +225,14 @@ plazos definitivos de conservación y procedimiento de ejercicio de derechos.
 
 ## Evidencias reproducibles
 
-Los siguientes comandos se ejecutaron sobre el árbol limpio del código
-funcional el 11 de julio de 2026:
+Los siguientes comandos se ejecutaron sobre el código funcional el 12 de julio
+de 2026:
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py test
+.\.venv\Scripts\coverage.exe run manage.py test
+.\.venv\Scripts\coverage.exe report
 npm.cmd run check
+.\.venv\Scripts\ruff.exe check .
 .\.venv\Scripts\python.exe manage.py check
 .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
 .\.venv\Scripts\python.exe -m pip_audit
@@ -236,15 +242,18 @@ gitleaks detect --source . --no-banner --redact --exit-code 1
 
 | Comprobación | Resultado |
 | --- | --- |
-| Suite Django | 201 pruebas correctas; 1 omitida por requerir una característica exclusiva de PostgreSQL |
-| Suite frontend | 17 pruebas correctas |
+| Suite Django en SQLite | 240 pruebas correctas; 1 omitida por requerir PostgreSQL |
+| Suite Django en PostgreSQL 17 | 240 pruebas correctas, incluida concurrencia real |
+| Cobertura con ramas | 83 %; puerta mínima automatizada del 82 % |
+| Suite frontend | 21 pruebas correctas: 17 unitarias y 4 de componentes React |
 | Build Vite | Correcto; 19 módulos transformados |
 | `manage.py check` | Sin incidencias |
 | Migraciones | No se detectaron cambios pendientes |
 | `pip-audit` | Sin vulnerabilidades conocidas |
 | `npm audit` | 0 vulnerabilidades conocidas |
 | Gitleaks 8.30.1 | Historial Git completo y cambios preparados revisados; sin secretos detectados |
-| PostgreSQL 17 | 172 pruebas correctas en el ensayo previo, incluida concurrencia real |
+| PostgreSQL 17 | Suite completa de 240 pruebas correcta, incluida concurrencia real |
+| CI | GitHub Actions: Ruff, migraciones, cobertura, SQLite, PostgreSQL, frontend, auditorías y Gitleaks |
 | Copia y restauración | Restauración completa en base limpia con recuentos coincidentes |
 
 El chequeo de producción se ejecutó con valores locales temporales, sin

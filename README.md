@@ -27,7 +27,7 @@ disponibilidad, puntuación y revalidación.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 npm.cmd install
 npm.cmd run build
 .\.venv\Scripts\python.exe manage.py migrate
@@ -192,10 +192,13 @@ También existe una semilla de demostración reproducible:
 .\.venv\Scripts\python.exe manage.py seed_demo
 ```
 
-Por defecto crea la semana de demostración `2026-07-06`, `Peluquería Mari`,
-servicios, horarios, tres líneas, clientes, accesos cliente, citas, cierres, un
-festivo de demostración y un día sin hueco para una cita de 180 minutos. El
-comando puede ejecutarse varias veces sin duplicar los registros principales.
+Si no se indica fecha, sitúa la demostración en el lunes operativo actual o
+siguiente. Crea `Peluquería Mari` y `Barbería Norte` con servicios, horarios,
+clientes, accesos y citas de distintos estados; añade cierres, un festivo de
+demostración y un día sin hueco para una cita de 180 minutos. Cada ejecución
+reinicia las citas y notificaciones de ambos negocios demo para evitar datos
+caducados o acumulados. Para una fecha reproducible puede usarse
+`seed_demo --base-date 2026-07-13`.
 
 ## Rutas principales
 
@@ -233,15 +236,20 @@ Verificación actual:
 ```powershell
 .\.venv\Scripts\python.exe manage.py check
 .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
-.\.venv\Scripts\python.exe manage.py test
+.\.venv\Scripts\coverage.exe run manage.py test
+.\.venv\Scripts\coverage.exe report
 npm.cmd run check
+.\.venv\Scripts\ruff.exe check .
 ```
 
-La última verificación completa deja la batería en 236 pruebas Django y
-operativas, además de 17 pruebas frontend correctas. La compatibilidad con
-PostgreSQL 17 se verificó en el bloque de producción, incluida una prueba
-concurrente real. El build de producción, `pip-audit` y `npm audit` también se
-han verificado sin vulnerabilidades conocidas.
+La última verificación completa deja la batería en 240 pruebas Django y
+operativas, además de 21 pruebas frontend: 17 unitarias y 4 de componentes
+React. La cobertura con ramas es del 83 % y el umbral automatizado impide bajar
+del 82 %. Las 240 pruebas se ejecutaron también sobre PostgreSQL 17, incluida
+la concurrencia real. Ruff, el build de producción, `pip-audit`, `npm audit` y
+`pip check` finalizaron sin incidencias. GitHub Actions reproduce lint,
+cobertura, SQLite, PostgreSQL, frontend, auditorías y detección de secretos en
+cada `push` a `main` y en cada pull request.
 También se puede ejecutar por dominios:
 
 ```powershell

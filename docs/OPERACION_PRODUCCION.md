@@ -168,3 +168,10 @@ El 11 de julio de 2026 se ejecutó un ensayo local aislado con PostgreSQL 17:
 
 El ensayo valida el procedimiento técnico. Antes del despliegue falta elegir y
 probar el destino externo cifrado que conservará las copias programadas.
+
+Como comprobación posterior, el 12 de julio de 2026 se ejecutó la suite completa
+de 240 pruebas sobre PostgreSQL 17 en un contenedor aislado. Incluyó migraciones,
+la corrección histórica de minimización de trazas públicas, la concurrencia real
+de citas y el presupuesto de consultas del dashboard. El resultado fue
+correcto. Esta evidencia no sustituye la restauración ensayada el día anterior
+ni autoriza por sí sola un despliegue.
