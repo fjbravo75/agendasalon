@@ -10,7 +10,8 @@ perfil por defecto y detienen el arranque cuando falta alguna de estas variables
 
 - `DJANGO_SECRET_KEY`;
 - `DJANGO_ALLOWED_HOSTS`;
-- `DJANGO_DATABASE_URL`.
+- `DJANGO_DATABASE_URL`;
+- `AGENDA_BACKUP_HMAC_KEY`, secreto aleatorio independiente del destino de copias.
 
 Si existe un proxy inverso, sus direcciones deben declararse de forma explícita
 en `DJANGO_TRUSTED_PROXY_IPS`, separadas por comas. Solo entonces AgendaSalon
@@ -104,7 +105,7 @@ python manage.py prune_security_throttles --days 30
 
 ## Crear y verificar una copia
 
-Con `DJANGO_DATABASE_URL` disponible en el entorno y las herramientas cliente
+Con `DJANGO_DATABASE_URL` y `AGENDA_BACKUP_HMAC_KEY` disponibles en el entorno y las herramientas cliente
 de PostgreSQL instaladas:
 
 ```bash
@@ -120,7 +121,8 @@ Cada copia contiene:
 
 - `database.dump`, generado por `pg_dump` en formato personalizado;
 - `media.tar.gz`;
-- `manifest.json`, sin credenciales y con sumas SHA-256.
+- `manifest.json`, sin credenciales, con sumas SHA-256 y una autenticación
+  HMAC-SHA-256 anclada en una clave que no se almacena junto a la copia.
 
 La copia solo se considera válida si el comando de verificación termina
 correctamente y el conjunto se replica a un destino externo cifrado.

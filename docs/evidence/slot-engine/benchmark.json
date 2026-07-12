@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "method": {
+    "description": "Simulación online determinista con intervalos de 15 minutos y la función real de puntuación del motor.",
+    "baseline": "Primer hueco cronológico disponible.",
+    "optimized": "Mayor puntuación; desempate por hora más temprana.",
+    "limitations": [
+      "No modela cancelaciones, preferencias humanas ni distribución comercial real.",
+      "Mide la política de selección; las reglas de disponibilidad se prueban aparte en Django."
+    ]
+  },
+  "scenarios": [
+    {
+      "name": "huecos_exactos_despues",
+      "free_intervals": [
+        [
+          0,
+          180
+        ],
+        [
+          210,
+          255
+        ],
+        [
+          300,
+          360
+        ],
+        [
+          390,
+          540
+        ]
+      ],
+      "requests": [
+        45,
+        60,
+        30,
+        45,
+        60,
+        30,
+        90,
+        45
+      ]
+    },
+    {
+      "name": "jornada_fragmentada",
+      "free_intervals": [
+        [
+          0,
+          75
+        ],
+        [
+          105,
+          225
+        ],
+        [
+          255,
+          330
+        ],
+        [
+          360,
+          540
+        ]
+      ],
+      "requests": [
+        60,
+        45,
+        30,
+        75,
+        30,
+        60,
+        45,
+        30
+      ]
+    },
+    {
+      "name": "mezcla_servicios_largos",
+      "free_intervals": [
+        [
+          0,
+          150
+        ],
+        [
+          180,
+          285
+        ],
+        [
+          315,
+          540
+        ]
+      ],
+      "requests": [
+        90,
+        45,
+        60,
+        30,
+        90,
+        45,
+        60
+      ]
+    },
+    {
+      "name": "picos_y_rellenos",
+      "free_intervals": [
+        [
+          0,
+          60
+        ],
+        [
+          90,
+          270
+        ],
+        [
+          300,
+          345
+        ],
+        [
+          375,
+          540
+        ]
+      ],
+      "requests": [
+        45,
+        30,
+        60,
+        45,
+        75,
+        30,
+        60,
+        45
+      ]
+    }
+  ],
+  "results": [
+    {
+      "scenario": "huecos_exactos_despues",
+      "strategy": "first_available",
+      "accepted": 8,
+      "rejected": 0,
+      "occupied_minutes": 405,
+      "remaining_minutes": 30,
+      "small_fragment_minutes": 30,
+      "small_fragment_count": 2,
+      "remaining_intervals": 2
+    },
+    {
+      "scenario": "huecos_exactos_despues",
+      "strategy": "optimized",
+      "accepted": 8,
+      "rejected": 0,
+      "occupied_minutes": 405,
+      "remaining_minutes": 30,
+      "small_fragment_minutes": 0,
+      "small_fragment_count": 0,
+      "remaining_intervals": 1
+    },
+    {
+      "scenario": "jornada_fragmentada",
+      "strategy": "first_available",
+      "accepted": 8,
+      "rejected": 0,
+      "occupied_minutes": 375,
+      "remaining_minutes": 75,
+      "small_fragment_minutes": 30,
+      "small_fragment_count": 2,
+      "remaining_intervals": 3
+    },
+    {
+      "scenario": "jornada_fragmentada",
+      "strategy": "optimized",
+      "accepted": 8,
+      "rejected": 0,
+      "occupied_minutes": 375,
+      "remaining_minutes": 75,
+      "small_fragment_minutes": 0,
+      "small_fragment_count": 0,
+      "remaining_intervals": 1
+    },
+    {
+      "scenario": "mezcla_servicios_largos",
+      "strategy": "first_available",
+      "accepted": 7,
+      "rejected": 0,
+      "occupied_minutes": 420,
+      "remaining_minutes": 60,
+      "small_fragment_minutes": 30,
+      "small_fragment_count": 2,
+      "remaining_intervals": 3
+    },
+    {
+      "scenario": "mezcla_servicios_largos",
+      "strategy": "optimized",
+      "accepted": 7,
+      "rejected": 0,
+      "occupied_minutes": 420,
+      "remaining_minutes": 60,
+      "small_fragment_minutes": 0,
+      "small_fragment_count": 0,
+      "remaining_intervals": 2
+    },
+    {
+      "scenario": "picos_y_rellenos",
+      "strategy": "first_available",
+      "accepted": 8,
+      "rejected": 0,
+      "occupied_minutes": 390,
+      "remaining_minutes": 60,
+      "small_fragment_minutes": 30,
+      "small_fragment_count": 2,
+      "remaining_intervals": 3
+    },
+    {
+      "scenario": "picos_y_rellenos",
+      "strategy": "optimized",
+      "accepted": 8,
+      "rejected": 0,
+      "occupied_minutes": 390,
+      "remaining_minutes": 60,
+      "small_fragment_minutes": 0,
+      "small_fragment_count": 0,
+      "remaining_intervals": 1
+    }
+  ],
+  "totals": {
+    "first_available": {
+      "accepted": 31,
+      "rejected": 0,
+      "occupied_minutes": 1590,
+      "small_fragment_minutes": 120,
+      "small_fragment_count": 8,
+      "remaining_intervals": 11
+    },
+    "optimized": {
+      "accepted": 31,
+      "rejected": 0,
+      "occupied_minutes": 1590,
+      "small_fragment_minutes": 0,
+      "small_fragment_count": 0,
+      "remaining_intervals": 5
+    }
+  }
+}

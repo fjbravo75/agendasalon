@@ -75,7 +75,7 @@ La aplicación separa cuatro superficies:
 | CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; pantalla de rechazo sin detalles internos | `config/settings/base.py`, plantillas y prueba CSRF real de activación | Aplicado y verificado |
 | XSS y contenido activo | Autoescape de plantillas, ausencia de inserciones HTML inseguras en el código de producto y CSP con scripts limitados al mismo origen | `apps/core/middleware.py`, `config/settings/base.py` | Aplicado y verificado |
 | Cabeceras de navegador | `Permissions-Policy`, CORP `same-origin`, bloqueo de marcos y objetos mediante CSP | middleware y pruebas de cabeceras | Aplicado y verificado |
-| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y 240 pruebas Django | Aplicado y verificado |
+| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y 243 pruebas Django | Aplicado y verificado |
 | Integridad de citas | Revalidación del hueco antes de guardar, transacciones atómicas y bloqueo de filas en transiciones concurrentes | `apps/booking/services.py`, `test_postgres_concurrency.py` | Aplicado y verificado |
 | Subida de imágenes | JPG, PNG o WebP; 5 MB y 16 millones de píxeles; orientación, reducción a 2400 px y recodificación WebP sin EXIF | `apps/businesses/images.py`, pruebas de ajustes | Aplicado y verificado |
 | Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
@@ -83,7 +83,7 @@ La aplicación separa cuatro superficies:
 | Base de datos | SQLite solo para desarrollo; PostgreSQL obligatorio en producción, conexión persistente con comprobación de salud | `config/settings/database.py`, `config/settings/prod.py` | Aplicado y verificado |
 | HTTPS | Redirección a HTTPS, cookies seguras, orígenes CSRF configurables y HSTS inicial | `config/settings/prod.py` | Preparado para despliegue |
 | Dependencias | Versiones fijadas; auditorías Python y Node sin vulnerabilidades conocidas en la fecha de revisión | `requirements.txt`, `package-lock.json`, comandos de evidencia | Aplicado y verificado |
-| Copias | Copia de PostgreSQL y `media`, manifiesto SHA-256, verificación previa y restauración protegida | `ops/backup_restore.py`, `ops/test_backup_restore.py` | Aplicado y verificado localmente |
+| Copias | Copia de PostgreSQL y `media`, hashes SHA-256 y manifiesto autenticado con HMAC mediante clave separada; verificación previa y restauración protegida | `ops/backup_restore.py`, `ops/test_backup_restore.py` | Aplicado y verificado localmente |
 | Destino externo de copias | Retención definida y requisito de almacenamiento cifrado fuera del servidor | `docs/OPERACION_PRODUCCION.md` | Pendiente de operación |
 
 ## Autenticación, sesiones y contraseñas
@@ -192,8 +192,9 @@ redirecciones correctas y estabilidad de todos los subdominios.
 ## Copias de seguridad y recuperación
 
 La herramienta `ops/backup_restore.py` crea un volcado PostgreSQL, un archivo de
-medios y un manifiesto con sumas SHA-256. La restauración verifica primero la
-integridad, exige una confirmación explícita y no sobrescribe medios existentes
+medios y un manifiesto con sumas SHA-256 autenticado con una clave HMAC separada
+del almacenamiento. La restauración verifica primero integridad y autenticidad,
+exige una confirmación explícita y no sobrescribe medios existentes
 silenciosamente.
 
 El ensayo realizado en PostgreSQL 17 restauró una copia en una base limpia y
@@ -242,9 +243,9 @@ gitleaks detect --source . --no-banner --redact --exit-code 1
 
 | Comprobación | Resultado |
 | --- | --- |
-| Suite Django en SQLite | 240 pruebas correctas; 1 omitida por requerir PostgreSQL |
-| Suite Django en PostgreSQL 17 | 240 pruebas correctas, incluida concurrencia real |
-| Cobertura con ramas | 83 %; puerta mínima automatizada del 82 % |
+| Suite Django en SQLite | 243 pruebas correctas; 1 omitida por requerir PostgreSQL |
+| Suite Django en PostgreSQL 17 | 243 pruebas correctas, incluida concurrencia real |
+| Cobertura con ramas | 82 %; puerta mínima automatizada del 82 % |
 | Suite frontend | 21 pruebas correctas: 17 unitarias y 4 de componentes React |
 | Build Vite | Correcto; 19 módulos transformados |
 | `manage.py check` | Sin incidencias |
@@ -252,7 +253,7 @@ gitleaks detect --source . --no-banner --redact --exit-code 1
 | `pip-audit` | Sin vulnerabilidades conocidas |
 | `npm audit` | 0 vulnerabilidades conocidas |
 | Gitleaks 8.30.1 | Historial Git completo y cambios preparados revisados; sin secretos detectados |
-| PostgreSQL 17 | Suite completa de 240 pruebas correcta, incluida concurrencia real |
+| PostgreSQL 17 | Suite completa de 243 pruebas correcta, incluida concurrencia real |
 | CI | GitHub Actions: Ruff, migraciones, cobertura, SQLite, PostgreSQL, frontend, auditorías y Gitleaks |
 | Copia y restauración | Restauración completa en base limpia con recuentos coincidentes |
 

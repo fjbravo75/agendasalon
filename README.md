@@ -1,5 +1,7 @@
 # AgendaSalon
 
+[![CI](https://github.com/fjbravo75/agendasalon/actions/workflows/ci.yml/badge.svg)](https://github.com/fjbravo75/agendasalon/actions/workflows/ci.yml)
+
 AgendaSalon es el entregable técnico del Proyecto Fin de Máster: un SaaS con
 Django como núcleo para peluquerías, barberías y pequeños salones de belleza.
 
@@ -21,6 +23,12 @@ disponibilidad, puntuación y revalidación.
   mando del superadministrador
 - Pillow 12 para validar y procesar las imágenes públicas subidas por los negocios
 - Argon2id para el hashing preferente de contraseñas
+
+## Evidencias destacadas
+
+- [Benchmark reproducible del motor de huecos](docs/evidence/slot-engine/README.md): en cuatro escenarios deterministas, mantiene 31 solicitudes aceptadas y reduce de 120 a 0 los minutos atrapados en restos menores de 30 minutos.
+- [Índice de evidencias para evaluación](docs/EVIDENCIAS_CANDIDATA_10.md): seguridad, escalabilidad, límites y pruebas que todavía necesitan despliegue o participantes reales.
+- [Protocolo de validación con profesionales](docs/validation-professionals/README.md): preparado, pero expresamente marcado como pendiente hasta realizar sesiones reales.
 
 ## Puesta en marcha local
 
@@ -242,11 +250,11 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La última verificación completa deja la batería en 240 pruebas Django y
+La última verificación completa deja la batería en 243 pruebas Django y
 operativas, además de 21 pruebas frontend: 17 unitarias y 4 de componentes
-React. La cobertura con ramas es del 83 % y el umbral automatizado impide bajar
-del 82 %. Las 240 pruebas se ejecutaron también sobre PostgreSQL 17, incluida
-la concurrencia real. Ruff, el build de producción, `pip-audit`, `npm audit` y
+React. La cobertura con ramas es del 82 % y el umbral automatizado impide bajar
+de ese valor. Las 243 pruebas se ejecutaron también sobre PostgreSQL 17,
+incluida la concurrencia real. Ruff, el build de producción, `pip-audit`, `npm audit` y
 `pip check` finalizaron sin incidencias. GitHub Actions reproduce lint,
 cobertura, SQLite, PostgreSQL, frontend, auditorías y detección de secretos en
 cada `push` a `main` y en cada pull request.
@@ -283,7 +291,8 @@ restauración está documentado en
 [`docs/OPERACION_PRODUCCION.md`](docs/OPERACION_PRODUCCION.md). La herramienta
 operativa no acepta la URL de base de datos por línea de comandos: la lee de la
 variable `DJANGO_DATABASE_URL` para no exponer credenciales en la lista de
-procesos.
+procesos. El manifiesto de cada copia se autentica además con HMAC-SHA-256 usando
+`AGENDA_BACKUP_HMAC_KEY`, una clave independiente que no viaja con los artefactos.
 
 La matriz académica de controles, las evidencias reproducibles y los riesgos
 que deben cerrarse durante el despliegue están reunidos en
