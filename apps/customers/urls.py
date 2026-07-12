@@ -12,6 +12,8 @@ from apps.customers.views import (
     professional_client_detail,
     professional_client_edit,
     professional_client_list,
+    professional_client_lookup,
+    professional_client_search,
     professional_client_toggle,
     professional_contact_create,
     professional_contact_edit,
@@ -24,6 +26,11 @@ app_name = "customers"
 
 urlpatterns = [
     path("profesional/", professional_client_list, name="professional_client_list"),
+    path(
+        "profesional/buscar-clientes/",
+        professional_client_lookup,
+        name="professional_client_lookup",
+    ),
     path("profesional/<int:client_id>/", professional_client_detail, name="professional_client_detail"),
     path("profesional/<int:client_id>/editar/", professional_client_edit, name="professional_client_edit"),
     path("profesional/<int:client_id>/estado/", professional_client_toggle, name="professional_client_toggle"),
@@ -46,6 +53,11 @@ urlpatterns = [
         "profesional/<int:client_id>/contactos/nuevo/",
         professional_contact_create,
         name="professional_contact_create",
+    ),
+    path(
+        "profesional/<int:client_id>/contactos/buscar-clientes/",
+        professional_client_search,
+        name="professional_client_search",
     ),
     path(
         "profesional/<int:client_id>/contactos/<int:contact_id>/editar/",

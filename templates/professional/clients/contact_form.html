@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load core_extras %}
+{% load static core_extras %}
 
 {% block title %}{% if editing_contact %}Editar autorización{% else %}Nueva persona autorizada{% endif %} - AgendaSalon{% endblock %}
 
@@ -20,25 +20,82 @@
       <section class="client-form-panel">
         <div class="ops-section-head ops-section-head--compact">
           <div>
-            <span>{% if editing_contact %}Actualizar datos{% else %}Añadir a la ficha{% endif %}</span>
-            <h2>{% if editing_contact %}{{ editing_contact.full_name }}{% else %}Datos de la persona{% endif %}</h2>
+            <span>{% if editing_contact %}Actualizar autorización{% else %}Añadir a la ficha{% endif %}</span>
+            <h2>{% if editing_contact %}{{ editing_contact.full_name }}{% else %}¿Quién puede pedir citas?{% endif %}</h2>
           </div>
         </div>
 
-        <form class="client-edit-form" method="post">
+        <form class="client-edit-form authorized-person-form" method="post" data-authorized-person-form data-client-search-url="{{ client_search_url }}">
           {% csrf_token %}
           {% if contact_form.non_field_errors %}<div class="alert">{{ contact_form.non_field_errors }}</div>{% endif %}
-          <div class="client-form-grid">
-            <div class="field">
-              {{ contact_form.full_name.label_tag }}
-              {{ contact_form.full_name }}
-              {{ contact_form.full_name.errors }}
+          {{ contact_form.linked_business_client }}
+
+          <fieldset class="authorized-person-type">
+            <legend>¿Esta persona ya es cliente del negocio?</legend>
+            {% for option in contact_form.contact_type %}
+              <label class="authorized-person-type__option">
+                {{ option.tag }}
+                <span>
+                  <strong>{{ option.choice_label }}</strong>
+                  <small>{% if option.data.value == "registered" %}Ya tiene una ficha en este negocio.{% else %}No está registrada como cliente.{% endif %}</small>
+                </span>
+              </label>
+            {% endfor %}
+          </fieldset>
+          {{ contact_form.contact_type.errors }}
+
+          <section class="authorized-person-source" data-contact-source="registered">
+            <div class="field authorized-client-search">
+              {{ contact_form.client_search.label_tag }}
+              <div class="authorized-client-search__control">
+                {{ contact_form.client_search }}
+              </div>
+              <small class="field-help">Escribe al menos dos letras o varios números. Usa las flechas y Enter para elegir.</small>
+              {{ contact_form.client_search.errors }}
+              <div id="authorized-client-results" class="authorized-client-results" role="listbox" aria-label="Clientes encontrados" data-client-search-results hidden></div>
             </div>
-            <div class="field">
-              {{ contact_form.phone.label_tag }}
-              {{ contact_form.phone }}
-              {{ contact_form.phone.errors }}
+
+            <div class="authorized-client-selection{% if not selected_linked_client %} is-empty{% endif %}" data-client-selection data-online-active="{% if selected_access and selected_access.is_active %}true{% else %}false{% endif %}">
+              <div>
+                <span>Persona seleccionada</span>
+                <strong data-selected-name>{% if selected_linked_client %}{{ selected_linked_client.full_name }}{% else %}Ninguna todavía{% endif %}</strong>
+                <small data-selected-account-status>
+                  {% if selected_access and selected_access.is_active %}Cuenta online activa{% elif selected_access %}Cuenta online pausada{% elif selected_linked_client %}Sin cuenta online{% else %}Elige un resultado para continuar{% endif %}
+                </small>
+              </div>
+              <div class="field">
+                <label for="authorized-selected-phone">Teléfono sincronizado</label>
+                <input id="authorized-selected-phone" type="text" value="{% if selected_linked_client %}{{ selected_linked_client.phone|format_phone }}{% endif %}" placeholder="Se completará al elegir" readonly data-selected-phone>
+              </div>
             </div>
+
+            <label class="client-primary-check authorized-online-check">
+              {{ contact_form.allow_online_booking }}
+              <span>
+                <strong>También puede reservar online</strong>
+                <small data-online-help>{% if selected_access and selected_access.is_active %}Podrá elegir esta ficha desde su cuenta.{% else %}Disponible cuando la persona tenga una cuenta online activa.{% endif %}</small>
+              </span>
+            </label>
+            {{ contact_form.allow_online_booking.errors }}
+          </section>
+
+          <section class="authorized-person-source" data-contact-source="external">
+            <div class="client-form-grid">
+              <div class="field">
+                {{ contact_form.full_name.label_tag }}
+                {{ contact_form.full_name }}
+                {{ contact_form.full_name.errors }}
+              </div>
+              <div class="field">
+                {{ contact_form.phone.label_tag }}
+                {{ contact_form.phone }}
+                {{ contact_form.phone.errors }}
+              </div>
+            </div>
+            <p class="soft-note">No crea una ficha ni una cuenta online. Úsalo solo si esta persona no es cliente del negocio.</p>
+          </section>
+
+          <div class="client-form-grid authorized-person-details">
             <div class="field field--full">
               {{ contact_form.relationship_label.label_tag }}
               {{ contact_form.relationship_label }}
@@ -69,19 +126,23 @@
         </div>
         <div class="client-guidance-list">
           <div>
-            <strong>Qué permite</strong>
-            <p>Esta persona podrá pedir una cita en nombre del cliente cuando contacte con el salón.</p>
+            <strong>Cliente registrado</strong>
+            <p>AgendaSalon mantiene el nombre y el teléfono sincronizados con su ficha real.</p>
           </div>
           <div>
-            <strong>Qué no permite</strong>
-            <p>No crea una cuenta online ni da acceso al historial del cliente.</p>
+            <strong>Reserva online</strong>
+            <p>Solo se concede de forma expresa y si la cuenta de esa persona está activa.</p>
           </div>
           <div>
-            <strong>Un principal</strong>
-            <p>Al marcar este contacto como principal, sustituirá al principal anterior.</p>
+            <strong>Contacto externo</strong>
+            <p>Puede pedir citas por teléfono o en el local, pero no reservar online.</p>
           </div>
         </div>
       </aside>
     </div>
   </section>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/authorized_contact_autocomplete.js' %}?v=20260712-linked-client-v1" defer></script>
 {% endblock %}

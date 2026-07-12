@@ -77,17 +77,23 @@ class BusinessClient(models.Model):
         self.full_name_normalized = normalize_search_text(self.full_name)
         self.phone_normalized = normalize_phone(self.phone) if self.phone.strip() else ""
         super().save(*args, **kwargs)
+        self.authorizations_as_contact.update(
+            full_name=self.full_name,
+            phone=self.phone,
+            phone_normalized=self.phone_normalized,
+        )
 
     def __str__(self):
         return f"{self.full_name} ({self.business})"
 
 
 class BusinessClientAuthorizedContact(models.Model):
-    """Authorized contact attached to a customer file, without digital access."""
+    """Person authorized to request appointments for another customer file."""
 
     class Relationship(models.TextChoices):
         MOTHER = "madre", "Madre"
         FATHER = "padre", "Padre"
+        SON = "hijo", "Hijo"
         DAUGHTER = "hija", "Hija"
         FAMILY = "familiar", "Familiar"
         CAREGIVER = "cuidador", "Cuidador"
@@ -105,6 +111,14 @@ class BusinessClientAuthorizedContact(models.Model):
         on_delete=models.CASCADE,
         related_name="authorized_contacts",
         verbose_name="ficha de cliente",
+    )
+    linked_business_client = models.ForeignKey(
+        BusinessClient,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="authorizations_as_contact",
+        verbose_name="ficha de la persona autorizada",
     )
     full_name = models.CharField("nombre completo", max_length=160)
     phone = models.CharField("teléfono", max_length=32)
@@ -134,11 +148,20 @@ class BusinessClientAuthorizedContact(models.Model):
                 fields=["business_client"],
                 condition=models.Q(is_primary_contact=True, is_active=True),
                 name="unique_primary_active_contact_per_client",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["business_client", "linked_business_client"],
+                condition=models.Q(linked_business_client__isnull=False),
+                name="unique_linked_authorized_client_per_file",
+            ),
         ]
         indexes = [
             models.Index(fields=["business", "phone_normalized"], name="contact_business_phone_idx"),
             models.Index(fields=["business_client", "is_active"], name="contact_client_active_idx"),
+            models.Index(
+                fields=["linked_business_client", "is_active"],
+                name="contact_linked_client_idx",
+            ),
         ]
 
     def clean(self):
@@ -148,6 +171,21 @@ class BusinessClientAuthorizedContact(models.Model):
                 raise ValidationError(
                     {"business": "El contacto debe pertenecer al mismo negocio que la ficha."}
                 )
+        if self.linked_business_client_id:
+            if self.linked_business_client_id == self.business_client_id:
+                raise ValidationError(
+                    {"linked_business_client": "Una ficha no puede autorizarse a sí misma."}
+                )
+            if self.linked_business_client.business_id != self.business_id:
+                raise ValidationError(
+                    {"linked_business_client": "La persona autorizada debe pertenecer al mismo negocio."}
+                )
+            if not self.linked_business_client.is_active:
+                raise ValidationError(
+                    {"linked_business_client": "La ficha de la persona autorizada está pausada."}
+                )
+            self.full_name = self.linked_business_client.full_name
+            self.phone = self.linked_business_client.phone
         if not self.full_name.strip():
             raise ValidationError({"full_name": "El nombre completo es obligatorio."})
         if not self.phone.strip():
@@ -244,6 +282,7 @@ class BusinessClientAccessGrant(models.Model):
         SELF = "titular", "Es su propia ficha"
         MOTHER = "madre", "Madre"
         FATHER = "padre", "Padre"
+        SON = "hijo", "Hijo"
         DAUGHTER = "hija", "Hija"
         FAMILY = "familiar", "Familiar"
         CAREGIVER = "cuidador", "Cuidador"

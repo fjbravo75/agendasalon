@@ -409,6 +409,15 @@ def set_professional_client_active(*, client, is_active, now=None):
     client.is_active = is_active
     client.full_clean()
     client.save(update_fields=["is_active", "full_name_normalized", "phone_normalized", "updated_at"])
+    if not is_active:
+        linked_contacts = BusinessClientAuthorizedContact.objects.filter(
+            linked_business_client=client,
+            is_active=True,
+        )
+        BusinessClientAccessGrant.objects.filter(
+            authorized_contact__in=linked_contacts,
+        ).update(is_active=False)
+        linked_contacts.update(is_active=False, is_primary_contact=False)
     return client
 
 
@@ -417,17 +426,18 @@ def save_authorized_contact(
     *,
     business,
     business_client,
+    linked_business_client,
     full_name,
     phone,
     relationship_label,
     is_primary_contact,
     notes="",
+    allow_online_booking=False,
     contact=None,
 ):
     if business_client.business_id != business.id:
         raise ValidationError("La ficha no pertenece a este negocio.")
 
-    previous_phone_normalized = contact.phone_normalized if contact is not None else ""
     if contact is None:
         contact = BusinessClientAuthorizedContact(
             business=business,
@@ -444,18 +454,38 @@ def save_authorized_contact(
             is_primary_contact=True,
         ).exclude(pk=contact.pk).update(is_primary_contact=False)
 
-    contact.full_name = full_name.strip()
-    contact.phone = phone
+    contact.linked_business_client = linked_business_client
+    contact.full_name = (
+        linked_business_client.full_name if linked_business_client else full_name.strip()
+    )
+    contact.phone = linked_business_client.phone if linked_business_client else phone
     contact.relationship_label = relationship_label
     contact.is_primary_contact = is_primary_contact
     contact.notes = (notes or "").strip()
     contact.full_clean()
     contact.save()
     linked_grants = BusinessClientAccessGrant.objects.filter(authorized_contact=contact)
-    if previous_phone_normalized and previous_phone_normalized != contact.phone_normalized:
-        linked_grants.update(is_active=False)
-    else:
-        linked_grants.update(relationship_label=contact.relationship_label)
+    linked_grants.update(is_active=False)
+    if linked_business_client and allow_online_booking:
+        access = BusinessClientAccess.objects.filter(
+            business=business,
+            business_client=linked_business_client,
+            is_active=True,
+        ).first()
+        if access is None:
+            raise ValidationError("La persona seleccionada no tiene una cuenta online activa.")
+        grant, _ = BusinessClientAccessGrant.objects.update_or_create(
+            access=access,
+            business_client=business_client,
+            defaults={
+                "business": business,
+                "authorized_contact": contact,
+                "relationship_label": contact.relationship_label,
+                "is_active": True,
+            },
+        )
+        grant.full_clean()
+        grant.save()
     return contact
 
 
@@ -487,9 +517,14 @@ def toggle_contact_online_booking(*, contact):
     if not contact.is_active:
         raise ValidationError("Reactiva primero a esta persona autorizada.")
 
+    if contact.linked_business_client_id is None:
+        raise ValidationError(
+            "Vincula primero esta persona con una ficha de cliente registrada."
+        )
+
     access = BusinessClientAccess.objects.filter(
         business=contact.business,
-        phone_normalized=contact.phone_normalized,
+        business_client=contact.linked_business_client,
         is_active=True,
         business_client__is_active=True,
     ).first()

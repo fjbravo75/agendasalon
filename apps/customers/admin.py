@@ -30,9 +30,11 @@ class BusinessClientAccessGrantAdmin(admin.ModelAdmin):
 
 class BusinessClientAuthorizedContactInline(admin.TabularInline):
     model = BusinessClientAuthorizedContact
+    fk_name = "business_client"
     extra = 0
     fields = (
         "full_name",
+        "linked_business_client",
         "phone",
         "relationship_label",
         "is_primary_contact",
@@ -93,7 +95,7 @@ class BusinessClientAuthorizedContactAdmin(admin.ModelAdmin):
         "business_client__full_name",
         "business__commercial_name",
     )
-    autocomplete_fields = ("business", "business_client")
+    autocomplete_fields = ("business", "business_client", "linked_business_client")
     readonly_fields = ("phone_normalized", "created_at", "updated_at")
 
 

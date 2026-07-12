@@ -210,6 +210,9 @@
                 {% endif %}
               </div>
               <span>{{ contact.get_relationship_label_display }} · {{ contact.phone|format_phone }}</span>
+              {% if contact.linked_business_client_id %}
+                <small>Cliente registrado en {{ business.commercial_name }}</small>
+              {% endif %}
               {% if contact.is_primary_contact %}
                 <small>Contacto principal</small>
               {% endif %}
@@ -222,6 +225,9 @@
               {% endif %}
               {% if contact.notes %}<p>{{ contact.notes }}</p>{% endif %}
               <div class="authorized-contact__actions">
+                {% if contact.linked_business_client_id %}
+                  <a class="appointment-inline-link" href="{% url 'customers:professional_client_detail' contact.linked_business_client_id %}">Ver su ficha</a>
+                {% endif %}
                 <a class="appointment-inline-link" href="{% url 'customers:professional_contact_edit' business_client.id contact.id %}">Editar</a>
                 {% if contact.online_access and contact.online_access.is_active and contact.is_active %}
                   <form method="post" action="{% url 'customers:professional_contact_online_toggle' business_client.id contact.id %}" data-confirm-message="Vas a cambiar si esta persona puede reservar online para esta ficha. ¿Quieres continuar?">
