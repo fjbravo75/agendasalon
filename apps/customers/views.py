@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.db.models import Count, Max, Min, Q
 from django.forms import ValidationError as FormValidationError
 from django.http import JsonResponse
@@ -117,6 +118,7 @@ def professional_client_list(request):
         )
         .order_by("full_name", "pk")
     )
+    clients_page = Paginator(clients, 6).get_page(request.GET.get("page"))
 
     selected_authorized_client = None
     selected_authorized_client_id = quick_form["authorized_business_client"].value()
@@ -137,14 +139,15 @@ def professional_client_list(request):
         "professional/clients/list.html",
         {
             "business": business,
-            "clients": clients,
+            "clients": clients_page,
+            "clients_page": clients_page,
             "search": search,
             "status_filter": status_filter,
             "quick_form": quick_form,
             "client_search_url": reverse("customers:professional_client_lookup"),
             "selected_authorized_client": selected_authorized_client,
             "selected_authorized_access": selected_authorized_access,
-            "clients_count": clients.count(),
+            "clients_count": clients_page.paginator.count,
             "active_clients_count": BusinessClient.objects.filter(
                 business=business,
                 is_active=True,

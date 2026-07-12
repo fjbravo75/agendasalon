@@ -85,7 +85,6 @@
           <h2 id="business-activity-title">Actividad reciente</h2>
           <p>Acciones que han cambiado citas, configuración, accesos o estado de la plataforma.</p>
         </div>
-        <a class="appointment-inline-link" href="{% url 'businesses:superadmin_business_activity' business.id %}">Ver historial completo</a>
       </div>
 
       <div class="business-activity-summary" aria-label="Origen de las citas">
@@ -119,8 +118,8 @@
         {% endfor %}
       </div>
 
-      {% if activity_total > 8 %}
-        <a class="button button--secondary business-activity-panel__more" href="{% url 'businesses:superadmin_business_activity' business.id %}?activity={{ activity_category }}">Consultar {{ activity_total }} movimientos</a>
+      {% if activity_total > 6 %}
+        <a class="text-action-link business-activity-panel__more" href="{% url 'businesses:superadmin_business_activity' business.id %}?activity={{ activity_category }}">Ver historial completo · {{ activity_total }} movimientos</a>
       {% endif %}
     </section>
   </section>

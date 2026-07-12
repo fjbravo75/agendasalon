@@ -660,6 +660,41 @@ class ProfessionalClientViewTests(TestCase):
         self.assertContains(response, "Guardar cliente")
         self.assertNotContains(response, "Javier Martín")
 
+    def test_professional_client_list_paginates_six_at_a_time_and_preserves_filters(self):
+        for index in range(7):
+            BusinessClient.objects.create(
+                business=self.business,
+                full_name=f"Cliente extra {index + 1:02d}",
+            )
+        self.client.force_login(self.professional)
+        list_url = reverse("customers:professional_client_list")
+
+        first_page = self.client.get(
+            list_url,
+            {"status": "all", "q": "Cliente", "page": 1},
+        )
+
+        self.assertEqual(first_page.status_code, 200)
+        self.assertEqual(len(first_page.context["clients"]), 6)
+        self.assertEqual(first_page.context["clients_page"].paginator.count, 7)
+        self.assertContains(first_page, "Página 1 de 2")
+        self.assertContains(
+            first_page,
+            "?status=all&amp;q=Cliente&amp;page=2",
+        )
+
+        second_page = self.client.get(
+            list_url,
+            {"status": "all", "q": "Cliente", "page": 2},
+        )
+
+        self.assertEqual(len(second_page.context["clients"]), 1)
+        self.assertContains(second_page, "Página 2 de 2")
+        self.assertContains(
+            second_page,
+            "?status=all&amp;q=Cliente&amp;page=1",
+        )
+
     def test_professional_can_create_client_from_client_list(self):
         self.client.force_login(self.professional)
 

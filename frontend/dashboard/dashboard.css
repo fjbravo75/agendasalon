@@ -394,13 +394,13 @@
 
 .superadmin-health {
   flex: 0 0 auto;
-  padding: 5px 8px;
+  padding: 4px 7px;
   border-radius: 999px;
   font-size: 0.67rem;
-  font-weight: 850;
+  font-weight: 750;
 }
 
-.superadmin-health--ready { background: var(--sa-green-soft); color: var(--sa-green-dark); }
+.superadmin-health--ready { background: var(--sa-soft); color: var(--sa-muted); }
 .superadmin-health--warning { background: var(--sa-warning-soft); color: var(--sa-warning); }
 .superadmin-health--quiet { background: #ece8e1; color: #645e55; }
 
@@ -477,6 +477,34 @@
   font-size: 0.69rem;
 }
 
+.superadmin-business-card__manage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--sa-green);
+  border-radius: 8px;
+  background: var(--sa-green);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.superadmin-business-card__manage:hover {
+  border-color: var(--sa-green-dark);
+  background: var(--sa-green-dark);
+  transform: translateY(-1px);
+}
+
+.superadmin-business-card__manage:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--sa-green) 32%, transparent);
+  outline-offset: 2px;
+}
+
 .superadmin-insights {
   display: grid;
   gap: 12px;
@@ -529,6 +557,20 @@
   list-style: none;
   margin: 0;
   padding: 4px 17px 12px;
+}
+
+.superadmin-activity-list--scrollable {
+  max-height: 351px;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--sa-green) 48%, transparent) transparent;
+}
+
+.superadmin-activity-list--scrollable:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--sa-green) 28%, transparent);
+  outline-offset: -3px;
 }
 
 .superadmin-activity-list li {

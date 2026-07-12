@@ -298,7 +298,28 @@ class SuperadminBusinessManagementTests(TestCase):
         self.assertContains(response, "Creadas por el equipo")
         self.assertContains(response, "Reservas online")
 
-    def test_full_activity_history_uses_cursor_and_requires_superadmin(self):
+    def test_business_detail_limits_recent_activity_to_six_events(self):
+        for index in range(8):
+            BusinessActivityEvent.objects.create(
+                business=self.business,
+                actor_type=BusinessActivityEvent.ActorType.SYSTEM,
+                actor_label="Sistema",
+                category=BusinessActivityEvent.Category.PLATFORM,
+                event_type=BusinessActivityEvent.EventType.BUSINESS_UPDATED,
+                origin=BusinessActivityEvent.Origin.SYSTEM,
+                summary=f"Movimiento reciente {index + 1}.",
+            )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(
+            reverse("businesses:superadmin_business_detail", args=[self.business.id])
+        )
+
+        self.assertEqual(len(response.context["activity_events"]), 6)
+        self.assertContains(response, "Ver historial completo · 8 movimientos")
+        self.assertNotContains(response, "Consultar 8 movimientos")
+
+    def test_full_activity_history_uses_numbered_pages_and_requires_superadmin(self):
         history_url = reverse(
             "businesses:superadmin_business_activity",
             args=[self.business.id],
@@ -323,6 +344,14 @@ class SuperadminBusinessManagementTests(TestCase):
         response = self.client.get(history_url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.context["activity_events"]), 30)
-        self.assertTrue(response.context["has_more_activity"])
-        self.assertContains(response, "Mostrar movimientos anteriores")
+        self.assertEqual(len(response.context["activity_events"]), 10)
+        self.assertEqual(response.context["activity_page"].paginator.num_pages, 4)
+        self.assertContains(response, "Página 1 de 4")
+        self.assertContains(response, "?activity=all&amp;page=2")
+        self.assertNotContains(response, "Mostrar movimientos anteriores")
+
+        second_page = self.client.get(history_url, {"activity": "all", "page": 2})
+
+        self.assertEqual(len(second_page.context["activity_events"]), 10)
+        self.assertContains(second_page, "Página 2 de 4")
+        self.assertContains(second_page, "?activity=all&amp;page=1")

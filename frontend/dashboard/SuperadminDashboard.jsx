@@ -154,7 +154,7 @@ function BusinessCard({ business, index }) {
         </div>
         <div>
           <small>Último movimiento: {formatDateTime(business.last_activity_at)}</small>
-          <a className="appointment-inline-link" href={business.urls.detail}>Gestionar</a>
+          <a className="superadmin-business-card__manage" href={business.urls.detail}>Gestionar</a>
         </div>
       </div>
     </article>
@@ -216,7 +216,11 @@ function RecentActivity({ events }) {
         <div><span>Hechos observables</span><h2>Actividad reciente</h2></div>
       </header>
       {events.length ? (
-        <ol className="superadmin-activity-list">
+        <ol
+          className={`superadmin-activity-list${events.length > 6 ? " superadmin-activity-list--scrollable" : ""}`}
+          tabIndex={events.length > 6 ? 0 : undefined}
+          aria-label={events.length > 6 ? `Actividad reciente, ${events.length} movimientos` : undefined}
+        >
           {events.map((event) => (
             <li key={event.id}>
               <span className={`superadmin-activity-list__mark superadmin-activity-list__mark--${event.category}`} />
