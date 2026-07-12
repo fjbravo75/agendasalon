@@ -91,6 +91,7 @@ class PlatformSettingsTests(TestCase):
         )
 
         self.assertContains(response, "Los ajustes de AgendaSalon quedan guardados.")
+        self.assertContains(response, "superadmin-shell")
         self.assertContains(response, "theme-dark")
         settings = PlatformSettings.objects.get(pk=PlatformSettings.SINGLETON_PK)
         self.assertEqual(settings.admin_theme, PlatformSettings.AdminTheme.DARK)
@@ -105,6 +106,25 @@ class PlatformSettingsTests(TestCase):
         self.client.logout()
         login_response = self.client.get(reverse("accounts:login"))
         self.assertContains(login_response, "customer-login-barberia-norte-bg-v2.png")
+
+    def test_dark_theme_reaches_the_whole_superadmin_shell(self):
+        PlatformSettings.objects.create(
+            admin_theme=PlatformSettings.AdminTheme.DARK,
+            updated_by=self.superadmin,
+        )
+        self.client.force_login(self.superadmin)
+
+        for url in (
+            reverse("businesses:superadmin_business_list"),
+            reverse("businesses:superadmin_business_detail", args=[self.business.pk]),
+            reverse("businesses:superadmin_business_edit", args=[self.business.pk]),
+            self.url,
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "superadmin-shell")
+                self.assertContains(response, "theme-dark")
 
     def test_saving_the_same_platform_appearance_reports_no_pending_changes(self):
         PlatformSettings.objects.create(updated_by=self.superadmin)

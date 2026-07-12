@@ -58,6 +58,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Campos obligatorios")
         self.assertContains(response, 'class="required-mark"', count=5)
         self.assertContains(response, "service-choice-list--scrollable")
+        self.assertContains(response, 'data-service-count="6"')
         self.assertContains(response, "data-appointment-search")
         self.assertContains(response, "data-appointment-service", count=6)
         self.assertContains(response, 'data-duration="15"')
@@ -67,6 +68,18 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Correo electrónico")
         self.assertContains(response, "Notas internas (opcional)")
         self.assertEqual(response.context["form"]["business_client"].value(), None)
+
+    def test_service_list_only_scrolls_when_more_than_five_services_are_available(self):
+        service = self.business.services.filter(is_active=True).order_by("display_order", "pk").last()
+        service.is_active = False
+        service.save(update_fields=["is_active"])
+        self.client.force_login(self.professional)
+
+        response = self.client.get(reverse("booking:appointment_assistant"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-service-count="5"')
+        self.assertNotContains(response, "service-choice-list--scrollable")
 
     def test_missing_services_uses_a_compact_actionable_message(self):
         self.client.force_login(self.professional)

@@ -137,7 +137,7 @@
           {% if form.services.errors %}
             <div class="service-field-errors" id="services-error" role="alert">{{ form.services.errors }}</div>
           {% endif %}
-          <div class="service-choice-list service-choice-list--scrollable" role="group" aria-labelledby="services-heading"{% if form.services.errors %} aria-describedby="services-error"{% endif %}>
+          <div class="service-choice-list{% if available_services|length > 5 %} service-choice-list--scrollable{% endif %}" role="group" aria-labelledby="services-heading" data-service-count="{{ available_services|length }}"{% if form.services.errors %} aria-describedby="services-error"{% endif %}>
             {% for service in available_services %}
               <label class="service-choice">
                 <span class="service-choice__dot" aria-hidden="true"></span>

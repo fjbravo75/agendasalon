@@ -2968,11 +2968,33 @@ a {
 }
 
 .service-choice-list--scrollable {
-  max-height: 266px;
-  overflow-y: auto;
+  --visible-service-rows: 5;
+  --service-row-height: var(--control-height-md);
+  max-height: calc(
+    (var(--visible-service-rows) * var(--service-row-height)) +
+    ((var(--visible-service-rows) - 1) * 7px)
+  );
+  overflow-y: scroll;
   overscroll-behavior: contain;
-  padding-right: 6px;
+  padding-right: 8px;
+  scrollbar-color: var(--color-line-strong) transparent;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.service-choice-list--scrollable::-webkit-scrollbar {
+  width: 8px;
+}
+
+.service-choice-list--scrollable::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+}
+
+.service-choice-list--scrollable::-webkit-scrollbar-thumb {
+  border: 2px solid var(--color-surface-soft);
+  border-radius: 999px;
+  background: var(--color-line-strong);
 }
 
 .required-fields-legend {
@@ -5230,6 +5252,62 @@ a {
   gap: 22px;
 }
 
+.superadmin-shell {
+  --saas-panel-background: rgba(255, 253, 249, 0.94);
+  --saas-row-background: linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(255, 248, 241, 0.76));
+  --saas-primary-background: linear-gradient(135deg, rgba(217, 244, 237, 0.68), rgba(255, 253, 249, 0.96));
+  --saas-warning-background: linear-gradient(135deg, rgba(253, 232, 225, 0.72), rgba(255, 253, 249, 0.96));
+  --saas-subtle-background: rgba(255, 253, 249, 0.82);
+  --saas-event-background: rgba(255, 253, 249, 0.62);
+  --saas-panel-shadow: var(--shadow-xs);
+}
+
+.superadmin-shell.theme-dark {
+  --saas-panel-background: linear-gradient(145deg, rgba(30, 38, 34, 0.98), rgba(25, 32, 29, 0.98));
+  --saas-row-background: linear-gradient(180deg, rgba(36, 45, 41, 0.98), rgba(29, 36, 33, 0.98));
+  --saas-primary-background: linear-gradient(135deg, rgba(32, 63, 56, 0.98), rgba(29, 36, 33, 0.98));
+  --saas-warning-background: linear-gradient(135deg, rgba(64, 41, 37, 0.96), rgba(29, 36, 33, 0.98));
+  --saas-subtle-background: rgba(36, 45, 41, 0.92);
+  --saas-event-background: rgba(36, 45, 41, 0.76);
+  --saas-panel-shadow: 0 14px 34px rgba(0, 0, 0, 0.2);
+}
+
+.superadmin-shell.theme-dark .saas-metric,
+.superadmin-shell.theme-dark .saas-business-panel,
+.superadmin-shell.theme-dark .saas-side-panel {
+  border-color: rgba(91, 199, 179, 0.18);
+}
+
+.superadmin-shell.theme-dark .saas-business-row {
+  background: var(--saas-row-background);
+}
+
+.superadmin-shell.theme-dark .saas-business-row:hover,
+.superadmin-shell.theme-dark .saas-business-row:focus-within {
+  border-color: rgba(91, 199, 179, 0.46);
+  background: linear-gradient(180deg, rgba(40, 51, 46, 0.98), rgba(31, 40, 36, 0.98));
+}
+
+.superadmin-shell.theme-dark .saas-health--warning {
+  color: #f0a091;
+}
+
+.superadmin-shell.theme-dark .business-activity-summary strong {
+  color: var(--color-accent-strong);
+}
+
+.superadmin-shell.theme-dark .business-activity-event--configuration .business-activity-event__time span {
+  color: #9fb0ef;
+}
+
+.superadmin-shell.theme-dark .business-activity-event--access .business-activity-event__time span {
+  color: #e7b25a;
+}
+
+.superadmin-shell.theme-dark .business-activity-event--platform .business-activity-event__time span {
+  color: #e5a095;
+}
+
 .logout-confirmation {
   width: min(620px, 100%);
   display: grid;
@@ -5272,8 +5350,8 @@ a {
 .saas-side-panel {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
-  background: rgba(255, 253, 249, 0.94);
-  box-shadow: var(--shadow-xs);
+  background: var(--saas-panel-background, rgba(255, 253, 249, 0.94));
+  box-shadow: var(--saas-panel-shadow, var(--shadow-xs));
 }
 
 .saas-metric {
@@ -5286,12 +5364,12 @@ a {
 
 .saas-metric--primary {
   border-left: 3px solid var(--color-accent);
-  background: linear-gradient(135deg, rgba(217, 244, 237, 0.68), rgba(255, 253, 249, 0.96));
+  background: var(--saas-primary-background, linear-gradient(135deg, var(--color-accent-soft), var(--color-surface)));
 }
 
 .saas-metric--warning {
   border-left: 3px solid var(--color-editorial);
-  background: linear-gradient(135deg, rgba(253, 232, 225, 0.72), rgba(255, 253, 249, 0.96));
+  background: var(--saas-warning-background, linear-gradient(135deg, var(--color-editorial-soft), var(--color-surface)));
 }
 
 .saas-metric span {
@@ -5345,7 +5423,7 @@ a {
   border-left: 3px solid var(--color-accent);
   border-radius: var(--radius-md);
   padding: 13px;
-  background: linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(255, 248, 241, 0.76));
+  background: var(--saas-row-background, var(--color-surface-soft));
 }
 
 .saas-business-row__identity {
@@ -6125,7 +6203,7 @@ a {
   border-left: 3px solid var(--color-accent);
   border-radius: var(--radius-md);
   padding: 14px;
-  background: rgba(255, 253, 249, 0.82);
+  background: var(--saas-subtle-background, var(--color-surface-soft));
 }
 
 .business-activity-summary span {
@@ -6184,7 +6262,7 @@ a {
   border-bottom: 1px solid var(--color-line);
   border-left: 3px solid var(--color-line-strong);
   padding: 14px 16px;
-  background: rgba(255, 253, 249, 0.62);
+  background: var(--saas-event-background, var(--color-surface-soft));
 }
 
 .business-activity-event--appointments {
