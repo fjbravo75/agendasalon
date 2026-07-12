@@ -38,6 +38,8 @@ class OfficialHolidaySyncResult:
 
 
 class BoeNationalHolidaySyncService:
+    MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+    RESPONSE_CHUNK_BYTES = 64 * 1024
     SEARCH_URL = "https://www.boe.es/buscar/boe.php"
     DOCUMENT_URL = "https://www.boe.es/diario_boe/txt.php?id={identifier}"
     NATIONAL_MARKERS = {"*", "**"}
@@ -78,8 +80,9 @@ class BoeNationalHolidaySyncService:
         expected_title = self._normalize_text(
             f"relación de fiestas laborales para el año {target_year}"
         )
-        response = self.session.get(
+        response_text = self._get_boe_text(
             self.SEARCH_URL,
+            response_label="El buscador oficial del BOE",
             params={
                 "campo[0]": "ORIS",
                 "dato[0][1]": "1",
@@ -95,14 +98,9 @@ class BoeNationalHolidaySyncService:
                 "sort_order[0]": "desc",
                 "accion": "Buscar",
             },
-            timeout=20,
         )
-        if response.status_code != 200:
-            raise BoeSyncError(
-                f"El buscador oficial del BOE ha devuelto {response.status_code}."
-            )
 
-        soup = BeautifulSoup(response.text, "html.parser")
+        soup = BeautifulSoup(response_text, "html.parser")
         for result in soup.select("li.resultado-busqueda"):
             title = ""
             for title_node in result.find_all("p"):
@@ -132,12 +130,44 @@ class BoeNationalHolidaySyncService:
         )
 
     def fetch_resolution_html(self, url_html: str) -> str:
-        response = self.session.get(url_html, timeout=20)
+        if not url_html.startswith("https://www.boe.es/"):
+            raise BoeSyncError("La URL de la resolución no pertenece al BOE permitido.")
+        return self._get_boe_text(
+            url_html,
+            response_label="La resolución del BOE",
+        )
+
+    def _get_boe_text(self, url, *, response_label, **kwargs):
+        response = self.session.get(
+            url,
+            timeout=(5, 20),
+            allow_redirects=False,
+            stream=True,
+            **kwargs,
+        )
+        if 300 <= response.status_code < 400:
+            raise BoeSyncError(f"{response_label} ha intentado redirigir la descarga.")
         if response.status_code != 200:
-            raise BoeSyncError(
-                f"No se ha podido descargar la resolución del BOE ({response.status_code})."
-            )
-        return response.text
+            raise BoeSyncError(f"{response_label} ha devuelto {response.status_code}.")
+
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                declared_size = int(content_length)
+            except ValueError:
+                declared_size = 0
+            if declared_size > self.MAX_RESPONSE_BYTES:
+                raise BoeSyncError(f"{response_label} supera el tamaño máximo permitido.")
+
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=self.RESPONSE_CHUNK_BYTES):
+            if not chunk:
+                continue
+            body.extend(chunk)
+            if len(body) > self.MAX_RESPONSE_BYTES:
+                raise BoeSyncError(f"{response_label} supera el tamaño máximo permitido.")
+        encoding = response.encoding or "utf-8"
+        return bytes(body).decode(encoding, errors="replace")
 
     def extract_national_holidays(
         self,

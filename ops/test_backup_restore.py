@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -96,4 +97,32 @@ class BackupRestoreTests(TestCase):
                 backup_dir=backup_dir,
                 media_target=self.root / "restored-media",
                 confirm_restore=True,
+            )
+
+    @patch("ops.backup_restore.subprocess.run")
+    def test_authenticated_backup_rejects_a_replaced_artifact_and_manifest(self, run):
+        def create_fake_dump(command, **kwargs):
+            dump_argument = next(item for item in command if item.startswith("--file="))
+            Path(dump_argument.removeprefix("--file=")).write_bytes(b"postgres-dump")
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = create_fake_dump
+        backup_dir = create_backup(
+            database_url=DATABASE_URL,
+            media_root=self.media,
+            backup_root=self.root / "backups",
+            integrity_key="clave-operativa-separada",
+        )
+        database_dump = backup_dir / "database.dump"
+        database_dump.write_bytes(b"dump-sustituido")
+        manifest_path = backup_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["database"]["sha256"] = hashlib.sha256(b"dump-sustituido").hexdigest()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with self.assertRaisesRegex(BackupError, "autenticidad"):
+            verify_backup(
+                backup_dir,
+                integrity_key="clave-operativa-separada",
+                require_authenticity=True,
             )
