@@ -16,6 +16,11 @@ def business_public_gallery_image_upload_to(instance, filename):
     return f"businesses/{instance.business.slug}/gallery/public-{uuid4().hex}{extension}"
 
 
+def platform_login_image_upload_to(instance, filename):
+    extension = Path(filename).suffix.lower()
+    return f"platform/login/login-{uuid4().hex}{extension}"
+
+
 class Business(models.Model):
     """Business subscribed to AgendaSalon."""
 
@@ -131,6 +136,96 @@ class BusinessPublicImage(models.Model):
 
     def __str__(self):
         return f"{self.label} ({self.business})"
+
+
+class PlatformSettings(models.Model):
+    """Configuración visual única de la administración de AgendaSalon."""
+
+    SINGLETON_PK = 1
+
+    class AdminTheme(models.TextChoices):
+        LIGHT = "light", "Modo claro"
+        DARK = "dark", "Modo oscuro"
+
+    class LoginImagePreset(models.TextChoices):
+        AGENDASALON = "agendasalon", "AgendaSalon"
+        SALON = "salon", "Salón luminoso"
+        BARBERSHOP = "barberia", "Barbería contemporánea"
+
+    admin_theme = models.CharField(
+        "tema de la administración",
+        max_length=12,
+        choices=AdminTheme.choices,
+        default=AdminTheme.LIGHT,
+    )
+    login_image_preset = models.CharField(
+        "imagen predeterminada del acceso interno",
+        max_length=16,
+        choices=LoginImagePreset.choices,
+        default=LoginImagePreset.AGENDASALON,
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="updated_platform_settings",
+        verbose_name="actualizado por",
+        null=True,
+        blank=True,
+    )
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
+
+    class Meta:
+        verbose_name = "ajustes de plataforma"
+        verbose_name_plural = "ajustes de plataforma"
+
+    def save(self, *args, **kwargs):
+        self.pk = self.SINGLETON_PK
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return "Ajustes de AgendaSalon"
+
+
+class PlatformLoginImage(models.Model):
+    """Imagen reutilizable para el acceso interno de la plataforma."""
+
+    platform_settings = models.ForeignKey(
+        PlatformSettings,
+        on_delete=models.CASCADE,
+        related_name="login_images",
+        verbose_name="ajustes de plataforma",
+    )
+    image = models.ImageField(
+        "imagen",
+        upload_to=platform_login_image_upload_to,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+    )
+    label = models.CharField("nombre visible", max_length=120)
+    is_selected = models.BooleanField("seleccionada", default=False)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="uploaded_platform_login_images",
+        verbose_name="subida por",
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "imagen de acceso de plataforma"
+        verbose_name_plural = "imágenes de acceso de plataforma"
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["platform_settings"],
+                condition=models.Q(is_selected=True),
+                name="unique_selected_platform_login_image",
+            )
+        ]
+
+    def __str__(self):
+        return self.label
 
 
 class BusinessMembership(models.Model):

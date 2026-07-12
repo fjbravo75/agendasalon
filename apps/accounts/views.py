@@ -1,10 +1,17 @@
+from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.views.decorators.http import require_POST
 
 from apps.accounts.forms import PhoneAuthenticationForm
-from apps.businesses.services import get_primary_business_for_user
+from apps.businesses.models import PlatformSettings
+from apps.businesses.services import (
+    get_platform_login_image_url,
+    get_platform_settings,
+    get_primary_business_for_user,
+)
 from apps.core.security_throttle import (
     THROTTLE_MESSAGE,
     clear_failed_attempts,
@@ -30,6 +37,14 @@ class AgendaSalonLoginView(LoginView):
 
     def get_success_url(self):
         return self.get_redirect_url() or get_post_login_redirect_url(self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        platform_settings = get_platform_settings()
+        context["internal_login_image_url"] = get_platform_login_image_url(
+            platform_settings
+        )
+        return context
 
     def _throttle_keys(self):
         subject = phone_throttle_key(self.request.POST.get("username", ""))
@@ -83,7 +98,31 @@ def no_business(request):
     return render(request, "accounts/no_business.html")
 
 
+@login_required
+@require_POST
+def private_logout(request):
+    if request.user.is_superuser:
+        theme = get_platform_settings().admin_theme
+    else:
+        business = get_primary_business_for_user(request.user)
+        theme = (
+            business.professional_theme
+            if business is not None
+            else PlatformSettings.AdminTheme.LIGHT
+        )
+    logout(request)
+    request.session["logged_out_theme"] = theme
+    return redirect("accounts:logged_out")
+
+
 def logged_out(request):
     if request.user.is_authenticated:
         return redirect(get_post_login_redirect_url(request.user))
-    return render(request, "accounts/logged_out.html")
+    theme = request.session.get("logged_out_theme", PlatformSettings.AdminTheme.LIGHT)
+    if theme not in PlatformSettings.AdminTheme.values:
+        theme = PlatformSettings.AdminTheme.LIGHT
+    return render(
+        request,
+        "accounts/logged_out.html",
+        {"professional_theme": theme},
+    )

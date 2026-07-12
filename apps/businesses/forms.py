@@ -13,8 +13,35 @@ from apps.businesses.images import (
     PublicImageProcessingError,
     sanitize_public_image,
 )
-from apps.businesses.models import Business, BusinessMembership, BusinessPublicImage
+from apps.businesses.models import (
+    Business,
+    BusinessMembership,
+    BusinessPublicImage,
+    PlatformLoginImage,
+    PlatformSettings,
+)
 from apps.core.phone import normalize_phone
+
+
+def _sanitize_visual_image(image):
+    if image.size > PUBLIC_IMAGE_MAX_INPUT_BYTES:
+        raise forms.ValidationError("La imagen no puede superar los 5 MB.")
+    verified_image = getattr(image, "image", None)
+    image_format = getattr(verified_image, "format", "")
+    if image_format not in {"JPEG", "PNG", "WEBP"}:
+        raise forms.ValidationError("Usa una imagen JPG, PNG o WebP.")
+    width = getattr(verified_image, "width", 0)
+    height = getattr(verified_image, "height", 0)
+    if width * height > PUBLIC_IMAGE_MAX_INPUT_PIXELS:
+        raise forms.ValidationError("La imagen tiene demasiados píxeles para un uso seguro.")
+    if width < 800 or height < 500:
+        raise forms.ValidationError("La imagen debe medir al menos 800 × 500 píxeles.")
+    try:
+        return sanitize_public_image(image)
+    except PublicImageProcessingError as exc:
+        raise forms.ValidationError(
+            "No hemos podido preparar la imagen. Prueba con otro archivo JPG, PNG o WebP."
+        ) from exc
 
 
 class BusinessForm(forms.ModelForm):
@@ -210,6 +237,7 @@ class BusinessVisualSettingsForm(forms.ModelForm):
         widget=forms.FileInput(
             attrs={
                 "accept": "image/jpeg,image/png,image/webp",
+                "class": "visually-hidden settings-file-input",
                 "data-public-image-upload": "",
             }
         ),
@@ -245,8 +273,7 @@ class BusinessVisualSettingsForm(forms.ModelForm):
             if selected_custom is not None
             else f"preset:{self.instance.public_image_preset}"
         )
-        if not self.is_bound:
-            self.initial["public_image_choice"] = current_choice
+        self.initial["public_image_choice"] = current_choice
         selected_value = str(self["public_image_choice"].value() or current_choice)
 
         self.public_image_options = [
@@ -296,25 +323,8 @@ class BusinessVisualSettingsForm(forms.ModelForm):
         image = self.cleaned_data.get("new_public_image")
         if not image or "new_public_image" not in self.files:
             return image
-        if image.size > PUBLIC_IMAGE_MAX_INPUT_BYTES:
-            raise forms.ValidationError("La imagen no puede superar los 5 MB.")
-        verified_image = getattr(image, "image", None)
-        image_format = getattr(verified_image, "format", "")
-        if image_format not in {"JPEG", "PNG", "WEBP"}:
-            raise forms.ValidationError("Usa una imagen JPG, PNG o WebP.")
-        width = getattr(verified_image, "width", 0)
-        height = getattr(verified_image, "height", 0)
-        if width * height > PUBLIC_IMAGE_MAX_INPUT_PIXELS:
-            raise forms.ValidationError("La imagen tiene demasiados píxeles para un uso seguro.")
-        if width < 800 or height < 500:
-            raise forms.ValidationError("La imagen debe medir al menos 800 × 500 píxeles.")
         self.uploaded_image_label = Path(image.name or "Imagen personalizada").stem[:120]
-        try:
-            return sanitize_public_image(image)
-        except PublicImageProcessingError as exc:
-            raise forms.ValidationError(
-                "No hemos podido preparar la imagen. Prueba con otro archivo JPG, PNG o WebP."
-            ) from exc
+        return _sanitize_visual_image(image)
 
     def clean_public_image_choice(self):
         choice = self.cleaned_data.get("public_image_choice")
@@ -362,3 +372,162 @@ class BusinessVisualSettingsForm(forms.ModelForm):
                 business.public_image_preset = choice.split(":", 1)[1]
                 business.save(update_fields=["public_image_preset", "updated_at"])
         return business
+
+
+class PlatformVisualSettingsForm(forms.ModelForm):
+    login_image_choice = forms.ChoiceField(
+        label="Imagen activa",
+        required=False,
+        error_messages={"invalid_choice": "Selecciona una imagen disponible."},
+    )
+    new_login_image = forms.ImageField(
+        label="Subir una imagen nueva",
+        required=False,
+        error_messages={
+            "invalid_image": "Selecciona una imagen JPG, PNG o WebP válida.",
+        },
+        widget=forms.FileInput(
+            attrs={
+                "accept": "image/jpeg,image/png,image/webp",
+                "class": "visually-hidden settings-file-input",
+                "data-public-image-upload": "",
+            }
+        ),
+    )
+
+    class Meta:
+        model = PlatformSettings
+        fields = ("admin_theme", "login_image_choice", "new_login_image")
+        labels = {
+            "admin_theme": "Apariencia de la administración",
+            "login_image_choice": "Imagen activa",
+            "new_login_image": "Subir una imagen nueva",
+        }
+        widgets = {"admin_theme": forms.RadioSelect}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.uploaded_image_label = "Imagen personalizada"
+        self.saved_login_image = None
+        custom_images = tuple(self.instance.login_images.all())
+        choices = [
+            ("preset:agendasalon", "AgendaSalon"),
+            ("preset:salon", "Salón luminoso"),
+            ("preset:barberia", "Barbería contemporánea"),
+            *[(f"custom:{image.pk}", image.label) for image in custom_images],
+        ]
+        self.fields["login_image_choice"].choices = choices
+
+        selected_custom = next((image for image in custom_images if image.is_selected), None)
+        current_choice = (
+            f"custom:{selected_custom.pk}"
+            if selected_custom is not None
+            else f"preset:{self.instance.login_image_preset}"
+        )
+        self.initial["login_image_choice"] = current_choice
+        selected_value = str(self["login_image_choice"].value() or current_choice)
+
+        self.login_image_options = [
+            {
+                "value": "preset:agendasalon",
+                "label": "AgendaSalon",
+                "description": "Imagen editorial propia del acceso interno de la plataforma.",
+                "url": static("img/agendasalon-internal-login-bg.png"),
+                "theme": "agendasalon",
+                "is_selected": selected_value == "preset:agendasalon",
+            },
+            {
+                "value": "preset:salon",
+                "label": "Salón luminoso",
+                "description": "Ambiente claro y cálido vinculado al sector de belleza.",
+                "url": static("img/customer-login-peluqueria-mari-bg.webp"),
+                "theme": "salon",
+                "is_selected": selected_value == "preset:salon",
+            },
+            {
+                "value": "preset:barberia",
+                "label": "Barbería contemporánea",
+                "description": "Ambiente oscuro y sobrio de barbería y cuidado masculino.",
+                "url": static("img/customer-login-barberia-norte-bg-v2.png"),
+                "theme": "barberia",
+                "is_selected": selected_value == "preset:barberia",
+            },
+        ]
+        for image in custom_images:
+            try:
+                image_url = image.image.url
+            except ValueError:
+                continue
+            self.login_image_options.append(
+                {
+                    "value": f"custom:{image.pk}",
+                    "label": image.label,
+                    "description": "Imagen subida por la administración de AgendaSalon.",
+                    "url": image_url,
+                    "theme": "custom",
+                    "is_selected": selected_value == f"custom:{image.pk}",
+                }
+            )
+
+    def clean_new_login_image(self):
+        image = self.cleaned_data.get("new_login_image")
+        if not image or "new_login_image" not in self.files:
+            return image
+        self.uploaded_image_label = Path(image.name or "Imagen personalizada").stem[:120]
+        return _sanitize_visual_image(image)
+
+    def clean_login_image_choice(self):
+        choice = self.cleaned_data.get("login_image_choice")
+        if not choice:
+            selected = self.instance.login_images.filter(is_selected=True).first()
+            return (
+                f"custom:{selected.pk}"
+                if selected is not None
+                else f"preset:{self.instance.login_image_preset}"
+            )
+        allowed_presets = {"preset:agendasalon", "preset:salon", "preset:barberia"}
+        if choice in allowed_presets:
+            return choice
+        if choice.startswith("custom:"):
+            try:
+                image_id = int(choice.split(":", 1)[1])
+            except (TypeError, ValueError):
+                raise forms.ValidationError("Selecciona una imagen disponible.")
+            if self.instance.login_images.filter(pk=image_id).exists():
+                return choice
+        raise forms.ValidationError("Selecciona una imagen disponible.")
+
+    def save(self, commit=True, updated_by=None):
+        platform_settings = super().save(commit=False)
+        platform_settings.pk = PlatformSettings.SINGLETON_PK
+        platform_settings.updated_by = updated_by
+        if commit:
+            platform_settings.save()
+            uploaded_image = self.cleaned_data.get("new_login_image")
+            choice = self.cleaned_data["login_image_choice"]
+            if uploaded_image:
+                platform_settings.login_images.filter(is_selected=True).update(
+                    is_selected=False
+                )
+                self.saved_login_image = PlatformLoginImage.objects.create(
+                    platform_settings=platform_settings,
+                    image=uploaded_image,
+                    label=self.uploaded_image_label,
+                    is_selected=True,
+                    uploaded_by=updated_by,
+                )
+            elif choice.startswith("custom:"):
+                image_id = int(choice.split(":", 1)[1])
+                platform_settings.login_images.filter(is_selected=True).exclude(
+                    pk=image_id
+                ).update(is_selected=False)
+                platform_settings.login_images.filter(pk=image_id).update(is_selected=True)
+            else:
+                platform_settings.login_images.filter(is_selected=True).update(
+                    is_selected=False
+                )
+                platform_settings.login_image_preset = choice.split(":", 1)[1]
+                platform_settings.save(
+                    update_fields=["login_image_preset", "updated_by", "updated_at"]
+                )
+        return platform_settings

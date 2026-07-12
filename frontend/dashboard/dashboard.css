@@ -583,6 +583,95 @@
 
 .superadmin-error span { color: var(--sa-warning); font-weight: 800; }
 
+.react-superadmin-page.theme-dark {
+  background:
+    radial-gradient(circle at 90% 8%, rgba(91, 199, 179, 0.08), transparent 28%),
+    #141917;
+}
+
+.react-superadmin-page.theme-dark .app-header {
+  background: #1d2421;
+}
+
+.theme-dark .superadmin-react-dashboard {
+  --sa-ink: #f4eee7;
+  --sa-muted: #b9aea5;
+  --sa-border: #39453f;
+  --sa-surface: #1d2421;
+  --sa-soft: #2b3530;
+  --sa-green: #5bc7b3;
+  --sa-green-dark: #80dfcd;
+  --sa-green-soft: #203f38;
+  --sa-warning: #e7b25a;
+  --sa-warning-soft: #3b3221;
+}
+
+.theme-dark :where(
+  .superadmin-loading-fallback,
+  .superadmin-noscript,
+  .superadmin-loading,
+  .superadmin-error,
+  .superadmin-metric,
+  .superadmin-businesses,
+  .superadmin-panel
+) {
+  border-color: var(--sa-border, #39453f);
+  background: var(--sa-surface, #1d2421);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
+}
+
+.theme-dark .superadmin-metric--primary {
+  border-color: rgba(91, 199, 179, 0.34);
+  background: linear-gradient(145deg, #203f38, var(--sa-surface) 72%);
+}
+
+.theme-dark .superadmin-metric--warning {
+  border-color: rgba(231, 178, 90, 0.38);
+  background: linear-gradient(145deg, var(--sa-warning-soft), var(--sa-surface) 72%);
+}
+
+.theme-dark .superadmin-business-controls,
+.theme-dark .superadmin-business-card__setup > span {
+  background: #242d29;
+}
+
+.theme-dark .superadmin-business-controls input,
+.theme-dark .superadmin-filters button {
+  border-color: var(--sa-border);
+  background: #1d2421;
+  color: var(--sa-ink);
+}
+
+.theme-dark .superadmin-filters button.is-active {
+  border-color: var(--sa-green);
+  background: #427f73;
+  color: #fff;
+}
+
+.theme-dark .superadmin-health--quiet,
+.theme-dark .superadmin-business-card__states span {
+  background: #2b3530;
+  color: var(--sa-muted);
+}
+
+.theme-dark .superadmin-business-card__setup .is-missing {
+  border-color: rgba(231, 178, 90, 0.38);
+  background: #3b3221;
+}
+
+.theme-dark .superadmin-business-card__footer {
+  border-top-color: #4b5952;
+}
+
+.theme-dark .superadmin-activity-chart__bar,
+.theme-dark .superadmin-breakdown__track {
+  background: #2b3530;
+}
+
+.theme-dark .superadmin-activity-list li {
+  border-bottom-color: #39453f;
+}
+
 @media (max-width: 1160px) {
   .superadmin-react-dashboard__hero { align-items: flex-start; }
   .superadmin-react-dashboard__actions { max-width: 360px; }

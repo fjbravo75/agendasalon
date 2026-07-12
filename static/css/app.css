@@ -4211,7 +4211,7 @@ a {
   background-image:
     linear-gradient(90deg, rgba(12, 10, 9, 0.91) 0%, rgba(19, 15, 13, 0.8) 36%, rgba(26, 20, 18, 0.44) 66%, rgba(17, 14, 12, 0.27) 100%),
     linear-gradient(180deg, rgba(13, 12, 11, 0.2) 0%, rgba(13, 12, 11, 0.14) 44%, rgba(13, 12, 11, 0.52) 100%),
-    url("../img/agendasalon-internal-login-bg.png");
+    var(--internal-login-bg, url("../img/agendasalon-internal-login-bg.png"));
   background-position: center center;
   background-size: cover;
 }
@@ -5257,6 +5257,10 @@ a {
   font-size: 16px;
 }
 
+.theme-dark .logout-confirmation {
+  background: linear-gradient(135deg, rgba(32, 63, 56, 0.82), rgba(29, 36, 33, 0.98));
+}
+
 .saas-metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -5781,6 +5785,36 @@ a {
   min-height: 44px;
   height: auto;
   padding: 6px;
+}
+
+.settings-file-control {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  background: var(--color-surface);
+}
+
+.settings-file-trigger {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.settings-file-control > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-file-input:focus-visible + .settings-file-trigger {
+  outline: 3px solid rgba(6, 117, 104, 0.3);
+  outline-offset: 3px;
 }
 
 .settings-upload-field input[type="file"]::file-selector-button {

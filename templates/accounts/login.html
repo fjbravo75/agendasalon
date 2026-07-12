@@ -5,7 +5,7 @@
 {% block body_class %}login-body{% endblock %}
 
 {% block content %}
-  <div class="login-page login-page--internal">
+  <div class="login-page login-page--internal" style="--internal-login-bg: url('{{ internal_login_image_url }}');">
     <section class="login-shell internal-auth-shell">
       <div class="login-topbar" aria-label="Cabecera">
         <a class="login-brand" href="{% url 'accounts:login' %}">
