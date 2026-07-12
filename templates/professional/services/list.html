@@ -52,7 +52,14 @@
           <strong>{{ services|length }}</strong>
         </div>
 
-        <div class="service-list">
+        <div
+          class="service-list{% if services|length > 5 %} service-list--scrollable{% endif %}"
+          {% if services|length > 5 %}
+            data-service-scroll-list
+            tabindex="0"
+            aria-label="Catálogo de {{ services|length }} servicios; desplázate para consultar todos"
+          {% endif %}
+        >
           {% for service in services %}
             <article class="service-row{% if not service.is_active %} service-row--paused{% endif %}" style="--service-color: {{ service.color_hex|default:'#08927F' }};">
               <span class="service-row__swatch" aria-hidden="true"></span>

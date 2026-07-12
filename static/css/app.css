@@ -1192,6 +1192,32 @@ a {
   gap: 10px;
 }
 
+.service-list--scrollable {
+  max-height: var(--service-catalog-visible-height, 510px);
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  scrollbar-color: var(--color-line-strong) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.service-list--scrollable::-webkit-scrollbar {
+  width: 8px;
+}
+
+.service-list--scrollable::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+}
+
+.service-list--scrollable::-webkit-scrollbar-thumb {
+  border: 2px solid var(--color-surface-soft);
+  border-radius: 999px;
+  background: var(--color-line-strong);
+}
+
 .service-row {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) minmax(145px, 0.38fr) auto;

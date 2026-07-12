@@ -124,6 +124,44 @@ if (serviceColorPicker) {
   });
 }
 
+const serviceScrollLists = [
+  ...document.querySelectorAll("[data-service-scroll-list]"),
+];
+
+serviceScrollLists.forEach((serviceList) => {
+  const visibleRows = [...serviceList.children]
+    .filter((child) => child.classList.contains("service-row"))
+    .slice(0, 5);
+
+  const fitFiveServiceRows = () => {
+    if (visibleRows.length < 5) {
+      return;
+    }
+
+    const listStyles = window.getComputedStyle(serviceList);
+    const rowGap = Number.parseFloat(listStyles.rowGap || listStyles.gap) || 0;
+    const visibleHeight = visibleRows.reduce(
+      (height, row) => height + row.getBoundingClientRect().height,
+      rowGap * (visibleRows.length - 1),
+    );
+
+    serviceList.style.setProperty(
+      "--service-catalog-visible-height",
+      `${Math.ceil(visibleHeight)}px`,
+    );
+  };
+
+  fitFiveServiceRows();
+  document.fonts?.ready.then(fitFiveServiceRows);
+
+  if ("ResizeObserver" in window) {
+    const serviceRowsObserver = new ResizeObserver(fitFiveServiceRows);
+    visibleRows.forEach((row) => serviceRowsObserver.observe(row));
+  } else {
+    window.addEventListener("resize", fitFiveServiceRows);
+  }
+});
+
 const publicImagePreview = document.querySelector("[data-public-image-preview]");
 
 if (publicImagePreview) {
