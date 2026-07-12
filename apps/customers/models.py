@@ -28,10 +28,12 @@ class BusinessClient(models.Model):
         max_length=180,
         editable=False,
     )
-    phone = models.CharField("teléfono", max_length=32)
+    phone = models.CharField("teléfono", max_length=32, blank=True)
     phone_normalized = models.CharField(
         "teléfono normalizado",
         max_length=32,
+        blank=True,
+        default="",
         editable=False,
     )
     email = models.EmailField("email", blank=True)
@@ -54,7 +56,7 @@ class BusinessClient(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["business", "phone_normalized", "full_name_normalized"],
-                condition=models.Q(is_active=True),
+                condition=models.Q(is_active=True) & ~models.Q(phone_normalized=""),
                 name="unique_active_business_client_identity",
             )
         ]
@@ -68,14 +70,12 @@ class BusinessClient(models.Model):
         super().clean()
         if not self.full_name.strip():
             raise ValidationError({"full_name": "El nombre completo es obligatorio."})
-        if not self.phone.strip():
-            raise ValidationError({"phone": "El teléfono es obligatorio."})
         self.full_name_normalized = normalize_search_text(self.full_name)
-        self.phone_normalized = normalize_phone(self.phone)
+        self.phone_normalized = normalize_phone(self.phone) if self.phone.strip() else ""
 
     def save(self, *args, **kwargs):
         self.full_name_normalized = normalize_search_text(self.full_name)
-        self.phone_normalized = normalize_phone(self.phone)
+        self.phone_normalized = normalize_phone(self.phone) if self.phone.strip() else ""
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -235,6 +235,104 @@ class BusinessClientAccess(models.Model):
 
     def __str__(self):
         return f"Acceso cliente {self.business_client.full_name} ({self.business})"
+
+
+class BusinessClientAccessGrant(models.Model):
+    """Permiso de una cuenta online para reservar para una ficha concreta."""
+
+    class Relationship(models.TextChoices):
+        SELF = "titular", "Es su propia ficha"
+        MOTHER = "madre", "Madre"
+        FATHER = "padre", "Padre"
+        DAUGHTER = "hija", "Hija"
+        FAMILY = "familiar", "Familiar"
+        CAREGIVER = "cuidador", "Cuidador"
+        PARTNER = "pareja", "Pareja"
+        OTHER = "otro", "Otra relación"
+
+    business = models.ForeignKey(
+        "businesses.Business",
+        on_delete=models.CASCADE,
+        related_name="client_access_grants",
+        verbose_name="negocio",
+    )
+    access = models.ForeignKey(
+        BusinessClientAccess,
+        on_delete=models.CASCADE,
+        related_name="booking_grants",
+        verbose_name="cuenta online",
+    )
+    business_client = models.ForeignKey(
+        BusinessClient,
+        on_delete=models.CASCADE,
+        related_name="online_booking_grants",
+        verbose_name="ficha para la que puede reservar",
+    )
+    authorized_contact = models.ForeignKey(
+        BusinessClientAuthorizedContact,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="online_booking_grants",
+        verbose_name="persona autorizada",
+    )
+    relationship_label = models.CharField(
+        "relación",
+        max_length=40,
+        choices=Relationship.choices,
+        default=Relationship.OTHER,
+    )
+    is_active = models.BooleanField("activo", default=True)
+    created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
+
+    class Meta:
+        verbose_name = "permiso de reserva online"
+        verbose_name_plural = "permisos de reserva online"
+        ordering = ["business_client__full_name", "access__business_client__full_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["access", "business_client"],
+                name="unique_access_booking_grant_per_client",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["access", "is_active"],
+                name="access_grant_active_idx",
+            ),
+            models.Index(
+                fields=["business_client", "is_active"],
+                name="client_grant_active_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.access_id and self.business_id and self.access.business_id != self.business_id:
+            errors["access"] = "La cuenta debe pertenecer al mismo negocio."
+        if (
+            self.business_client_id
+            and self.business_id
+            and self.business_client.business_id != self.business_id
+        ):
+            errors["business_client"] = "La ficha debe pertenecer al mismo negocio."
+        if self.authorized_contact_id:
+            if self.authorized_contact.business_client_id != self.business_client_id:
+                errors["authorized_contact"] = "La persona autorizada debe pertenecer a esta ficha."
+            elif self.authorized_contact.business_id != self.business_id:
+                errors["authorized_contact"] = "La persona autorizada debe pertenecer al mismo negocio."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.access_id and not self.business_id:
+            self.business = self.access.business
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.access.business_client.full_name} puede reservar para {self.business_client.full_name}"
 
 
 class BusinessClientAccessInvitation(models.Model):

@@ -54,7 +54,11 @@ from apps.businesses.services import (
     get_primary_business_for_user,
 )
 from apps.customers.forms import ProfessionalClientQuickForm
-from apps.customers.services import get_session_client_access
+from apps.customers.services import (
+    get_bookable_client,
+    get_bookable_clients,
+    get_session_client_access,
+)
 from apps.customers.models import BusinessClient
 
 
@@ -922,7 +926,13 @@ def _confirm_public_booking_draft(request, business, client_access):
         return redirect(_public_booking_search_url(business, draft))
 
     try:
-        appointment = _confirm_public_appointment(business, client_access, form)
+        beneficiary = get_bookable_client(
+            client_access,
+            request.POST.get("business_client") or client_access.business_client_id,
+        )
+        if beneficiary is None:
+            raise ValidationError("Ya no tienes permiso para reservar para esa persona.")
+        appointment = _confirm_public_appointment(business, client_access, beneficiary, form)
     except (ValidationError, WorkLine.DoesNotExist) as exc:
         clear_public_booking_draft(request, business)
         messages.error(request, _validation_message(exc))
@@ -974,6 +984,7 @@ def _render_public_booking_confirmation(request, business, client_access):
         return redirect(_public_booking_search_url(business, draft))
 
     selected_services = tuple(form.cleaned_data["services"])
+    bookable_clients = tuple(get_bookable_clients(client_access))
     context = _public_booking_base_context(
         business=business,
         client_access=client_access,
@@ -990,6 +1001,8 @@ def _render_public_booking_confirmation(request, business, client_access):
             "selected_slot": selected_slot,
             "booking_progress_step": "confirm",
             "change_search_url": _public_booking_search_url(business, draft),
+            "bookable_clients": bookable_clients,
+            "selected_business_client": client_access.business_client,
             **_public_price_summary(selected_services),
         }
     )
@@ -1320,6 +1333,7 @@ def _confirm_professional_appointment(request, business, form):
     if not work_line_id:
         raise ValidationError("Elige un hueco para confirmar la cita.")
 
+    requested_by_contact = form.cleaned_data.get("requested_by_contact")
     return confirm_appointment(
         AppointmentDraft(
             business=business,
@@ -1333,20 +1347,41 @@ def _confirm_professional_appointment(request, business, form):
             ).strip(),
             channel=form.cleaned_data["manual_channel"],
             created_by=request.user,
+            requested_by_name=(
+                requested_by_contact.full_name
+                if requested_by_contact
+                else form.cleaned_data["business_client"].full_name
+            ),
+            requested_by_relationship=(
+                requested_by_contact.get_relationship_label_display()
+                if requested_by_contact
+                else "Cliente"
+            ),
         )
     )
 
 
-def _confirm_public_appointment(business, client_access, form):
+def _confirm_public_appointment(business, client_access, business_client, form):
+    grant = client_access.booking_grants.filter(
+        business_client=business_client,
+        is_active=True,
+    ).first()
     return confirm_appointment(
         AppointmentDraft(
             business=business,
-            business_client=client_access.business_client,
+            business_client=business_client,
             services=tuple(form.cleaned_data["services"]),
             work_line_id=form.cleaned_data["selected_work_line_id"],
             starts_at=form.cleaned_data["selected_starts_at"],
             duration_minutes=form.cleaned_data["final_duration_minutes"],
             channel=Appointment.ManualChannel.PUBLIC_WEB,
+            requested_by_client_access=client_access,
+            requested_by_name=client_access.business_client.full_name,
+            requested_by_relationship=(
+                grant.get_relationship_label_display()
+                if grant
+                else "Es su propia ficha"
+            ),
         )
     )
 
@@ -1389,9 +1424,13 @@ def _selected_available_slot(data, day_availability):
 
 
 def _confirm_payload(cleaned_data):
+    requested_by_contact = cleaned_data.get("requested_by_contact")
     return {
         "business_client": cleaned_data["business_client"].id,
         "manual_channel": cleaned_data["manual_channel"],
+        "requested_by_contact": (
+            f"contact:{requested_by_contact.id}" if requested_by_contact else "self"
+        ),
         "services": [service.id for service in cleaned_data["services"]],
         "target_date": cleaned_data["target_date"].isoformat(),
         "adjusted_duration_minutes": cleaned_data.get("adjusted_duration_minutes") or "",

@@ -1,4 +1,13 @@
 (() => {
+  const beneficiarySelect = document.querySelector("#booking-beneficiary");
+  const beneficiarySummary = document.querySelector("#booking-beneficiary-summary");
+  if (beneficiarySelect && beneficiarySummary) {
+    beneficiarySelect.addEventListener("change", () => {
+      const selectedLabel = beneficiarySelect.selectedOptions[0]?.textContent || "";
+      beneficiarySummary.textContent = selectedLabel.replace(/ \(yo\)$/, "");
+    });
+  }
+
   const body = document.body;
   const preferredTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
 

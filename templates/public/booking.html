@@ -99,17 +99,38 @@
             {% if has_unpriced_services and has_priced_services %}<small>Hay servicios sin precio publicado.</small>{% endif %}
           </div>
           <div>
-            <span>Cliente</span>
-            <strong>{{ client_access.business_client.full_name }}</strong>
-            <small>{{ client_access.phone|format_phone }}</small>
+            <span>La cita es para</span>
+            <strong id="booking-beneficiary-summary">{{ selected_business_client.full_name }}</strong>
+            {% if bookable_clients|length > 1 %}
+              <small>Elige la persona antes de confirmar.</small>
+            {% else %}
+              <small>{{ client_access.phone|format_phone }}</small>
+            {% endif %}
           </div>
         </div>
 
+        {% if bookable_clients|length > 1 %}
+          <div class="booking-beneficiary" aria-labelledby="booking-beneficiary-title">
+            <div>
+              <span class="assistant-kicker">Reserva familiar</span>
+              <h3 id="booking-beneficiary-title">¿Para quién es la cita?</h3>
+              <p>Solo aparecen las personas para las que este negocio te ha autorizado a reservar.</p>
+            </div>
+            <label for="booking-beneficiary">Persona</label>
+            <select id="booking-beneficiary" name="business_client" form="confirm-booking-form">
+              {% for bookable_client in bookable_clients %}
+                <option value="{{ bookable_client.id }}"{% if bookable_client.id == selected_business_client.id %} selected{% endif %}>{{ bookable_client.full_name }}{% if bookable_client.id == client_access.business_client_id %} (yo){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+
         <div class="booking-confirmation__actions">
           <a class="button button--secondary" href="{{ change_search_url }}">Cambiar selección</a>
-          <form method="post">
+          <form id="confirm-booking-form" method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="confirm_booking">
+            {% if bookable_clients|length == 1 %}<input type="hidden" name="business_client" value="{{ selected_business_client.id }}">{% endif %}
             <button class="button" type="submit">Confirmar cita</button>
           </form>
         </div>

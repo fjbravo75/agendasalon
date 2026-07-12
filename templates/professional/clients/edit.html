@@ -58,7 +58,7 @@
         <div>
           <span>Ficha actual</span>
           <h2>{{ business_client.full_name }}</h2>
-          <p>{{ business_client.phone|format_phone }}</p>
+          <p>{% if business_client.phone %}{{ business_client.phone|format_phone }}{% else %}Sin teléfono propio{% endif %}</p>
         </div>
         <div class="client-guidance-list">
           <div>
@@ -70,7 +70,7 @@
             {% if client_access %}
               <p>Si cambias el teléfono, también cambiará el usado para entrar en su cuenta online.</p>
             {% else %}
-              <p>El teléfono quedará preparado para identificar la ficha cuando se registre online.</p>
+              <p>Si no tiene teléfono propio, podrá gestionarla una persona autorizada con cuenta online.</p>
             {% endif %}
           </div>
           <div>

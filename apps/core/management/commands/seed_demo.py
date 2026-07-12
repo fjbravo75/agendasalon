@@ -22,7 +22,12 @@ from apps.businesses.activity import record_business_activity
 from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
-from apps.customers.models import BusinessClient, BusinessClientAccess, BusinessClientAuthorizedContact
+from apps.customers.models import (
+    BusinessClient,
+    BusinessClientAccess,
+    BusinessClientAccessGrant,
+    BusinessClientAuthorizedContact,
+)
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 from apps.notifications.models import InternalNotification
 
@@ -97,6 +102,7 @@ class DemoSeeder:
         self.lines = self._create_work_lines()
         self.clients = self._create_clients()
         self._create_client_accesses()
+        self._create_family_booking_demo()
         self._create_holidays_and_closures()
         appointments = self._create_appointments()
         self._create_notifications(appointments)
@@ -395,6 +401,31 @@ class DemoSeeder:
         self._upsert_client_access(self.clients["maria"])
         self._upsert_client_access(self.clients["lucia"])
 
+    def _create_family_booking_demo(self):
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client=self.clients["maria"],
+        )
+        contact = self._upsert_authorized_contact(
+            client=self.clients["rosa"],
+            full_name=self.clients["maria"].full_name,
+            phone=access.phone,
+            relationship=BusinessClientAuthorizedContact.Relationship.FAMILY,
+            is_primary=True,
+        )
+        grant, _ = BusinessClientAccessGrant.objects.update_or_create(
+            access=access,
+            business_client=self.clients["rosa"],
+            defaults={
+                "business": self.business,
+                "authorized_contact": contact,
+                "relationship_label": BusinessClientAccessGrant.Relationship.FAMILY,
+                "is_active": True,
+            },
+        )
+        grant.full_clean()
+        grant.save()
+
     def _upsert_client_access(self, client):
         business = client.business
         access = BusinessClientAccess.objects.filter(
@@ -414,6 +445,15 @@ class DemoSeeder:
         access.set_password(DEMO_PASSWORD)
         access.full_clean()
         access.save()
+        BusinessClientAccessGrant.objects.update_or_create(
+            access=access,
+            business_client=client,
+            defaults={
+                "business": business,
+                "relationship_label": BusinessClientAccessGrant.Relationship.SELF,
+                "is_active": True,
+            },
+        )
         return access
 
     def _create_secondary_business_demo(self):

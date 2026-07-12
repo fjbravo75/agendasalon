@@ -62,12 +62,23 @@
             </div>
             <div>
               <dt>Teléfono</dt>
-              <dd>{{ appointment.business_client.phone|format_phone }}</dd>
+              <dd>{% if appointment.business_client.phone %}{{ appointment.business_client.phone|format_phone }}{% else %}Gestionado por una persona autorizada{% endif %}</dd>
             </div>
             <div>
               <dt>Canal</dt>
               <dd>{{ appointment.get_manual_channel_display }}</dd>
             </div>
+            {% if appointment.requested_by_name_snapshot %}
+              <div>
+                <dt>Solicitada por</dt>
+                <dd>
+                  {{ appointment.requested_by_name_snapshot }}
+                  {% if appointment.requested_by_relationship_snapshot and appointment.requested_by_relationship_snapshot != "Es su propia ficha" %}
+                    <small>· {{ appointment.requested_by_relationship_snapshot }}</small>
+                  {% endif %}
+                </dd>
+              </div>
+            {% endif %}
             <div>
               <dt>Alta</dt>
               <dd>{{ appointment.created_at|date:"j M Y H:i" }}</dd>
@@ -123,7 +134,11 @@
               {% if appointment.created_by %}
                 <small>Por {{ appointment.created_by.full_name|default:appointment.created_by.normalized_phone }}</small>
               {% else %}
-                <small>Reserva online del cliente</small>
+                {% if appointment.requested_by_name_snapshot %}
+                  <small>Reserva online hecha por {{ appointment.requested_by_name_snapshot }} para {{ appointment.business_client.full_name }}</small>
+                {% else %}
+                  <small>Reserva online del cliente</small>
+                {% endif %}
               {% endif %}
             </article>
 

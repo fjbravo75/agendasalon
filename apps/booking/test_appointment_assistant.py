@@ -14,6 +14,7 @@ from apps.booking.models import Appointment, Service
 from apps.booking.public_booking_drafts import PUBLIC_BOOKING_DRAFTS_SESSION_KEY
 from apps.booking.slot_engine import CHANNEL_PUBLIC, get_booking_options, get_day_availability
 from apps.businesses.models import Business, BusinessActivityEvent
+from apps.customers.models import BusinessClientAccess, BusinessClientAccessGrant
 
 
 class AppointmentAssistantTests(TestCase):
@@ -55,7 +56,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotContains(response, "MVP")
         self.assertContains(response, "Selecciona un cliente")
         self.assertContains(response, "Campos obligatorios")
-        self.assertContains(response, 'class="required-mark"', count=6)
+        self.assertContains(response, 'class="required-mark"', count=5)
         self.assertContains(response, "service-choice-list--scrollable")
         self.assertContains(response, "data-appointment-search")
         self.assertContains(response, "data-appointment-service", count=6)
@@ -177,6 +178,7 @@ class AppointmentAssistantTests(TestCase):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
         business_client = self.business.clients.get(full_name="Lucía Gómez")
+        requested_by = business_client.authorized_contacts.get(full_name="Ana Gómez")
         availability = get_day_availability(
             business=self.business,
             target_date=self._target_date(),
@@ -190,6 +192,7 @@ class AppointmentAssistantTests(TestCase):
             {
                 "business_client": business_client.id,
                 "manual_channel": "telefono",
+                "requested_by_contact": f"contact:{requested_by.id}",
                 "services": service_ids,
                 "target_date": self._target_date().isoformat(),
                 "selected_work_line_id": selected_slot.work_line_id,
@@ -207,6 +210,7 @@ class AppointmentAssistantTests(TestCase):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
         business_client = self.business.clients.get(full_name="Lucía Gómez")
+        requested_by = business_client.authorized_contacts.get(full_name="Ana Gómez")
         availability = get_day_availability(
             business=self.business,
             target_date=self._target_date(),
@@ -219,6 +223,7 @@ class AppointmentAssistantTests(TestCase):
             {
                 "business_client": business_client.id,
                 "manual_channel": "telefono",
+                "requested_by_contact": f"contact:{requested_by.id}",
                 "services": service_ids,
                 "target_date": self._target_date().isoformat(),
                 "selected_work_line_id": slot.work_line_id,
@@ -241,6 +246,8 @@ class AppointmentAssistantTests(TestCase):
             starts_at=slot.starts_at,
             status=Appointment.Status.CONFIRMED,
         )
+        self.assertEqual(appointment.requested_by_name_snapshot, "Ana Gómez")
+        self.assertEqual(appointment.requested_by_relationship_snapshot, "Madre")
         self.assertTrue(
             BusinessActivityEvent.objects.filter(
                 business=self.business,
@@ -420,6 +427,68 @@ class AppointmentAssistantTests(TestCase):
         self.assertEqual(public_event.origin, BusinessActivityEvent.Origin.PUBLIC_WEB)
         self.assertNotIn("María López", public_event.summary)
         self.assertNotIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
+
+    def test_online_account_can_book_for_an_authorized_family_profile(self):
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        beneficiary = self.business.clients.get(full_name="Lucía Gómez")
+        BusinessClientAccessGrant.objects.create(
+            business=self.business,
+            access=access,
+            business_client=beneficiary,
+            relationship_label=BusinessClientAccessGrant.Relationship.MOTHER,
+        )
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        self._login_demo_client(next_url=confirmation_url)
+
+        review_response = self.client.get(confirmation_url)
+
+        self.assertContains(review_response, "¿Para quién es la cita?")
+        self.assertContains(review_response, "Lucía Gómez")
+        response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking", "business_client": beneficiary.id},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        appointment = Appointment.objects.get(
+            business=self.business,
+            business_client=beneficiary,
+            starts_at=slot.starts_at,
+            manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+        )
+        self.assertEqual(appointment.requested_by_client_access, access)
+        self.assertEqual(appointment.requested_by_name_snapshot, "María López")
+        self.assertEqual(appointment.requested_by_relationship_snapshot, "Madre")
+
+    def test_online_account_cannot_book_for_an_ungranted_profile(self):
+        unauthorized_client = self.business.clients.get(full_name="Carmen Ruiz")
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        self._login_demo_client(next_url=confirmation_url)
+
+        response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking", "business_client": unauthorized_client.id},
+            follow=True,
+        )
+
+        self.assertContains(response, "Ya no tienes permiso para reservar para esa persona.")
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                business_client=unauthorized_client,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
 
     def test_authenticated_selection_still_requires_explicit_confirmation(self):
         self._login_demo_client()

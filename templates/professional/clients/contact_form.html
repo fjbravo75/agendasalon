@@ -65,7 +65,7 @@
         <div>
           <span>Ficha vinculada</span>
           <h2>{{ business_client.full_name }}</h2>
-          <p>{{ business_client.phone|format_phone }}</p>
+          <p>{% if business_client.phone %}{{ business_client.phone|format_phone }}{% else %}Sin teléfono propio{% endif %}</p>
         </div>
         <div class="client-guidance-list">
           <div>

@@ -52,8 +52,8 @@
             {% endfor %}
 
             <p>
-              Para una llamada o mostrador: guarda nombre y teléfono, y sigue con la
-              cita con la ficha ya seleccionada.
+              Para una llamada o mostrador: guarda el nombre y, si lo tiene, su
+              teléfono propio. Después continúa con la ficha ya seleccionada.
             </p>
             <p class="required-fields-legend"><span aria-hidden="true">*</span> Campos obligatorios</p>
 
@@ -68,7 +68,7 @@
                 {{ quick_client_form.full_name.errors }}
               </div>
               <div class="field">
-                <label for="{{ quick_client_form.phone.id_for_label }}">Teléfono <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
+                <label for="{{ quick_client_form.phone.id_for_label }}">Teléfono propio (opcional)</label>
                 {{ quick_client_form.phone }}
                 {{ quick_client_form.phone.errors }}
               </div>
@@ -119,6 +119,12 @@
               <label for="{{ form.target_date.id_for_label }}">Día <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
               {{ form.target_date }}
               {% if request.method == "POST" %}{{ form.target_date.errors }}{% endif %}
+            </div>
+            <div class="field">
+              {{ form.requested_by_contact.label_tag }}
+              {{ form.requested_by_contact }}
+              {{ form.requested_by_contact.errors }}
+              <small class="field-help">Si la cita la pide un familiar o cuidador, quedará reflejado en el historial.</small>
             </div>
           </div>
         </div>
@@ -261,6 +267,7 @@
                     {% csrf_token %}
                     <input type="hidden" name="business_client" value="{{ confirm_payload.business_client }}">
                     <input type="hidden" name="manual_channel" value="{{ confirm_payload.manual_channel }}">
+                    <input type="hidden" name="requested_by_contact" value="{{ confirm_payload.requested_by_contact }}">
                     <input type="hidden" name="target_date" value="{{ confirm_payload.target_date }}">
                     <input type="hidden" name="adjusted_duration_minutes" value="{{ confirm_payload.adjusted_duration_minutes }}">
                     <input type="hidden" name="duration_adjustment_reason" value="{{ confirm_payload.duration_adjustment_reason }}">
@@ -283,6 +290,7 @@
                     <form class="suggestion-row suggestion-row--form" method="get">
                       <input type="hidden" name="business_client" value="{{ confirm_payload.business_client }}">
                       <input type="hidden" name="manual_channel" value="{{ confirm_payload.manual_channel }}">
+                      <input type="hidden" name="requested_by_contact" value="{{ confirm_payload.requested_by_contact }}">
                       <input type="hidden" name="target_date" value="{{ slot.starts_at|date:'Y-m-d' }}">
                       <input type="hidden" name="adjusted_duration_minutes" value="{{ confirm_payload.adjusted_duration_minutes }}">
                       <input type="hidden" name="duration_adjustment_reason" value="{{ confirm_payload.duration_adjustment_reason }}">
@@ -348,6 +356,7 @@
                         <form class="slot-choice-form" method="get">
                           <input type="hidden" name="business_client" value="{{ confirm_payload.business_client }}">
                           <input type="hidden" name="manual_channel" value="{{ confirm_payload.manual_channel }}">
+                          <input type="hidden" name="requested_by_contact" value="{{ confirm_payload.requested_by_contact }}">
                           <input type="hidden" name="target_date" value="{{ confirm_payload.target_date }}">
                           <input type="hidden" name="adjusted_duration_minutes" value="{{ confirm_payload.adjusted_duration_minutes }}">
                           <input type="hidden" name="duration_adjustment_reason" value="{{ confirm_payload.duration_adjustment_reason }}">
