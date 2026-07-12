@@ -38,7 +38,6 @@ from apps.notifications.models import InternalNotification
 
 
 DEMO_PASSWORD = "DemoAgendaSalon2026!"
-DEFAULT_BASE_DATE = date(2026, 7, 6)
 MADRID = ZoneInfo("Europe/Madrid")
 
 
@@ -48,14 +47,21 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--base-date",
-            default=DEFAULT_BASE_DATE.isoformat(),
-            help="Primer lunes de la semana demo en formato YYYY-MM-DD.",
+            default="",
+            help=(
+                "Primer lunes de la semana demo en formato YYYY-MM-DD. "
+                "Si se omite, se usa el lunes operativo actual o siguiente."
+            ),
         )
 
     @transaction.atomic
     def handle(self, *args, **options):
         try:
-            base_date = date.fromisoformat(options["base_date"])
+            base_date = (
+                date.fromisoformat(options["base_date"])
+                if options["base_date"]
+                else _current_or_next_monday(timezone.localdate())
+            )
         except ValueError as exc:
             raise CommandError("--base-date debe usar formato YYYY-MM-DD.") from exc
 
@@ -106,6 +112,7 @@ class DemoSeeder:
         )
         self.business, self.secondary_business = self._create_businesses()
         self._create_membership()
+        self._reset_demo_appointments()
         self._create_calendar()
         self.services = self._create_services()
         self.lines = self._create_work_lines()
@@ -126,6 +133,14 @@ class DemoSeeder:
             "secondary_business": self.secondary_business.commercial_name,
             "no_capacity_date": self.no_capacity_date.isoformat(),
         }
+
+    def _reset_demo_appointments(self):
+        InternalNotification.objects.filter(
+            business__in=(self.business, self.secondary_business)
+        ).delete()
+        Appointment.objects.filter(
+            business__in=(self.business, self.secondary_business)
+        ).delete()
 
     def _create_activity_events(self):
         events = (
@@ -537,8 +552,51 @@ class DemoSeeder:
             line.save()
 
         javier = self._upsert_client("Javier Martín", "600222201", "Suele reservar corte y barba juntos.", business=business)
-        self._upsert_client("Marcos Ruiz", "600222202", "Prefiere las citas a última hora de la tarde.", business=business)
+        marcos = self._upsert_client("Marcos Ruiz", "600222202", "Prefiere las citas a última hora de la tarde.", business=business)
         self._upsert_client_access(javier)
+
+        services = {
+            service.name: service
+            for service in Service.objects.filter(business=business)
+        }
+        lines = {
+            line.line_number: line
+            for line in WorkLine.objects.filter(business=business)
+        }
+        self._upsert_appointment(
+            business=business,
+            created_by=self.secondary_professional,
+            client=javier,
+            line=lines[1],
+            start_at=_at(self.past_date, time(10, 0)),
+            minutes=60,
+            services=[services["Corte y barba"]],
+            channel=Appointment.ManualChannel.FRONT_DESK,
+            status=Appointment.Status.COMPLETED,
+            completed=True,
+        )
+        self._upsert_appointment(
+            business=business,
+            created_by=self.secondary_professional,
+            client=marcos,
+            line=lines[2],
+            start_at=_at(self.base_date + timedelta(days=1), time(18, 0)),
+            minutes=45,
+            services=[services["Degradado"]],
+            channel=Appointment.ManualChannel.PHONE,
+        )
+        self._upsert_appointment(
+            business=business,
+            created_by=self.secondary_professional,
+            client=javier,
+            line=lines[1],
+            start_at=_at(self.base_date + timedelta(days=3), time(17, 0)),
+            minutes=30,
+            services=[services["Arreglo de barba"]],
+            channel=Appointment.ManualChannel.PUBLIC_WEB,
+            status=Appointment.Status.CANCELLED,
+            cancellation_reason="El cliente reorganizó su semana.",
+        )
 
     def _create_holidays_and_closures(self):
         holiday_date = self.base_date + timedelta(days=4)
@@ -740,6 +798,8 @@ class DemoSeeder:
     def _upsert_appointment(
         self,
         *,
+        business=None,
+        created_by=None,
         client,
         line,
         start_at,
@@ -753,15 +813,17 @@ class DemoSeeder:
         no_show=False,
         summary="",
     ):
+        business = business or self.business
+        created_by = created_by or self.professional
         appointment = Appointment.objects.filter(
-            business=self.business,
+            business=business,
             business_client=client,
             work_line=line,
             starts_at=start_at,
         ).first()
         if appointment is None:
             appointment = Appointment(
-                business=self.business,
+                business=business,
                 business_client=client,
                 work_line=line,
                 starts_at=start_at,
@@ -770,15 +832,15 @@ class DemoSeeder:
         appointment.total_duration_minutes = minutes
         appointment.status = status
         appointment.manual_channel = channel
-        appointment.created_by = self.professional
+        appointment.created_by = created_by
         appointment.duration_adjustment_reason = duration_adjustment_reason
         appointment.cancellation_reason = cancellation_reason
         appointment.service_summary_snapshot = summary or " + ".join(service.name for service in services)
-        appointment.cancelled_by = self.professional if status == Appointment.Status.CANCELLED else None
+        appointment.cancelled_by = created_by if status == Appointment.Status.CANCELLED else None
         appointment.cancelled_at = start_at - timedelta(days=1) if status == Appointment.Status.CANCELLED else None
-        appointment.completed_by = self.professional if completed else None
+        appointment.completed_by = created_by if completed else None
         appointment.completed_at = appointment.ends_at if completed else None
-        appointment.no_show_marked_by = self.professional if no_show else None
+        appointment.no_show_marked_by = created_by if no_show else None
         appointment.no_show_marked_at = appointment.ends_at if no_show else None
         appointment.full_clean()
         appointment.save()
@@ -827,6 +889,10 @@ class DemoSeeder:
                     "read_at": None,
                 },
             )
+
+
+def _current_or_next_monday(today):
+    return today + timedelta(days=(7 - today.weekday()) % 7)
 
 
 def _update_first_or_create(model, lookup, defaults):
