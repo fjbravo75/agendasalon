@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Business, BusinessActivityEvent, BusinessMembership, BusinessPublicImage
+from .models import (
+    Business,
+    BusinessActivityEvent,
+    BusinessMembership,
+    BusinessPublicImage,
+    PlatformLoginImage,
+    PlatformSettings,
+)
 
 
 @admin.register(Business)
@@ -69,5 +76,25 @@ class BusinessActivityEventAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(PlatformSettings)
+class PlatformSettingsAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "admin_theme", "login_image_preset", "updated_by", "updated_at")
+    readonly_fields = ("updated_by", "updated_at")
+
+    def has_add_permission(self, request):
+        return not PlatformSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PlatformLoginImage)
+class PlatformLoginImageAdmin(admin.ModelAdmin):
+    list_display = ("label", "is_selected", "uploaded_by", "created_at")
+    list_filter = ("is_selected",)
+    search_fields = ("label",)
+    readonly_fields = ("created_at",)
 
 # Register your models here.

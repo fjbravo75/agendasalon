@@ -19,7 +19,12 @@ from apps.booking.models import (
     WorkLine,
 )
 from apps.businesses.activity import record_business_activity
-from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
+from apps.businesses.models import (
+    Business,
+    BusinessActivityEvent,
+    BusinessMembership,
+    PlatformSettings,
+)
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
 from apps.customers.models import (
@@ -80,6 +85,10 @@ class DemoSeeder:
             email="admin@agendasalon.local",
             is_staff=True,
             is_superuser=True,
+        )
+        PlatformSettings.objects.get_or_create(
+            pk=PlatformSettings.SINGLETON_PK,
+            defaults={"updated_by": self.superadmin},
         )
         self.professional = self._upsert_user(
             phone="+34600111001",

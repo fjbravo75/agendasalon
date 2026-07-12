@@ -14,12 +14,19 @@ from apps.businesses.activity import record_business_activity
 from apps.businesses.forms import (
     BusinessForm,
     BusinessVisualSettingsForm,
+    PlatformVisualSettingsForm,
     ProfessionalCreateForm,
 )
-from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
+from apps.businesses.models import (
+    Business,
+    BusinessActivityEvent,
+    BusinessMembership,
+    PlatformSettings,
+)
 from apps.businesses.services import (
     get_business_public_image_url,
     get_business_visual_theme,
+    get_platform_login_image_url,
     get_primary_business_for_user,
 )
 
@@ -360,6 +367,45 @@ def superadmin_membership_toggle(request, business_id, membership_id):
     )
     messages.success(request, f"El acceso de {membership.user.full_name} queda {state}.")
     return redirect("businesses:superadmin_business_detail", business_id=business_id)
+
+
+@superadmin_required
+def superadmin_platform_settings(request):
+    platform_settings, _created = PlatformSettings.objects.get_or_create(
+        pk=PlatformSettings.SINGLETON_PK
+    )
+    settings_form = PlatformVisualSettingsForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=platform_settings,
+    )
+    if request.method == "POST" and settings_form.is_valid():
+        theme_changed = "admin_theme" in settings_form.changed_data
+        image_uploaded = "new_login_image" in settings_form.changed_data
+        image_selected = "login_image_choice" in settings_form.changed_data
+        appearance_changed = theme_changed or image_uploaded or image_selected
+
+        with transaction.atomic():
+            platform_settings = settings_form.save(updated_by=request.user)
+
+        if appearance_changed:
+            messages.success(request, "Los ajustes de AgendaSalon quedan guardados.")
+        else:
+            messages.info(request, "No había cambios pendientes en la apariencia.")
+        return redirect("platform_settings:superadmin_platform_settings")
+
+    return render(
+        request,
+        "superadmin/settings.html",
+        {
+            "platform_settings": platform_settings,
+            "settings_form": settings_form,
+            "login_image_url": get_platform_login_image_url(platform_settings),
+            "login_image_is_custom": platform_settings.login_images.filter(
+                is_selected=True
+            ).exists(),
+        },
+    )
 
 
 @login_required

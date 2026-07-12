@@ -1,6 +1,6 @@
 from django.templatetags.static import static
 
-from apps.businesses.models import BusinessMembership
+from apps.businesses.models import BusinessMembership, PlatformSettings
 
 
 def get_active_memberships_for_user(user):
@@ -61,3 +61,31 @@ def get_business_public_image_url(business):
         business.PublicImagePreset.BARBERSHOP: "img/customer-login-barberia-norte-bg-v2.png",
     }
     return static(preset_images[business.public_image_preset])
+
+
+def get_platform_settings():
+    return (
+        PlatformSettings.objects.prefetch_related("login_images")
+        .filter(pk=PlatformSettings.SINGLETON_PK)
+        .first()
+        or PlatformSettings(pk=PlatformSettings.SINGLETON_PK)
+    )
+
+
+def get_platform_login_image_url(platform_settings=None):
+    platform_settings = platform_settings or get_platform_settings()
+    selected_image = platform_settings.login_images.filter(is_selected=True).first()
+    if selected_image is not None:
+        try:
+            return selected_image.image.url
+        except ValueError:
+            pass
+
+    preset_images = {
+        PlatformSettings.LoginImagePreset.AGENDASALON: "img/agendasalon-internal-login-bg.png",
+        PlatformSettings.LoginImagePreset.SALON: "img/customer-login-peluqueria-mari-bg.webp",
+        PlatformSettings.LoginImagePreset.BARBERSHOP: (
+            "img/customer-login-barberia-norte-bg-v2.png"
+        ),
+    }
+    return static(preset_images[platform_settings.login_image_preset])

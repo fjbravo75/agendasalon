@@ -88,6 +88,22 @@ class ProfessionalSettingsTests(TestCase):
         self.assertContains(response, "Salón luminoso")
         self.assertContains(response, "Barbería contemporánea")
         self.assertContains(response, "data-public-image-choice", count=2)
+        self.assertContains(response, "Seleccionar imagen")
+        self.assertContains(response, "Ningún archivo seleccionado")
+
+    def test_saving_the_same_business_appearance_reports_no_pending_changes(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            self.url,
+            {
+                "professional_theme": Business.ProfessionalTheme.LIGHT,
+                "public_image_choice": "preset:salon",
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, "No había cambios pendientes en la apariencia.")
 
     def test_professional_can_enable_dark_mode_only_for_their_business(self):
         self.client.force_login(self.professional)

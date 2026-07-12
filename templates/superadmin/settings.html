@@ -1,20 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Ajustes de {{ business.commercial_name }} - AgendaSalon{% endblock %}
+{% block title %}Ajustes de AgendaSalon{% endblock %}
 
 {% block content %}
   <section class="settings-shell" aria-labelledby="settings-title">
     <header class="professional-dashboard__hero settings-hero">
       <div class="professional-dashboard__copy">
-        <span>Personalización del negocio</span>
-        <h1 class="page-title page-title--compact" id="settings-title">Ajustes de {{ business.commercial_name }}</h1>
+        <span>Configuración de la plataforma</span>
+        <h1 class="page-title page-title--compact" id="settings-title">Ajustes de AgendaSalon</h1>
         <p>
-          Adapta la apariencia del panel profesional y la imagen que ven tus
-          clientes al reservar o entrar en su cuenta.
+          Personaliza la administración del SaaS y la imagen común que reciben
+          profesionales y superadministradores al entrar.
         </p>
-      </div>
-      <div class="professional-dashboard__actions">
-        <a class="button button--secondary" href="{% url 'public_booking' business.slug %}" target="_blank" rel="noopener">Ver reserva pública</a>
       </div>
     </header>
 
@@ -23,20 +20,20 @@
       {{ settings_form.non_field_errors }}
 
       <div class="settings-grid">
-        <section class="settings-panel" aria-labelledby="theme-settings-title">
+        <section class="settings-panel" aria-labelledby="platform-theme-title">
           <div class="ops-section-head ops-section-head--compact">
             <div>
-              <span>Panel profesional</span>
-              <h2 id="theme-settings-title">Modo de visualización</h2>
+              <span>Administración del SaaS</span>
+              <h2 id="platform-theme-title">Modo de visualización</h2>
             </div>
           </div>
           <p class="settings-panel__intro">
-            Elige cómo se muestra la zona de trabajo del equipo. La reserva
-            pública adapta automáticamente su luminosidad al dispositivo del
-            cliente y mantiene la imagen propia del negocio.
+            Elige la apariencia del dashboard, la gestión de negocios y estos
+            ajustes. Cada salón conserva por separado el tema elegido para su
+            panel profesional.
           </p>
           <div class="theme-choice-list">
-            {% for choice in settings_form.professional_theme %}
+            {% for choice in settings_form.admin_theme %}
               <label class="theme-choice{% if choice.data.selected %} is-selected{% endif %}">
                 {{ choice.tag }}
                 <span class="theme-choice__sample theme-choice__sample--{{ choice.data.value }}" aria-hidden="true">
@@ -44,33 +41,36 @@
                 </span>
                 <span>
                   <strong>{{ choice.choice_label }}</strong>
-                  <small>{% if choice.data.value == 'dark' %}Menos luminosidad para trabajar en ambientes con poca luz.{% else %}La apariencia clara y editorial habitual de AgendaSalon.{% endif %}</small>
+                  <small>{% if choice.data.value == 'dark' %}Reduce la luminosidad en jornadas largas o ambientes con poca luz.{% else %}Mantiene la apariencia clara y editorial de AgendaSalon.{% endif %}</small>
                 </span>
               </label>
             {% endfor %}
           </div>
-          {{ settings_form.professional_theme.errors }}
+          {{ settings_form.admin_theme.errors }}
+          <p class="settings-default-note">
+            Al cerrar sesión, la confirmación conservará el modo visual que estuviera activo.
+          </p>
         </section>
 
-        <section class="settings-panel" aria-labelledby="public-image-title">
+        <section class="settings-panel" aria-labelledby="platform-login-image-title">
           <div class="ops-section-head ops-section-head--compact">
             <div>
-              <span>Experiencia cliente</span>
-              <h2 id="public-image-title">Imagen pública del negocio</h2>
+              <span>Acceso interno</span>
+              <h2 id="platform-login-image-title">Imagen de entrada a AgendaSalon</h2>
             </div>
-            <span class="settings-state">{% if public_image_is_custom %}Personalizada{% else %}Predeterminada{% endif %}</span>
+            <span class="settings-state">{% if login_image_is_custom %}Personalizada{% else %}Predeterminada{% endif %}</span>
           </div>
           <p class="settings-panel__intro">
-            Esta imagen se utiliza en la reserva online y en las pantallas de
-            acceso y registro de clientes. El acceso profesional conserva su
-            imagen propia de AgendaSalon.
+            Esta imagen aparece en el acceso compartido por profesionales y
+            superadministradores. No modifica la reserva pública ni las
+            pantallas de clientes de ningún negocio.
           </p>
 
           <div class="settings-image-layout">
-            <div class="settings-public-preview settings-public-preview--{{ client_auth_theme }}" style="--settings-public-bg: url('{{ client_auth_image_url }}');" role="img" aria-label="Vista previa de la imagen pública de {{ business.commercial_name }}" data-public-image-preview>
+            <div class="settings-public-preview settings-login-preview" style="--settings-public-bg: url('{{ login_image_url }}');" role="img" aria-label="Vista previa del acceso interno de AgendaSalon" data-public-image-preview>
               <div>
-                <span>Reserva online</span>
-                <strong>{{ business.commercial_name }}</strong>
+                <span>Acceso privado</span>
+                <strong>AgendaSalon</strong>
               </div>
             </div>
 
@@ -78,11 +78,11 @@
               <fieldset class="settings-image-choice-fieldset">
                 <legend>Elige la imagen activa</legend>
                 <div class="settings-image-choice-list">
-                  {% for image in settings_form.public_image_options %}
+                  {% for image in settings_form.login_image_options %}
                     <label class="settings-image-choice{% if image.is_selected %} is-selected{% endif %}" data-public-image-card>
                       <input
                         type="radio"
-                        name="public_image_choice"
+                        name="login_image_choice"
                         value="{{ image.value }}"
                         data-public-image-choice
                         data-image-url="{{ image.url }}"
@@ -97,21 +97,21 @@
                     </label>
                   {% endfor %}
                 </div>
-                {{ settings_form.public_image_choice.errors }}
+                {{ settings_form.login_image_choice.errors }}
               </fieldset>
 
               <div class="field settings-upload-field">
-                {{ settings_form.new_public_image.label_tag }}
+                {{ settings_form.new_login_image.label_tag }}
                 <div class="settings-file-control">
-                  {{ settings_form.new_public_image }}
-                  <label class="button button--secondary settings-file-trigger" for="{{ settings_form.new_public_image.id_for_label }}">Seleccionar imagen</label>
+                  {{ settings_form.new_login_image }}
+                  <label class="button button--secondary settings-file-trigger" for="{{ settings_form.new_login_image.id_for_label }}">Seleccionar imagen</label>
                   <span data-public-image-filename>Ningún archivo seleccionado</span>
                 </div>
                 <small>JPG, PNG o WebP · máximo 5 MB · mínimo 800 × 500 px. Recomendado: imagen horizontal de 1600 × 1000 px o superior.</small>
-                {{ settings_form.new_public_image.errors }}
+                {{ settings_form.new_login_image.errors }}
               </div>
               <p class="settings-default-note">
-                La nueva imagen quedará guardada solo para este negocio y podrás volver a elegirla más adelante.
+                Las imágenes subidas quedan disponibles para reutilizarlas más adelante.
               </p>
             </div>
           </div>
@@ -119,7 +119,7 @@
       </div>
 
       <div class="settings-form__actions">
-        <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Cancelar</a>
+        <a class="button button--secondary" href="{% url 'dashboards:superadmin_home' %}">Cancelar</a>
         <button class="button" type="submit">Guardar ajustes</button>
       </div>
     </form>

@@ -129,6 +129,7 @@ const publicImagePreview = document.querySelector("[data-public-image-preview]")
 if (publicImagePreview) {
   const imageChoices = [...document.querySelectorAll("[data-public-image-choice]")];
   const imageUpload = document.querySelector("[data-public-image-upload]");
+  const imageFilename = document.querySelector("[data-public-image-filename]");
   let localPreviewUrl = "";
 
   const showPublicImage = (url) => {
@@ -147,7 +148,13 @@ if (publicImagePreview) {
   imageUpload?.addEventListener("change", () => {
     const [file] = imageUpload.files;
     if (!file) {
+      if (imageFilename) {
+        imageFilename.textContent = "Ningún archivo seleccionado";
+      }
       return;
+    }
+    if (imageFilename) {
+      imageFilename.textContent = file.name;
     }
     if (localPreviewUrl) {
       URL.revokeObjectURL(localPreviewUrl);

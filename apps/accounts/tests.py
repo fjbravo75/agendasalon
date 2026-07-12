@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.forms import PhoneAuthenticationForm
-from apps.businesses.models import Business, BusinessMembership
+from apps.businesses.models import Business, BusinessMembership, PlatformSettings
 
 
 class PhoneAuthenticationFormTests(TestCase):
@@ -55,6 +55,17 @@ class LoginPageTemplateTests(TestCase):
         self.assertNotContains(response, "¿Has olvidado")
         self.assertNotContains(response, "MVP")
         self.assertNotContains(response, "Reservas online")
+        self.assertContains(response, "agendasalon-internal-login-bg.png")
+
+    def test_login_page_uses_platform_selected_image(self):
+        PlatformSettings.objects.create(
+            login_image_preset=PlatformSettings.LoginImagePreset.BARBERSHOP
+        )
+
+        response = self.client.get(reverse("accounts:login"))
+
+        self.assertContains(response, "customer-login-barberia-norte-bg-v2.png")
+        self.assertNotContains(response, "--internal-login-bg: url('/static/img/agendasalon")
 
     def test_invalid_login_keeps_private_editorial_context(self):
         response = self.client.post(
@@ -169,7 +180,20 @@ class LogoutFlowTests(TestCase):
             password="test-pass-123",
             full_name="Admin AgendaSalon",
         )
-        Business.objects.create(commercial_name="Peluquería Mari", slug="peluqueria-mari")
+        self.professional = get_user_model().objects.create_user(
+            normalized_phone="+34600111001",
+            password="test-pass-123",
+            full_name="Mari Profesional",
+        )
+        self.dark_business = Business.objects.create(
+            commercial_name="Peluquería Mari",
+            slug="peluqueria-mari",
+            professional_theme=Business.ProfessionalTheme.DARK,
+        )
+        BusinessMembership.objects.create(
+            business=self.dark_business,
+            user=self.professional,
+        )
         Business.objects.create(commercial_name="Barbería Norte", slug="barberia-norte")
 
     def test_private_logout_ends_on_dedicated_confirmation(self):
@@ -189,6 +213,32 @@ class LogoutFlowTests(TestCase):
         self.client.force_login(self.superadmin)
 
         self.assertEqual(self.client.get(reverse("accounts:logout")).status_code, 405)
+
+    def test_professional_logout_keeps_dark_theme_on_confirmation(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.post(reverse("accounts:logout"), follow=True)
+
+        self.assertContains(response, "theme-dark")
+        self.assertEqual(
+            self.client.session["logged_out_theme"],
+            Business.ProfessionalTheme.DARK,
+        )
+
+    def test_superadmin_logout_keeps_platform_theme_on_confirmation(self):
+        PlatformSettings.objects.create(
+            admin_theme=PlatformSettings.AdminTheme.DARK,
+            updated_by=self.superadmin,
+        )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.post(reverse("accounts:logout"), follow=True)
+
+        self.assertContains(response, "theme-dark")
+        self.assertEqual(
+            self.client.session["logged_out_theme"],
+            PlatformSettings.AdminTheme.DARK,
+        )
 
     def test_authenticated_user_does_not_see_logged_out_confirmation(self):
         self.client.force_login(self.superadmin)

@@ -122,6 +122,17 @@ barbería. El fondo estándar de salón se sirve como WebP optimizado para reduc
 peso y mantener estable la revisión visual. El acceso interno de profesionales
 mantiene su imagen propia.
 
+El superadministrador dispone de `/superadmin/ajustes/`. Su tema claro u oscuro
+se aplica al dashboard, la gestión de negocios y la propia configuración, sin
+alterar el modo elegido por cada salón. También puede seleccionar una de las
+tres imágenes internas estándar o subir imágenes propias saneadas para el
+acceso común de profesionales y superadministradores. Estas imágenes no se
+utilizan en la reserva ni en las cuentas de clientes.
+
+Al cerrar una sesión interna, la confirmación conserva el modo claro u oscuro
+que estuviera activo. Después del cierre solo permanece esa preferencia visual;
+no se conserva identidad, negocio, rol ni permisos.
+
 La pantalla Django del flujo profesional está disponible en
 `/profesional/citas/nueva/`. Permite seleccionar cliente, canal, varios
 servicios y día; calcula la duración total; muestra calendario mensual,
@@ -193,6 +204,7 @@ comando puede ejecutarse varias veces sin duplicar los registros principales.
 - `/superadmin/dashboard/`: estado general de AgendaSalon.
 - `/superadmin/dashboard/datos/`: datos JSON protegidos del cuadro de mando.
 - `/superadmin/negocios/`: alta y gestión de negocios y accesos profesionales.
+- `/superadmin/ajustes/`: tema de administración e imagen del acceso interno.
 - `/superadmin/negocios/<id>/actividad/`: historial filtrable de un negocio.
 - `/reservar/<slug>/`: reserva online híbrida.
 - `/clientes/<slug>/entrar/`: acceso cliente por negocio.
@@ -213,7 +225,7 @@ Verificación actual:
 npm.cmd run check
 ```
 
-La última verificación completa deja la batería en 201 pruebas Django y
+La última verificación completa deja la batería en 219 pruebas Django y
 operativas, además de 17 pruebas frontend correctas. La compatibilidad con
 PostgreSQL 17 se verificó en el bloque de producción, incluida una prueba
 concurrente real. El build de producción, `pip-audit` y `npm audit` también se
