@@ -31,7 +31,6 @@ from apps.customers.forms import (
 )
 from apps.customers.models import (
     BusinessClient,
-    BusinessClientAccess,
     BusinessClientAccessInvitation,
     BusinessClientAccessGrant,
     BusinessClientAuthorizedContact,

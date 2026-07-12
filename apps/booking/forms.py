@@ -192,7 +192,7 @@ class AppointmentSearchForm(forms.Form):
         try:
             contact_id = int(value.split(":", 1)[1])
         except (TypeError, ValueError):
-            raise forms.ValidationError("Elige quién ha pedido la cita.")
+            raise forms.ValidationError("Elige quién ha pedido la cita.") from None
         contact = client.authorized_contacts.filter(pk=contact_id, is_active=True).first()
         if contact is None:
             raise forms.ValidationError("Esa persona ya no está autorizada para pedir citas.")

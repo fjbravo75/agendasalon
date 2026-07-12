@@ -9,7 +9,6 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 from django.views.decorators.vary import vary_on_cookie
 
-from apps.booking.models import Appointment
 from apps.booking.slot_engine import (
     get_day_availability,
     get_month_availability,

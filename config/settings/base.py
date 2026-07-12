@@ -3,7 +3,6 @@
 from pathlib import Path
 import os
 
-from django.core.exceptions import ImproperlyConfigured
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]

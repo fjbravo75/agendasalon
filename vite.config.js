@@ -6,6 +6,12 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  test: {
+    environment: "jsdom",
+    include: ["frontend/**/*.test.jsx"],
+    setupFiles: ["./frontend/test-setup.js"],
+    restoreMocks: true,
+  },
   build: {
     outDir: "static/react",
     emptyOutDir: true,

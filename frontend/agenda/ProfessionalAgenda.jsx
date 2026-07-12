@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import {
   appointmentDetailUrl,
@@ -518,7 +518,11 @@ function Timeline({
         <span>Los trazos verdes son inicios donde cabe el bloque completo.</span>
         <strong>Tramos de {data.calendar.slot_interval_minutes} min</strong>
       </div>
-      <div className="agenda-timeline__scroll">
+      <div
+        className="agenda-timeline__scroll"
+        tabIndex="0"
+        aria-label="Desplazar la jornada por líneas de trabajo"
+      >
         <div
           className="agenda-timeline"
           style={{

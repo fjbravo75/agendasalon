@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useState } from "react";
+import React, { useDeferredValue, useEffect, useState } from "react";
 
 import {
   barPercent,

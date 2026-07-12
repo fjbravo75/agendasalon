@@ -1,7 +1,9 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -158,6 +160,28 @@ class SuperadminDashboardApiTests(TestCase):
         self.assertEqual(len(series), 14)
         self.assertEqual(series[-1]["date"], timezone.localdate().isoformat())
         self.assertEqual(series[0]["date"], (timezone.localdate() - timedelta(days=13)).isoformat())
+
+    def test_query_budget_does_not_grow_with_the_number_of_businesses(self):
+        Business.objects.bulk_create(
+            [
+                Business(
+                    commercial_name=f"Negocio de carga {index}",
+                    slug=f"negocio-carga-{index}",
+                )
+                for index in range(12)
+            ]
+        )
+        self.client.force_login(self.superadmin)
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(
+            len(queries),
+            12,
+            f"El dashboard ha superado su presupuesto de consultas: {len(queries)}",
+        )
 
 
 class SuperadminDashboardReactViewTests(TestCase):
