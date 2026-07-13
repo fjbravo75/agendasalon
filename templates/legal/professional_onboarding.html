@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Configuración de privacidad - {{ business.commercial_name }}{% endblock %}
+
+{% block content %}
+  <section class="legal-shell" aria-labelledby="onboarding-title">
+    <header class="legal-hero">
+      <span class="legal-kicker">Configuración inicial</span>
+      <h1 id="onboarding-title">Privacidad de {{ business.commercial_name }}</h1>
+      <p>Identifica al responsable del tratamiento y deja constancia de los documentos vigentes. Hasta completar este paso no se recogerán nuevos datos de clientes.</p>
+    </header>
+
+    <div class="legal-layout">
+      <section class="legal-panel" aria-labelledby="business-data-title">
+        <h2 id="business-data-title">Datos del responsable</h2>
+        <p class="legal-panel__intro">Utiliza los datos reales del titular del negocio. Podrás actualizarlos cuando cambien.</p>
+        <form class="legal-form" method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ next_url }}">
+          {{ onboarding_form.non_field_errors }}
+          <div class="legal-form__grid">
+            <div class="legal-field">{{ onboarding_form.legal_name.label_tag }}{{ onboarding_form.legal_name }}{{ onboarding_form.legal_name.errors }}</div>
+            <div class="legal-field">{{ onboarding_form.tax_identifier.label_tag }}{{ onboarding_form.tax_identifier }}{{ onboarding_form.tax_identifier.errors }}</div>
+            <div class="legal-field">{{ onboarding_form.registered_address.label_tag }}{{ onboarding_form.registered_address }}{{ onboarding_form.registered_address.errors }}</div>
+            <div class="legal-field">{{ onboarding_form.privacy_email.label_tag }}{{ onboarding_form.privacy_email }}{{ onboarding_form.privacy_email.errors }}</div>
+          </div>
+          <div class="legal-field">{{ onboarding_form.rights_contact_name.label_tag }}{{ onboarding_form.rights_contact_name }}{{ onboarding_form.rights_contact_name.errors }}</div>
+          <div class="legal-field">{{ onboarding_form.retention_criteria.label_tag }}{{ onboarding_form.retention_criteria }}<small>{{ onboarding_form.retention_criteria.help_text }}</small>{{ onboarding_form.retention_criteria.errors }}</div>
+          <div class="legal-checks">
+            <label class="legal-check">{{ onboarding_form.platform_privacy_acknowledged }}<span>{{ onboarding_form.platform_privacy_acknowledged.label }}</span></label>
+            {{ onboarding_form.platform_privacy_acknowledged.errors }}
+            <label class="legal-check">{{ onboarding_form.terms_accepted }}<span>{{ onboarding_form.terms_accepted.label }}</span></label>
+            {{ onboarding_form.terms_accepted.errors }}
+            <label class="legal-check">{{ onboarding_form.data_processing_accepted }}<span>{{ onboarding_form.data_processing_accepted.label }}</span></label>
+            {{ onboarding_form.data_processing_accepted.errors }}
+            <label class="legal-check">{{ onboarding_form.authority_declared }}<span>{{ onboarding_form.authority_declared.label }}</span></label>
+            {{ onboarding_form.authority_declared.errors }}
+          </div>
+          <button class="button" type="submit">Guardar y activar privacidad</button>
+        </form>
+      </section>
+
+      <aside class="legal-panel legal-panel--sticky" aria-labelledby="documents-title">
+        <h2 id="documents-title">Documentos que aceptas</h2>
+        <p class="legal-panel__intro">Se guarda la versión, la huella del contenido, la fecha y la identidad del negocio.</p>
+        <ul class="legal-document-list">
+          <li><span>Privacidad de la plataforma</span><a class="legal-text-link" href="{% url 'legal:platform_document' documents.platform_privacy.slug %}" target="_blank" rel="noopener">Leer · {{ documents.platform_privacy.version }}</a></li>
+          <li><span>Condiciones del servicio</span><a class="legal-text-link" href="{% url 'legal:platform_document' documents.terms.slug %}" target="_blank" rel="noopener">Leer · {{ documents.terms.version }}</a></li>
+          <li><span>Encargo de tratamiento</span><a class="legal-text-link" href="{% url 'legal:platform_document' documents.data_processing.slug %}" target="_blank" rel="noopener">Leer · {{ documents.data_processing.version }}</a></li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

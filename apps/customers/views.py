@@ -29,6 +29,11 @@ from apps.customers.forms import (
     ProfessionalClientEditForm,
     ProfessionalClientQuickForm,
 )
+from apps.legal.models import LegalAcceptance
+from apps.legal.services import (
+    acknowledge_customer_privacy,
+    business_can_collect_personal_data,
+)
 from apps.customers.models import (
     BusinessClient,
     BusinessClientAccessInvitation,
@@ -738,7 +743,18 @@ def client_invitation_activate(request, slug):
     if invitation is None:
         return _invitation_unavailable_response(request, business)
 
-    activation_form = ClientInvitationActivationForm(request.POST or None)
+    if not business_can_collect_personal_data(business):
+        return render(
+            request,
+            "legal/business_privacy_pending.html",
+            {"business": business},
+            status=503,
+        )
+
+    activation_form = ClientInvitationActivationForm(
+        request.POST or None,
+        business=business,
+    )
     if request.method == "POST" and activation_form.is_valid():
         try:
             access, used_invitation = activate_claimed_invitation(
@@ -749,6 +765,11 @@ def client_invitation_activate(request, slug):
         except ValidationError:
             return _invitation_unavailable_response(request, business)
         login_client_access(request, access)
+        if business.legal_compliance_enabled:
+            acknowledge_customer_privacy(
+                client_access=access,
+                context=LegalAcceptance.Context.CLIENT_INVITATION,
+            )
         record_business_activity(
             business=business,
             category=BusinessActivityEvent.Category.ACCESS,
@@ -808,6 +829,14 @@ def client_register(request, slug):
     auth_theme = get_business_visual_theme(business)
     has_pending_booking = get_public_booking_draft(request, business) is not None
 
+    if not business_can_collect_personal_data(business):
+        return render(
+            request,
+            "legal/business_privacy_pending.html",
+            {"business": business},
+            status=503,
+        )
+
     if get_session_client_access(request, business):
         return redirect(next_url)
 
@@ -822,6 +851,11 @@ def client_register(request, slug):
                 registration_form.add_error(None, exc)
             else:
                 login_client_access(request, access)
+                if business.legal_compliance_enabled:
+                    acknowledge_customer_privacy(
+                        client_access=access,
+                        context=LegalAcceptance.Context.CLIENT_REGISTRATION,
+                    )
                 messages.success(request, "Cuenta creada. Ya puedes reservar tu cita.")
                 return redirect(next_url)
 

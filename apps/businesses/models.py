@@ -42,6 +42,11 @@ class Business(models.Model):
     province = models.CharField("provincia", max_length=120, blank=True)
     is_active = models.BooleanField("activo", default=True)
     public_booking_enabled = models.BooleanField("reserva pública activa", default=True)
+    legal_compliance_enabled = models.BooleanField(
+        "controles legales activos",
+        default=False,
+        help_text="Se activa en negocios creados desde la plataforma y en negocios existentes migrados.",
+    )
     professional_theme = models.CharField(
         "tema del panel profesional",
         max_length=12,
@@ -337,6 +342,14 @@ class BusinessActivityEvent(models.Model):
         CLIENT_ACCESS_ACTIVATED = "client_access_activated", "Cuenta de cliente activada"
         NATIONAL_HOLIDAYS_ENABLED = "national_holidays_enabled", "Festivos nacionales aplicados"
         NATIONAL_HOLIDAYS_DISABLED = "national_holidays_disabled", "Festivos nacionales desactivados"
+        LEGAL_DOCUMENTATION_ACCEPTED = (
+            "legal_documentation_accepted",
+            "Documentación legal aceptada",
+        )
+        DATA_RIGHTS_REQUEST_UPDATED = (
+            "data_rights_request_updated",
+            "Solicitud de derechos actualizada",
+        )
 
     business = models.ForeignKey(
         Business,

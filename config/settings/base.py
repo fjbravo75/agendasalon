@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.holidays",
     "apps.notifications",
     "apps.dashboards",
+    "apps.legal",
 ]
 
 MIDDLEWARE = [
@@ -49,6 +50,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.legal.middleware.ProfessionalLegalOnboardingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -106,6 +108,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.businesses.context_processors.professional_appearance",
+                "apps.legal.context_processors.legal_context",
             ],
         },
     },
@@ -171,3 +174,25 @@ CSRF_COOKIE_SAMESITE = "Lax"
 SECURE_REFERRER_POLICY = "same-origin"
 SESSION_COOKIE_AGE = 8 * 60 * 60
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
+AGENDA_PLATFORM_LEGAL_NAME = os.environ.get(
+    "AGENDA_PLATFORM_LEGAL_NAME",
+    "AgendaSalon · entorno de demostración",
+)
+AGENDA_PLATFORM_TAX_ID = os.environ.get("AGENDA_PLATFORM_TAX_ID", "")
+AGENDA_PLATFORM_LEGAL_ADDRESS = os.environ.get(
+    "AGENDA_PLATFORM_LEGAL_ADDRESS",
+    "Identidad legal pendiente de configuración para el despliegue",
+)
+AGENDA_PLATFORM_PRIVACY_EMAIL = os.environ.get(
+    "AGENDA_PLATFORM_PRIVACY_EMAIL",
+    "privacidad@agendasalon.local",
+)
+AGENDA_PLATFORM_WEBSITE = os.environ.get(
+    "AGENDA_PLATFORM_WEBSITE",
+    "http://127.0.0.1:8012",
+)
+AGENDA_PLATFORM_LEGAL_DEMO = os.environ.get(
+    "AGENDA_PLATFORM_LEGAL_DEMO",
+    "1",
+).strip().lower() in {"1", "true", "yes", "on"}

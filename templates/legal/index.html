@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Información legal - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="legal-shell" aria-labelledby="legal-title">
+    <header class="legal-hero">
+      <span class="legal-kicker">Información y transparencia</span>
+      <h1 id="legal-title">Documentación legal de AgendaSalon</h1>
+      <p>Consulta las condiciones, la privacidad y las reglas que ordenan el uso de la plataforma. Cada documento conserva una versión y una huella verificable.</p>
+      <div class="legal-meta">
+        <span>{{ legal_context.legal_name }}</span>
+        <span>{{ legal_context.privacy_email }}</span>
+        {% if legal_context.is_demo %}<span>Entorno demostrativo</span>{% endif %}
+      </div>
+    </header>
+
+    <section class="legal-grid" aria-label="Documentos vigentes">
+      {% for document in documents %}
+        <article class="legal-card">
+          <div>
+            <h2>{{ document.title }}</h2>
+            <p>{{ document.lead }}</p>
+          </div>
+          <a href="{% url 'legal:platform_document' document.slug %}">Leer documento · versión {{ document.version }}</a>
+        </article>
+      {% empty %}
+        <p class="legal-empty">No hay documentos publicados en este entorno.</p>
+      {% endfor %}
+    </section>
+  </section>
+{% endblock %}

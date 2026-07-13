@@ -88,12 +88,32 @@
                 {% endif %}
               </div>
 
+              {% if business.legal_compliance_enabled %}
+                <div class="legal-consent{% if registration_form.privacy_acknowledged.errors %} is-error{% endif %}">
+                  <label for="{{ registration_form.privacy_acknowledged.id_for_label }}">
+                    {{ registration_form.privacy_acknowledged }}
+                    <span>
+                      He leído la información sobre el tratamiento de mis datos por
+                      {{ business.commercial_name }}. No incluye publicidad.
+                    </span>
+                  </label>
+                  <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">Consultar privacidad</a>
+                  {% if registration_form.privacy_acknowledged.errors %}
+                    <div class="login-field-error" role="alert">{{ registration_form.privacy_acknowledged.errors }}</div>
+                  {% endif %}
+                </div>
+              {% endif %}
+
               <button class="login-button" type="submit">{% if has_pending_booking %}Crear cuenta y revisar reserva{% else %}Crear mi cuenta{% endif %}</button>
             </form>
             <div class="login-panel-note client-auth-note">
               ¿Ya tienes cuenta?
               <a href="{% url 'customers:client_access' business.slug %}?next={{ next_url|urlencode }}">Entra para reservar</a>.
             </div>
+            <nav class="legal-inline-links" aria-label="Información legal">
+              <a href="{% url 'legal:business_privacy' business.slug %}">Privacidad</a>
+              <a href="{% url 'legal:platform_document' 'cookies' %}">Cookies</a>
+            </nav>
           </div>
         </aside>
       </div>

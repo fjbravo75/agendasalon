@@ -113,6 +113,8 @@ def superadmin_business_create(request):
         if business_valid and professional_valid:
             with transaction.atomic():
                 business = business_form.save()
+                business.legal_compliance_enabled = True
+                business.save(update_fields=["legal_compliance_enabled", "updated_at"])
                 BusinessCalendarSettings.objects.create(business=business)
                 professional = professional_form.create_professional(business=business)
                 record_business_activity(

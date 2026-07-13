@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Reservas temporalmente no disponibles - {{ business.commercial_name }}{% endblock %}
+
+{% block content %}
+  <section class="legal-shell legal-shell--reading" aria-labelledby="privacy-pending-title">
+    <header class="legal-hero">
+      <span class="legal-kicker">Protección de datos</span>
+      <h1 id="privacy-pending-title">Este negocio está terminando su configuración</h1>
+      <p>{{ business.commercial_name }} todavía no ha completado la información necesaria para recoger nuevos datos personales. El acceso y el alta volverán a estar disponibles en cuanto lo haga.</p>
+      <div class="legal-meta"><span>No se ha guardado ningún dato de este formulario</span></div>
+    </header>
+    <div class="legal-panel">
+      <h2>¿Qué puedes hacer ahora?</h2>
+      <p class="legal-panel__intro">Vuelve a la reserva pública o contacta directamente con el negocio. AgendaSalon no permite continuar mientras falte esta garantía.</p>
+      <a class="button" href="{% url 'public_booking' business.slug %}">Volver a {{ business.commercial_name }}</a>
+    </div>
+  </section>
+{% endblock %}
