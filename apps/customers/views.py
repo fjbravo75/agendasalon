@@ -57,11 +57,13 @@ from apps.customers.services import (
 )
 from apps.core.security_throttle import (
     THROTTLE_MESSAGE,
-    clear_failed_attempts,
+    ThrottleLimit,
     is_throttled,
     phone_throttle_key,
     record_failed_attempt,
     request_ip,
+    reserve_throttle_attempts,
+    settle_successful_throttle,
 )
 from apps.core.text import normalize_search_text
 
@@ -647,9 +649,13 @@ def client_access(request, slug):
     if request.method == "POST":
         subject_key = f"{business.id}:{phone_throttle_key(request.POST.get('phone', ''))}"
         ip_key = request_ip(request)
-        if is_throttled(scope="client_login_subject", key=subject_key) or is_throttled(
-            scope="client_login_ip", key=ip_key
-        ):
+        reservation = reserve_throttle_attempts(
+            limits=(
+                ThrottleLimit("client_login_subject", subject_key, 5, 15 * 60),
+                ThrottleLimit("client_login_ip", ip_key, 30, 15 * 60),
+            )
+        )
+        if not reservation.allowed:
             login_form = ClientLoginForm(
                 request.POST,
                 business=business,
@@ -661,23 +667,14 @@ def client_access(request, slug):
         else:
             login_form = ClientLoginForm(request.POST, business=business)
             if login_form.is_valid():
-                clear_failed_attempts(scope="client_login_subject", key=subject_key)
+                settle_successful_throttle(
+                    reservation,
+                    reset_scopes={"client_login_subject"},
+                )
                 login_client_access(request, login_form.client_access)
                 messages.success(request, "Has entrado en tu zona de reservas.")
                 return redirect(next_url)
-            subject_blocked = record_failed_attempt(
-                scope="client_login_subject",
-                key=subject_key,
-                limit=5,
-                window_seconds=15 * 60,
-            )
-            ip_blocked = record_failed_attempt(
-                scope="client_login_ip",
-                key=ip_key,
-                limit=30,
-                window_seconds=15 * 60,
-            )
-            if subject_blocked or ip_blocked:
+            if reservation.blocked_scopes:
                 login_form.add_error(None, THROTTLE_MESSAGE)
                 response_status = 429
 

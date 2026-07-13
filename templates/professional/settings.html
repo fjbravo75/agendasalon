@@ -102,16 +102,24 @@
 
               <div class="field settings-upload-field">
                 {{ settings_form.new_public_image.label_tag }}
-                <div class="settings-file-control">
+                <div class="settings-file-control{% if settings_form.public_image_quota_reached %} is-disabled{% endif %}">
                   {{ settings_form.new_public_image }}
-                  <label class="button button--secondary settings-file-trigger" for="{{ settings_form.new_public_image.id_for_label }}">Seleccionar imagen</label>
-                  <span data-public-image-filename>Ningún archivo seleccionado</span>
+                  <label class="button button--secondary settings-file-trigger" for="{{ settings_form.new_public_image.id_for_label }}"{% if settings_form.public_image_quota_reached %} aria-disabled="true"{% endif %}>
+                    {% if settings_form.public_image_quota_reached %}Galería completa{% else %}Seleccionar imagen{% endif %}
+                  </label>
+                  <span data-public-image-filename>
+                    {% if settings_form.public_image_quota_reached %}12 de 12 imágenes guardadas{% else %}Ningún archivo seleccionado{% endif %}
+                  </span>
                 </div>
                 <small>JPG, PNG o WebP · máximo 5 MB · mínimo 800 × 500 px. Recomendado: imagen horizontal de 1600 × 1000 px o superior.</small>
                 {{ settings_form.new_public_image.errors }}
               </div>
               <p class="settings-default-note">
-                La nueva imagen quedará guardada solo para este negocio y podrás volver a elegirla más adelante.
+                {% if settings_form.public_image_quota_reached %}
+                  Has alcanzado el límite de 12 imágenes de este negocio. Puedes seguir eligiendo cualquiera de las que ya están guardadas.
+                {% else %}
+                  La nueva imagen quedará guardada solo para este negocio y podrás volver a elegirla más adelante.
+                {% endif %}
               </p>
             </div>
           </div>

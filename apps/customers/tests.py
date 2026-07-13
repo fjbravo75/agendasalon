@@ -25,7 +25,9 @@ from apps.customers.services import (
     CLIENT_ACCESS_LAST_SEEN_SESSION_KEY,
     CLIENT_ACCESS_SESSION_KEY,
     authenticate_client_access,
+    get_bookable_client,
     register_client_access,
+    set_authorized_contact_active,
 )
 
 
@@ -1155,6 +1157,75 @@ class ProfessionalClientViewTests(TestCase):
         )
         grant.refresh_from_db()
         self.assertFalse(grant.is_active)
+
+    def test_reactivating_contact_does_not_restore_revoked_online_booking(self):
+        beneficiary = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Lucía Gómez",
+        )
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        contact = BusinessClientAuthorizedContact.objects.create(
+            business=self.business,
+            business_client=beneficiary,
+            linked_business_client=access.business_client,
+            full_name="María López",
+            phone=access.phone,
+            relationship_label=BusinessClientAuthorizedContact.Relationship.MOTHER,
+        )
+        grant = BusinessClientAccessGrant.objects.create(
+            business=self.business,
+            access=access,
+            business_client=beneficiary,
+            authorized_contact=contact,
+            relationship_label=BusinessClientAccessGrant.Relationship.MOTHER,
+            is_active=False,
+        )
+
+        set_authorized_contact_active(contact=contact, is_active=False)
+        set_authorized_contact_active(contact=contact, is_active=True)
+
+        grant.refresh_from_db()
+        self.assertFalse(grant.is_active)
+        self.assertIsNone(get_bookable_client(access, beneficiary.pk))
+
+    def test_active_grant_is_temporarily_gated_by_contact_state(self):
+        beneficiary = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Lucía Gómez",
+        )
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        contact = BusinessClientAuthorizedContact.objects.create(
+            business=self.business,
+            business_client=beneficiary,
+            linked_business_client=access.business_client,
+            full_name="María López",
+            phone=access.phone,
+            relationship_label=BusinessClientAuthorizedContact.Relationship.MOTHER,
+        )
+        grant = BusinessClientAccessGrant.objects.create(
+            business=self.business,
+            access=access,
+            business_client=beneficiary,
+            authorized_contact=contact,
+            relationship_label=BusinessClientAccessGrant.Relationship.MOTHER,
+            is_active=True,
+        )
+
+        set_authorized_contact_active(contact=contact, is_active=False)
+        grant.refresh_from_db()
+        self.assertTrue(grant.is_active)
+        self.assertIsNone(get_bookable_client(access, beneficiary.pk))
+
+        set_authorized_contact_active(contact=contact, is_active=True)
+        grant.refresh_from_db()
+        self.assertTrue(grant.is_active)
+        self.assertEqual(get_bookable_client(access, beneficiary.pk), beneficiary)
 
     def test_professional_contact_routes_are_scoped_to_business(self):
         self.client.force_login(self.professional)

@@ -8,7 +8,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.core.models import SecurityThrottle
-from apps.core.security_throttle import request_ip
+from apps.core.security_throttle import (
+    ThrottleLimit,
+    request_ip,
+    reserve_throttle_attempts,
+    settle_successful_throttle,
+    throttle_key_digest,
+)
 
 
 class RootRoutingTests(TestCase):
@@ -113,6 +119,30 @@ class DjangoAdminAccessTests(TestCase):
 
 
 class SecurityThrottleTests(TestCase):
+    def test_successful_reservation_preserves_attempts_reserved_after_it(self):
+        limits = (
+            ThrottleLimit("test_subject", "600111222", 5, 900),
+            ThrottleLimit("test_ip", "203.0.113.30", 30, 900),
+        )
+        successful_reservation = reserve_throttle_attempts(limits=limits)
+        reserve_throttle_attempts(limits=limits)
+
+        settle_successful_throttle(
+            successful_reservation,
+            reset_scopes={"test_subject"},
+        )
+
+        subject = SecurityThrottle.objects.get(
+            scope="test_subject",
+            key_digest=throttle_key_digest("600111222"),
+        )
+        ip_limit = SecurityThrottle.objects.get(
+            scope="test_ip",
+            key_digest=throttle_key_digest("203.0.113.30"),
+        )
+        self.assertEqual(subject.attempts, 1)
+        self.assertEqual(ip_limit.attempts, 1)
+
     def test_untrusted_client_cannot_spoof_its_ip_with_forwarded_for(self):
         request = RequestFactory().get(
             "/",

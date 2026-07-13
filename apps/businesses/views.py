@@ -3,6 +3,7 @@ from functools import wraps
 import requests
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Q
@@ -489,37 +490,48 @@ def professional_settings(request):
         image_selected = "public_image_choice" in settings_form.changed_data
         appearance_changed = theme_changed or image_uploaded or image_selected
 
-        with transaction.atomic():
-            business = settings_form.save(uploaded_by=request.user)
-            if appearance_changed:
-                updated_parts = []
-                if theme_changed:
-                    updated_parts.append("tema del panel")
-                if image_uploaded or image_selected:
-                    updated_parts.append("imagen pública")
-                record_business_activity(
-                    business=business,
-                    category=BusinessActivityEvent.Category.CONFIGURATION,
-                    event_type=BusinessActivityEvent.EventType.VISUAL_SETTINGS_UPDATED,
-                    origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
-                    summary=f"Apariencia actualizada: {', '.join(updated_parts)}.",
-                    actor=request.user,
-                    entity=business,
-                    entity_type="business",
-                    changes={
-                        "professional_theme": business.professional_theme,
-                        "has_custom_public_image": business.public_images.filter(
-                            is_selected=True
-                        ).exists(),
-                        "public_image_preset": business.public_image_preset,
-                    },
-                )
-
-        if appearance_changed:
-            messages.success(request, "Los ajustes visuales del negocio quedan guardados.")
+        try:
+            with transaction.atomic():
+                business = settings_form.save(uploaded_by=request.user)
+                if appearance_changed:
+                    updated_parts = []
+                    if theme_changed:
+                        updated_parts.append("tema del panel")
+                    if image_uploaded or image_selected:
+                        updated_parts.append("imagen pública")
+                    record_business_activity(
+                        business=business,
+                        category=BusinessActivityEvent.Category.CONFIGURATION,
+                        event_type=BusinessActivityEvent.EventType.VISUAL_SETTINGS_UPDATED,
+                        origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                        summary=f"Apariencia actualizada: {', '.join(updated_parts)}.",
+                        actor=request.user,
+                        entity=business,
+                        entity_type="business",
+                        changes={
+                            "professional_theme": business.professional_theme,
+                            "has_custom_public_image": business.public_images.filter(
+                                is_selected=True
+                            ).exists(),
+                            "public_image_preset": business.public_image_preset,
+                        },
+                    )
+        except ValidationError as exc:
+            _delete_rolled_back_public_image(settings_form)
+            if hasattr(exc, "message_dict") and "new_public_image" in exc.message_dict:
+                for error in exc.message_dict["new_public_image"]:
+                    settings_form.add_error("new_public_image", error)
+            else:
+                settings_form.add_error(None, exc)
+        except Exception:
+            _delete_rolled_back_public_image(settings_form)
+            raise
         else:
-            messages.info(request, "No había cambios pendientes en la apariencia.")
-        return redirect("business_settings:professional_settings")
+            if appearance_changed:
+                messages.success(request, "Los ajustes visuales del negocio quedan guardados.")
+            else:
+                messages.info(request, "No había cambios pendientes en la apariencia.")
+            return redirect("business_settings:professional_settings")
 
     return render(
         request,
@@ -532,6 +544,13 @@ def professional_settings(request):
             "public_image_is_custom": business.public_images.filter(is_selected=True).exists(),
         },
     )
+
+
+def _delete_rolled_back_public_image(settings_form):
+    saved_image = getattr(settings_form, "saved_public_image", None)
+    if saved_image is None or not saved_image.image.name:
+        return
+    saved_image.image.storage.delete(saved_image.image.name)
 
 
 def _activity_category(value):

@@ -226,7 +226,7 @@ plazos definitivos de conservación y procedimiento de ejercicio de derechos.
 
 ## Evidencias reproducibles
 
-Los siguientes comandos se ejecutaron sobre el código funcional el 12 de julio
+Los siguientes comandos se ejecutaron sobre el código funcional el 13 de julio
 de 2026:
 
 ```powershell
@@ -243,8 +243,8 @@ gitleaks detect --source . --no-banner --redact --exit-code 1
 
 | Comprobación | Resultado |
 | --- | --- |
-| Suite Django en SQLite | 243 pruebas correctas; 1 omitida por requerir PostgreSQL |
-| Suite Django en PostgreSQL 17 | 243 pruebas correctas, incluida concurrencia real |
+| Suite Django en SQLite | 252 pruebas descubiertas; 5 omitidas por requerir PostgreSQL |
+| Suite Django en PostgreSQL 17 | 252 pruebas correctas, incluida concurrencia real |
 | Cobertura con ramas | 82 %; puerta mínima automatizada del 82 % |
 | Suite frontend | 21 pruebas correctas: 17 unitarias y 4 de componentes React |
 | Build Vite | Correcto; 19 módulos transformados |
@@ -253,7 +253,7 @@ gitleaks detect --source . --no-banner --redact --exit-code 1
 | `pip-audit` | Sin vulnerabilidades conocidas |
 | `npm audit` | 0 vulnerabilidades conocidas |
 | Gitleaks 8.30.1 | Historial Git completo y cambios preparados revisados; sin secretos detectados |
-| PostgreSQL 17 | Suite completa de 243 pruebas correcta, incluida concurrencia real |
+| PostgreSQL 17 | Suite completa de 252 pruebas correcta, incluida concurrencia real |
 | CI | GitHub Actions: Ruff, migraciones, cobertura, SQLite, PostgreSQL, frontend, auditorías y Gitleaks |
 | Copia y restauración | Restauración completa en base limpia con recuentos coincidentes |
 
@@ -267,6 +267,30 @@ credenciales reales y sin conectar servicios externos:
 Resultado: una única advertencia, `security.W021`, porque HSTS preload permanece
 desactivado hasta disponer de dominio y HTTPS estables.
 
+## Correcciones derivadas del escáner de 13 de julio de 2026
+
+El escáner estándar sellado identificó tres hallazgos bajos y los tres quedan
+corregidos en esta versión:
+
+1. La admisión de autenticación reserva de forma atómica los límites de sujeto
+   e IP antes de ejecutar Argon2. Los bloqueos se adquieren en orden
+   determinista y una autenticación correcta no borra reservas posteriores.
+2. Cada negocio retiene como máximo doce imágenes públicas. Como cada salida
+   WebP está limitada a 5 MB, el presupuesto agregado queda acotado a 60 MB.
+   La comprobación y la creación se serializan sobre la fila del negocio y un
+   rollback elimina cualquier archivo ya escrito.
+3. Pausar o reactivar un contacto autorizado no reescribe la concesión de
+   reserva. Un permiso asociado a contacto solo es efectivo cuando la concesión
+   y el contacto están activos; una revocación explícita sobrevive a la
+   reactivación.
+
+La reproducción concurrente en PostgreSQL admite exactamente cinco
+comprobaciones para doce solicitudes del mismo sujeto y treinta para treinta y
+seis sujetos bajo una misma IP. Dos cargas que compiten por el último hueco de
+galería conservan una sola. Los PoCs originales confirman el cierre: el de
+permisos termina en `PASS` y el que exigía aceptar trece imágenes falla en la
+decimotercera solicitud, como corresponde al nuevo control.
+
 ## Riesgos residuales y puertas antes de producción
 
 | Riesgo residual | Prioridad | Decisión o condición de cierre |
@@ -276,7 +300,7 @@ desactivado hasta disponer de dominio y HTTPS estables.
 | Copias sin destino externo cifrado ni tarea programada | Bloqueante para producción | Elegir destino, automatizar, alertar fallos y repetir una restauración desde la copia externa |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
 | Sin segundo factor para cuentas técnicas | Alta para explotación comercial | Incorporar MFA o proteger el acceso mediante identidad del proveedor o VPN |
-| Límite de subidas aplicado al archivo, pero no por frecuencia | Media | Añadir límite por cuenta o proxy; pasar el procesamiento a un worker si aumenta el volumen |
+| Galería limitada a 12 archivos, pero sin límite temporal de subidas | Media | Añadir límite por cuenta o proxy; pasar el procesamiento a un worker si aumenta el volumen |
 | Sin monitorización central ni alertas operativas | Media | Definir logs estructurados, disponibilidad, errores, uso de disco y avisos de copias |
 | `unsafe-inline` en scripts de Django Admin | Media y acotada | Mantener la excepción solo en `/admin/` y revisar nonce o hash si se personaliza la consola |
 | Estilos inline permitidos en el producto | Baja | Sustituir valores inline por clases o variables controladas y retirar progresivamente `unsafe-inline` de las directivas de estilo |
