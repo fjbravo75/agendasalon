@@ -48,8 +48,25 @@
                 {% if activation_form.password_confirm.errors %}<div class="login-field-error" role="alert">{{ activation_form.password_confirm.errors }}</div>{% endif %}
               </div>
 
+              {% if business.legal_compliance_enabled %}
+                <div class="legal-consent{% if activation_form.privacy_acknowledged.errors %} is-error{% endif %}">
+                  <label for="{{ activation_form.privacy_acknowledged.id_for_label }}">
+                    {{ activation_form.privacy_acknowledged }}
+                    <span>He leído cómo {{ business.commercial_name }} tratará mis datos para gestionar la cuenta y las reservas.</span>
+                  </label>
+                  <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">Consultar privacidad</a>
+                  {% if activation_form.privacy_acknowledged.errors %}
+                    <div class="login-field-error" role="alert">{{ activation_form.privacy_acknowledged.errors }}</div>
+                  {% endif %}
+                </div>
+              {% endif %}
+
               <button class="login-button" type="submit">Activar mi cuenta</button>
             </form>
+            <nav class="legal-inline-links" aria-label="Información legal">
+              <a href="{% url 'legal:business_privacy' business.slug %}">Privacidad</a>
+              <a href="{% url 'legal:platform_document' 'cookies' %}">Cookies</a>
+            </nav>
           </div>
         </aside>
       </div>

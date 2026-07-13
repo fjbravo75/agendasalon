@@ -12,8 +12,22 @@ from .models import (
 
 @admin.register(Business)
 class BusinessAdmin(admin.ModelAdmin):
-    list_display = ("commercial_name", "slug", "city", "is_active", "public_booking_enabled", "created_at")
-    list_filter = ("is_active", "public_booking_enabled", "city", "province")
+    list_display = (
+        "commercial_name",
+        "slug",
+        "city",
+        "is_active",
+        "public_booking_enabled",
+        "legal_compliance_enabled",
+        "created_at",
+    )
+    list_filter = (
+        "is_active",
+        "public_booking_enabled",
+        "legal_compliance_enabled",
+        "city",
+        "province",
+    )
     search_fields = ("commercial_name", "slug", "public_phone", "public_email")
     prepopulated_fields = {"slug": ("commercial_name",)}
     readonly_fields = ("created_at", "updated_at")

@@ -88,6 +88,10 @@ class ClientRegistrationForm(forms.Form):
         label="Repite la contraseña",
         widget=forms.PasswordInput(attrs={"autocomplete": "new-password", "placeholder": "Repite tu contraseña"}),
     )
+    privacy_acknowledged = forms.BooleanField(
+        label="He leído la información sobre el tratamiento de mis datos.",
+        required=False,
+    )
 
     def __init__(self, *args, business, **kwargs):
         super().__init__(*args, **kwargs)
@@ -119,6 +123,13 @@ class ClientRegistrationForm(forms.Form):
                 validate_password(password)
             except DjangoValidationError as exc:
                 self.add_error("password", exc)
+        if self.business.legal_compliance_enabled and not cleaned_data.get(
+            "privacy_acknowledged"
+        ):
+            self.add_error(
+                "privacy_acknowledged",
+                "Confirma que has recibido la información sobre el tratamiento de tus datos.",
+            )
         return cleaned_data
 
     def save(self):
@@ -154,6 +165,14 @@ class ClientInvitationActivationForm(forms.Form):
             }
         ),
     )
+    privacy_acknowledged = forms.BooleanField(
+        label="He leído la información sobre el tratamiento de mis datos.",
+        required=False,
+    )
+
+    def __init__(self, *args, business=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.business = business
 
     def clean(self):
         cleaned_data = super().clean()
@@ -166,6 +185,15 @@ class ClientInvitationActivationForm(forms.Form):
                 validate_password(password)
             except DjangoValidationError as exc:
                 self.add_error("password", exc)
+        if (
+            self.business is not None
+            and self.business.legal_compliance_enabled
+            and not cleaned_data.get("privacy_acknowledged")
+        ):
+            self.add_error(
+                "privacy_acknowledged",
+                "Confirma que has recibido la información sobre el tratamiento de tus datos.",
+            )
         return cleaned_data
 
 

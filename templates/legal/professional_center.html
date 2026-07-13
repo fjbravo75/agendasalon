@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Privacidad - {{ business.commercial_name }}{% endblock %}
+
+{% block content %}
+  <section class="legal-shell" aria-labelledby="privacy-center-title">
+    <header class="legal-hero">
+      <span class="legal-kicker">Gestión del negocio</span>
+      <h1 id="privacy-center-title">Privacidad y derechos</h1>
+      <p>Consulta la identidad declarada, la evidencia de aceptación y las solicitudes registradas por clientes de {{ business.commercial_name }}.</p>
+    </header>
+
+    <dl class="legal-identity">
+      <div><dt>Responsable</dt><dd>{{ business_legal.legal_name }}</dd></div>
+      <div><dt>Identificación fiscal</dt><dd>{{ business_legal.tax_identifier }}</dd></div>
+      <div><dt>Domicilio</dt><dd>{{ business_legal.registered_address }}</dd></div>
+      <div><dt>Canal de privacidad</dt><dd>{{ business_legal.privacy_email }}</dd></div>
+    </dl>
+
+    <div class="legal-layout">
+      <section class="legal-panel" aria-labelledby="requests-title">
+        <h2 id="requests-title">Solicitudes de clientes</h2>
+        <p class="legal-panel__intro">Actualiza el estado y deja una nota interna de gestión. Las veinte solicitudes más recientes aparecen aquí.</p>
+        {% for row in rights_rows %}
+          <article class="legal-request">
+            <div class="legal-request__head">
+              <div><strong>{{ row.request.get_request_type_display }} · {{ row.request.client_access.business_client.full_name }}</strong><p>Recibida el {{ row.request.created_at|date:"d/m/Y · H:i" }}{% if row.request.detail %} · {{ row.request.detail }}{% endif %}</p></div>
+              <span class="legal-status">{{ row.request.get_status_display }}</span>
+            </div>
+            <form class="legal-form" method="post" action="{% url 'legal:professional_rights_request_update' row.request.pk %}" novalidate>
+              {% csrf_token %}
+              <div class="legal-form__grid">
+                <div class="legal-field">{{ row.form.status.label_tag }}{{ row.form.status }}</div>
+                <div class="legal-field">{{ row.form.resolution_note.label_tag }}{{ row.form.resolution_note }}</div>
+              </div>
+              <button class="button button--secondary" type="submit">Guardar seguimiento</button>
+            </form>
+          </article>
+        {% empty %}
+          <p class="legal-empty">No hay solicitudes de derechos pendientes ni resueltas.</p>
+        {% endfor %}
+      </section>
+
+      <aside class="legal-panel legal-panel--sticky" aria-labelledby="evidence-title">
+        <h2 id="evidence-title">Documentación vigente</h2>
+        <p class="legal-panel__intro">Estas evidencias están vinculadas al negocio y conservan la versión exacta aceptada.</p>
+        <ul class="legal-acceptance-list">
+          {% for acceptance in acceptances %}
+            <li><span><strong>{{ acceptance.document.title }}</strong><br><small>{{ acceptance.accepted_at|date:"d/m/Y · H:i" }}</small></span><small>v. {{ acceptance.document.version }}</small></li>
+          {% endfor %}
+        </ul>
+        <a class="legal-text-link" href="{% url 'legal:professional_onboarding' %}">Revisar datos del responsable</a>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

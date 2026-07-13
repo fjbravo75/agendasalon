@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Privacidad de {{ business.commercial_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="legal-shell" aria-labelledby="privacy-title">
+    <header class="legal-hero">
+      <span class="legal-kicker">Privacidad de clientes</span>
+      <h1 id="privacy-title">Tus datos en {{ business.commercial_name }}</h1>
+      <p>{{ document.lead }}</p>
+      <div class="legal-meta"><span>Versión {{ document.version }}</span><span>Sin comunicaciones comerciales por defecto</span></div>
+    </header>
+
+    <dl class="legal-identity">
+      <div><dt>Responsable</dt><dd>{{ business_legal.legal_name }}</dd></div>
+      <div><dt>Identificación fiscal</dt><dd>{{ business_legal.tax_identifier|default:"Disponible mediante el canal de privacidad" }}</dd></div>
+      <div><dt>Domicilio</dt><dd>{{ business_legal.registered_address }}</dd></div>
+      <div><dt>Contacto de privacidad</dt><dd><a class="legal-text-link" href="mailto:{{ business_legal.privacy_email }}">{{ business_legal.privacy_email }}</a></dd></div>
+      <div><dt>Conservación</dt><dd>{{ business_legal.retention_criteria }}</dd></div>
+    </dl>
+
+    <div class="legal-layout">
+      <article class="legal-document">
+        {% for section in document.sections %}
+          <section class="legal-section">
+            <h2>{{ section.heading }}</h2>
+            {% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+          </section>
+        {% endfor %}
+      </article>
+
+      <aside class="legal-panel legal-panel--sticky" aria-labelledby="rights-title">
+        <h2 id="rights-title">Ejercer tus derechos</h2>
+        {% if client_access %}
+          <p class="legal-panel__intro">Registra una solicitud vinculada a tu cuenta. El negocio podrá tramitarla desde su panel.</p>
+          <form class="legal-form" method="post" novalidate>
+            {% csrf_token %}
+            {{ rights_form.non_field_errors }}
+            <div class="legal-field">{{ rights_form.request_type.label_tag }}{{ rights_form.request_type }}{{ rights_form.request_type.errors }}</div>
+            <div class="legal-field">{{ rights_form.detail.label_tag }}{{ rights_form.detail }}{{ rights_form.detail.errors }}</div>
+            <button class="button" type="submit">Registrar solicitud</button>
+          </form>
+          {% if rights_requests %}
+            <ul class="legal-request-list" aria-label="Solicitudes recientes">
+              {% for rights_request in rights_requests %}
+                <li class="legal-request"><strong>{{ rights_request.get_request_type_display }}</strong><span class="legal-status">{{ rights_request.get_status_display }}</span></li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% else %}
+          <p class="legal-panel__intro">Entra en tu cuenta de {{ business.commercial_name }} para registrar y consultar solicitudes de acceso, rectificación, supresión u otros derechos.</p>
+          <a class="button" href="{% url 'customers:client_access' business.slug %}?next={{ request.path|urlencode }}">Entrar en mi cuenta</a>
+        {% endif %}
+      </aside>
+    </div>
+  </section>
+{% endblock %}

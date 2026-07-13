@@ -53,6 +53,11 @@ jobs:
       DJANGO_SECRET_KEY: test-only-ci-secret-key-with-more-than-50-characters
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
       DJANGO_DATABASE_URL: postgresql://agendasalon:test-only-password@127.0.0.1:5432/agendasalon_test?sslmode=disable
+      AGENDA_PLATFORM_LEGAL_NAME: AgendaSalon CI
+      AGENDA_PLATFORM_TAX_ID: TEST-00000000
+      AGENDA_PLATFORM_LEGAL_ADDRESS: Entorno efímero de integración
+      AGENDA_PLATFORM_PRIVACY_EMAIL: privacy-ci@example.test
+      AGENDA_PLATFORM_WEBSITE: https://example.test
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

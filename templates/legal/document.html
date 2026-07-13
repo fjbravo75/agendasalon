@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}{{ document.title }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="legal-shell legal-shell--reading" aria-labelledby="document-title">
+    <header class="legal-hero">
+      <span class="legal-kicker">Documento vigente · {{ document.version }}</span>
+      <h1 id="document-title">{{ document.title }}</h1>
+      <p>{{ document.lead }}</p>
+      <div class="legal-meta">
+        <span>Publicado el {{ document.published_at|date:"d/m/Y" }}</span>
+        <span>Huella {{ document.content_hash|slice:":12" }}…</span>
+      </div>
+    </header>
+
+    <dl class="legal-identity">
+      <div><dt>Titular</dt><dd>{{ legal_context.legal_name }}</dd></div>
+      <div><dt>Identificación fiscal</dt><dd>{{ legal_context.tax_identifier }}</dd></div>
+      <div><dt>Domicilio</dt><dd>{{ legal_context.registered_address }}</dd></div>
+      <div><dt>Privacidad</dt><dd><a class="legal-text-link" href="mailto:{{ legal_context.privacy_email }}">{{ legal_context.privacy_email }}</a></dd></div>
+    </dl>
+
+    <article class="legal-document">
+      {% for section in document.sections %}
+        <section class="legal-section">
+          <h2>{{ section.heading }}</h2>
+          {% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+        </section>
+      {% endfor %}
+    </article>
+  </section>
+{% endblock %}

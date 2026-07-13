@@ -34,6 +34,30 @@ DATABASES = {
     "default": postgres_database_config(os.environ.get("DJANGO_DATABASE_URL", ""))
 }
 
+_required_legal_settings = {
+    "AGENDA_PLATFORM_LEGAL_NAME": "",
+    "AGENDA_PLATFORM_TAX_ID": "",
+    "AGENDA_PLATFORM_LEGAL_ADDRESS": "",
+    "AGENDA_PLATFORM_PRIVACY_EMAIL": "",
+    "AGENDA_PLATFORM_WEBSITE": "",
+}
+for variable in _required_legal_settings:
+    value = os.environ.get(variable, "").strip()
+    if not value:
+        raise ImproperlyConfigured(f"{variable} is required in production.")
+    _required_legal_settings[variable] = value
+
+AGENDA_PLATFORM_LEGAL_NAME = _required_legal_settings["AGENDA_PLATFORM_LEGAL_NAME"]
+AGENDA_PLATFORM_TAX_ID = _required_legal_settings["AGENDA_PLATFORM_TAX_ID"]
+AGENDA_PLATFORM_LEGAL_ADDRESS = _required_legal_settings[
+    "AGENDA_PLATFORM_LEGAL_ADDRESS"
+]
+AGENDA_PLATFORM_PRIVACY_EMAIL = _required_legal_settings[
+    "AGENDA_PLATFORM_PRIVACY_EMAIL"
+]
+AGENDA_PLATFORM_WEBSITE = _required_legal_settings["AGENDA_PLATFORM_WEBSITE"]
+AGENDA_PLATFORM_LEGAL_DEMO = False
+
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
