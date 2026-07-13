@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Continuidad del servicio - AgendaSalon{% endblock %}
+{% block body_class %}continuity-page{% endblock %}
+
+{% block content %}
+  <section class="continuity-shell">
+    <header class="continuity-hero">
+      <div>
+        <span>Supervisión técnica</span>
+        <h1>Continuidad del servicio</h1>
+        <p>Estado verificable de las copias de AgendaSalon. Este panel no permite descargar, ejecutar ni restaurar copias.</p>
+      </div>
+      <a class="button button--secondary" href="{% url 'dashboards:superadmin_home' %}">Volver al dashboard</a>
+    </header>
+
+    <section class="continuity-overview continuity-overview--{{ continuity.status.tone }}" aria-labelledby="continuity-status-title">
+      <div class="continuity-overview__status">
+        <span>Estado actual</span>
+        <h2 id="continuity-status-title">{{ continuity.status.label }}</h2>
+        <p>{{ continuity.status.detail }}</p>
+        {% if continuity.last_successful_at %}
+          <small>Última copia correcta: {{ continuity.last_successful_at|date:"d/m/Y · H:i" }}</small>
+        {% else %}
+          <small>Todavía no hay ejecuciones reales registradas en este entorno.</small>
+        {% endif %}
+      </div>
+      <dl class="continuity-facts">
+        <div>
+          <dt>Integridad</dt>
+          <dd>{{ continuity.integrity_label }}</dd>
+        </div>
+        <div>
+          <dt>Destino externo</dt>
+          <dd>{{ continuity.external_destination.label }}</dd>
+        </div>
+        <div>
+          <dt>Automatización</dt>
+          <dd>{{ continuity.schedule.label }}</dd>
+        </div>
+        <div>
+          <dt>Objetivos</dt>
+          <dd>RPO {{ continuity.targets.rpo_hours }} h · RTO &lt; {{ continuity.targets.rto_hours }} h</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="continuity-history" aria-labelledby="continuity-history-title">
+      <header>
+        <div>
+          <span>Registro técnico</span>
+          <h2 id="continuity-history-title">Ejecuciones</h2>
+          <p>Metadatos operativos sin rutas, credenciales, archivos descargables ni datos de clientes.</p>
+        </div>
+        <small>Retención objetivo: {{ continuity.targets.retention_label }}</small>
+      </header>
+
+      <div class="continuity-history__list">
+        {% for execution in executions %}
+          <article class="continuity-run continuity-run--{{ execution.status }}">
+            <div class="continuity-run__identity">
+              <span>{{ execution.get_status_display }}</span>
+              <strong>{{ execution.started_at|date:"d/m/Y · H:i" }}</strong>
+            </div>
+            <dl>
+              <div><dt>Destino</dt><dd>{{ execution.get_destination_display }}</dd></div>
+              <div><dt>Contenido</dt><dd>PostgreSQL{% if execution.media_included %} y media{% endif %}</dd></div>
+              <div><dt>Verificación</dt><dd>{% if execution.integrity_verified and execution.authenticity_verified %}Integridad y autenticidad{% elif execution.status == 'failed' %}No completada{% else %}En curso{% endif %}</dd></div>
+              <div><dt>Tamaño</dt><dd>{% if execution.total_size_bytes != None %}{{ execution.total_size_bytes|filesizeformat }}{% else %}—{% endif %}</dd></div>
+            </dl>
+            {% if execution.failure_code %}<small>Referencia técnica: {{ execution.failure_code }}</small>{% endif %}
+          </article>
+        {% empty %}
+          <div class="continuity-empty">
+            <strong>No hay copias ejecutadas desde este entorno.</strong>
+            <p>La herramienta y el ensayo técnico están preparados. El historial empezará cuando la tarea operativa se active en el despliegue.</p>
+          </div>
+        {% endfor %}
+      </div>
+
+      {% if execution_page.paginator.num_pages > 1 %}
+        <nav class="text-pagination" aria-label="Páginas del historial de copias">
+          {% if execution_page.has_previous %}
+            <a href="?page={{ execution_page.previous_page_number }}" rel="prev">Anterior</a>
+          {% else %}
+            <span aria-disabled="true">Anterior</span>
+          {% endif %}
+          <span>Página {{ execution_page.number }} de {{ execution_page.paginator.num_pages }}</span>
+          {% if execution_page.has_next %}
+            <a href="?page={{ execution_page.next_page_number }}" rel="next">Siguiente</a>
+          {% else %}
+            <span aria-disabled="true">Siguiente</span>
+          {% endif %}
+        </nav>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}

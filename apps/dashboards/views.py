@@ -1,6 +1,7 @@
 from datetime import datetime, time, timedelta
 
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -9,6 +10,8 @@ from django.utils import timezone
 from apps.booking.models import Appointment
 from apps.booking.slot_engine import STATUS_CLOSED, get_day_availability, suggest_next_slots
 from apps.businesses.services import get_primary_business_for_user
+from apps.dashboards.continuity import continuity_snapshot
+from apps.dashboards.models import BackupExecution
 
 
 SLOT_REASON_LABELS = {
@@ -277,5 +280,23 @@ def superadmin_home(request):
                 "businessListUrl": reverse("businesses:superadmin_business_list"),
                 "businessCreateUrl": reverse("businesses:superadmin_business_create"),
             }
+        },
+    )
+
+
+@login_required
+def superadmin_continuity(request):
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("No tienes permiso para acceder a este panel.")
+
+    executions = BackupExecution.objects.all()
+    page = Paginator(executions, 10).get_page(request.GET.get("page"))
+    return render(
+        request,
+        "superadmin/continuity.html",
+        {
+            "continuity": continuity_snapshot(),
+            "execution_page": page,
+            "executions": page,
         },
     )

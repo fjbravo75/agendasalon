@@ -59,6 +59,19 @@ function dashboardPayload() {
       appointments_total: 24,
     },
     businesses,
+    continuity: {
+      status: {
+        code: "deployment_pending",
+        tone: "neutral",
+        label: "Preparado para desplegar",
+        detail: "El procedimiento está probado; la programación y el destino externo se cerrarán durante el despliegue.",
+      },
+      last_successful_at: null,
+      integrity_label: "Procedimiento disponible",
+      external_destination: { configured: false, label: "Pendiente de despliegue" },
+      schedule: { configured: false, label: "Pendiente de programación" },
+      history_url: "/superadmin/continuidad/",
+    },
     recent_activity: recentActivity,
     activity_series: [{ date: "2026-07-12", value: 4 }],
     appointment_statuses: [{ code: "completed", label: "Atendidas", value: 6 }],
@@ -72,6 +85,8 @@ describe("SuperadminDashboard", () => {
     render(<SuperadminDashboard config={config} />);
 
     expect(await screen.findByRole("heading", { name: "Negocios" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Preparado para desplegar" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Consultar historial y objetivos" })).toHaveAttribute("href", "/superadmin/continuidad/");
     const activity = screen.getByRole("list", { name: "Actividad reciente, 7 movimientos" });
     expect(activity).toHaveClass("superadmin-activity-list--scrollable");
     expect(activity).toHaveAttribute("tabindex", "0");

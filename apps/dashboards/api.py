@@ -11,12 +11,13 @@ from django.views.decorators.http import require_GET
 from django.views.decorators.vary import vary_on_cookie
 
 from apps.booking.models import Appointment, AvailabilityRule, Service, WorkLine
-from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
+from apps.businesses.models import Business, BusinessActivityEvent
 from apps.customers.models import BusinessClient
+from apps.dashboards.continuity import continuity_snapshot
 from apps.legal.models import BusinessLegalProfile, LegalAcceptance, LegalDocument
 
 
-SUPERADMIN_DASHBOARD_API_VERSION = "1.0"
+SUPERADMIN_DASHBOARD_API_VERSION = "1.1"
 ACTIVITY_DAYS = 14
 
 
@@ -85,6 +86,7 @@ def superadmin_dashboard_data(request):
                 ),
             },
             "businesses": business_payloads,
+            "continuity": continuity_snapshot(now=now),
             "recent_activity": _recent_activity_payload(),
             "activity_series": _activity_series_payload(),
             "appointment_statuses": [
@@ -134,9 +136,6 @@ def _attach_business_counts(businesses, *, now):
         ),
         "active_rules_count": _grouped_counts(
             AvailabilityRule.objects.filter(business_id__in=business_ids, is_active=True)
-        ),
-        "professionals_total": _grouped_counts(
-            BusinessMembership.objects.filter(business_id__in=business_ids, is_active=True)
         ),
     }
     client_counts = {
@@ -201,6 +200,11 @@ def _dashboard_business_queryset():
     )
     return (
         Business.objects.annotate(
+            professionals_total=Count(
+                "memberships",
+                filter=Q(memberships__is_active=True),
+                distinct=True,
+            ),
             legal_profile_complete=Exists(profile_complete),
             legal_terms_current=Exists(
                 acceptance_base.filter(
