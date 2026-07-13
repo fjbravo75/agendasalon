@@ -170,6 +170,14 @@ después de un acceso correcto. Los intentos de acceso se limitan por identidad 
 IP sin guardar esos identificadores en claro. La sesión cliente rota al entrar y
 salir, y caduca tras una hora sin actividad.
 
+AgendaSalon incorpora una capa de privacidad operativa, no solo informativa.
+Los documentos legales se publican por versión y huella; cada negocio completa
+la identidad del responsable y acepta el encargo de tratamiento antes de poder
+recoger nuevos datos. El registro y las invitaciones de clientes muestran la
+privacidad del negocio con una casilla no premarcada. Las cuentas cliente pueden
+registrar solicitudes de derechos y el negocio documenta su seguimiento desde
+`/legal/profesional/`.
+
 La reserva online está disponible en `/reservar/<slug>/`. Permite al cliente
 elegir servicios, ver duración, precio y opciones recomendadas sin sesión. Al
 elegir una hora guarda un borrador temporal, solicita acceso cliente y recupera
@@ -233,6 +241,11 @@ caducados o acumulados. Para una fecha reproducible puede usarse
 - `/clientes/<slug>/entrar/`: acceso cliente por negocio.
 - `/clientes/<slug>/registro/`: alta cliente por negocio.
 - `/clientes/<slug>/activar/`: activación limpia tras validar una invitación.
+- `/legal/`: documentación legal vigente de la plataforma.
+- `/legal/negocios/<slug>/privacidad/`: privacidad y ejercicio de derechos ante
+  el negocio responsable.
+- `/legal/profesional/alta/`: identidad legal y aceptación inicial del negocio.
+- `/legal/profesional/`: evidencias y seguimiento de solicitudes de clientes.
 
 Cada cliente llega mediante la URL del negocio concreto. Por ejemplo, la
 demostración utiliza `/reservar/peluqueria-mari/` y
@@ -250,10 +263,10 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La última verificación completa deja la batería en 243 pruebas Django y
+La última verificación completa deja la batería en 257 pruebas Django y
 operativas, además de 21 pruebas frontend: 17 unitarias y 4 de componentes
 React. La cobertura con ramas es del 82 % y el umbral automatizado impide bajar
-de ese valor. Las 243 pruebas se ejecutaron también sobre PostgreSQL 17,
+de ese valor. Las 257 pruebas se ejecutaron también sobre PostgreSQL 17,
 incluida la concurrencia real. Ruff, el build de producción, `pip-audit`, `npm audit` y
 `pip check` finalizaron sin incidencias. GitHub Actions reproduce lint,
 cobertura, SQLite, PostgreSQL, frontend, auditorías y detección de secretos en
