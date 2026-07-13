@@ -1,6 +1,6 @@
 from django import forms
 
-from apps.legal.models import DataRightsRequest
+from apps.legal.models import CustomerPrivacyEvidence, DataRightsRequest
 
 
 class BusinessLegalOnboardingForm(forms.Form):
@@ -58,6 +58,19 @@ class BusinessLegalOnboardingForm(forms.Form):
                 "retention_criteria",
             )
         }
+
+
+class CustomerPrivacyEvidenceForm(forms.Form):
+    channel = forms.ChoiceField(
+        label="Canal utilizado",
+        choices=(
+            (CustomerPrivacyEvidence.Channel.IN_PERSON, "En el establecimiento"),
+            (CustomerPrivacyEvidence.Channel.PHONE, "Por teléfono"),
+            (CustomerPrivacyEvidence.Channel.WHATSAPP, "Por WhatsApp"),
+            (CustomerPrivacyEvidence.Channel.EMAIL, "Por correo electrónico"),
+            (CustomerPrivacyEvidence.Channel.OTHER, "Otro canal"),
+        ),
+    )
 
 
 class DataRightsRequestForm(forms.ModelForm):

@@ -392,6 +392,14 @@
   font-size: 0.78rem;
 }
 
+.superadmin-business-card__legal {
+  display: block;
+  margin-top: 4px;
+  color: var(--sa-green-dark);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
 .superadmin-health {
   flex: 0 0 auto;
   padding: 4px 7px;
@@ -406,7 +414,7 @@
 
 .superadmin-business-card__setup {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 7px;
   margin: 14px 0 0 44px;
 }

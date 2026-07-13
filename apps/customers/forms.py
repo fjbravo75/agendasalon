@@ -12,6 +12,8 @@ from apps.customers.services import (
     save_authorized_contact,
     update_professional_client,
 )
+from apps.legal.models import CustomerPrivacyEvidence
+from apps.legal.services import record_customer_privacy_information
 from apps.customers.models import (
     BusinessClient,
     BusinessClientAccessGrant,
@@ -235,6 +237,25 @@ class ProfessionalClientQuickForm(forms.Form):
             }
         ),
     )
+    privacy_channel = forms.ChoiceField(
+        label="Cómo se ha informado",
+        required=False,
+        choices=(
+            ("", "Selecciona el canal"),
+            (CustomerPrivacyEvidence.Channel.IN_PERSON, "En el establecimiento"),
+            (CustomerPrivacyEvidence.Channel.PHONE, "Por teléfono"),
+            (CustomerPrivacyEvidence.Channel.WHATSAPP, "Por WhatsApp"),
+            (CustomerPrivacyEvidence.Channel.EMAIL, "Por correo electrónico"),
+            (CustomerPrivacyEvidence.Channel.OTHER, "Otro canal"),
+        ),
+    )
+    privacy_information_provided = forms.BooleanField(
+        label=(
+            "Confirmo que he facilitado esta información y he indicado dónde consultar "
+            "la política completa."
+        ),
+        required=False,
+    )
     authorized_business_client = forms.ModelChoiceField(
         queryset=BusinessClient.objects.none(),
         required=False,
@@ -274,6 +295,7 @@ class ProfessionalClientQuickForm(forms.Form):
         self.client = None
         self.created = False
         self.authorized_contact = None
+        self.privacy_evidence = None
         self.fields["authorized_business_client"].queryset = BusinessClient.objects.filter(
             business=business,
             is_active=True,
@@ -300,6 +322,14 @@ class ProfessionalClientQuickForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
+        if self.business.legal_compliance_enabled:
+            if not cleaned_data.get("privacy_channel"):
+                self.add_error("privacy_channel", "Selecciona cómo se ha informado al cliente.")
+            if not cleaned_data.get("privacy_information_provided"):
+                self.add_error(
+                    "privacy_information_provided",
+                    "Confirma que el cliente o su persona autorizada ha recibido la información.",
+                )
         authorized_client = cleaned_data.get("authorized_business_client")
         if authorized_client is None:
             cleaned_data["authorized_relationship"] = ""
@@ -335,7 +365,7 @@ class ProfessionalClientQuickForm(forms.Form):
                 )
         return cleaned_data
 
-    def save(self):
+    def save(self, *, recorded_by):
         try:
             with transaction.atomic():
                 self.client, self.created = create_or_reuse_professional_client(
@@ -363,6 +393,21 @@ class ProfessionalClientQuickForm(forms.Form):
                         allow_online_booking=self.cleaned_data.get(
                             "authorized_allow_online", False
                         ),
+                    )
+                if self.business.legal_compliance_enabled:
+                    informed_party_type = CustomerPrivacyEvidence.InformedParty.CLIENT
+                    informed_party_name = self.client.full_name
+                    if authorized_client is not None:
+                        informed_party_type = (
+                            CustomerPrivacyEvidence.InformedParty.AUTHORIZED_PERSON
+                        )
+                        informed_party_name = authorized_client.full_name
+                    self.privacy_evidence = record_customer_privacy_information(
+                        business_client=self.client,
+                        recorded_by=recorded_by,
+                        channel=self.cleaned_data["privacy_channel"],
+                        informed_party_type=informed_party_type,
+                        informed_party_name_snapshot=informed_party_name,
                     )
         except DjangoValidationError as exc:
             raise forms.ValidationError(getattr(exc, "messages", [str(exc)])) from exc

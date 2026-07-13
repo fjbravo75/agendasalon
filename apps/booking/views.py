@@ -140,7 +140,7 @@ def appointment_assistant(request):
         quick_client_form = ProfessionalClientQuickForm(request.POST, business=business)
         if quick_client_form.is_valid():
             try:
-                business_client, created = quick_client_form.save()
+                business_client, created = quick_client_form.save(recorded_by=request.user)
             except ValidationError as exc:
                 quick_client_form.add_error(None, exc)
             else:

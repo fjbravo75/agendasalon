@@ -122,6 +122,30 @@
           {% endif %}
         </div>
 
+        <section class="client-privacy-control" aria-labelledby="client-privacy-title">
+          <span>Privacidad</span>
+          <h3 id="client-privacy-title">{{ privacy_status.label }}</h3>
+          {% if privacy_status.evidence %}
+            <p>Versión {{ privacy_status.evidence.document.version }} · {{ privacy_status.evidence.occurred_at|date:"d/m/Y · H:i" }}</p>
+            <small>
+              {{ privacy_status.evidence.get_event_type_display }} · {{ privacy_status.evidence.get_channel_display }}
+              {% if privacy_status.evidence.informed_party_name_snapshot %} · {{ privacy_status.evidence.get_informed_party_type_display }}: {{ privacy_status.evidence.informed_party_name_snapshot }}{% endif %}
+              {% if privacy_status.evidence.recorded_by %} · {{ privacy_status.evidence.recorded_by.full_name }}{% endif %}
+            </small>
+          {% else %}
+            <p>No consta todavía la entrega de la información vigente.</p>
+          {% endif %}
+          {% if business.legal_compliance_enabled %}
+            <form method="post" action="{% url 'customers:professional_client_privacy_record' business_client.id %}">
+              {% csrf_token %}
+              <label for="{{ privacy_evidence_form.channel.id_for_label }}">Registrar información facilitada</label>
+              {{ privacy_evidence_form.channel }}
+              <button class="text-action" type="submit">Guardar constancia</button>
+            </form>
+          {% endif %}
+          <a class="appointment-inline-link" href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">Consultar el texto vigente</a>
+        </section>
+
         {% if business_client.is_active %}
           <div class="client-lifecycle-control">
             <span>Estado de la ficha</span>

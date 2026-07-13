@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q, Subquery
 from django.db.models.functions import TruncDate
 from django.http import JsonResponse
 from django.urls import reverse
@@ -13,6 +13,7 @@ from django.views.decorators.vary import vary_on_cookie
 from apps.booking.models import Appointment, AvailabilityRule, Service, WorkLine
 from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 from apps.customers.models import BusinessClient
+from apps.legal.models import BusinessLegalProfile, LegalAcceptance, LegalDocument
 
 
 SUPERADMIN_DASHBOARD_API_VERSION = "1.0"
@@ -32,7 +33,7 @@ def superadmin_dashboard_data(request):
         )
 
     now = timezone.now()
-    businesses = list(Business.objects.order_by("commercial_name", "pk"))
+    businesses = list(_dashboard_business_queryset())
     _attach_business_counts(businesses, now=now)
     business_payloads = [_business_payload(business) for business in businesses]
 
@@ -183,6 +184,51 @@ def _attach_business_counts(businesses, *, now):
             setattr(business, attribute, appointment_row.get(attribute, 0))
 
 
+def _dashboard_business_queryset():
+    profile_complete = (
+        BusinessLegalProfile.objects.filter(business_id=OuterRef("pk"))
+        .exclude(legal_name="")
+        .exclude(tax_identifier="")
+        .exclude(registered_address="")
+        .exclude(privacy_email="")
+        .exclude(retention_criteria="")
+    )
+    acceptance_base = LegalAcceptance.objects.filter(
+        business_id=OuterRef("pk"),
+        actor_user__isnull=False,
+        context=LegalAcceptance.Context.PROFESSIONAL_ONBOARDING,
+        document__is_active=True,
+    )
+    return (
+        Business.objects.annotate(
+            legal_profile_complete=Exists(profile_complete),
+            legal_terms_current=Exists(
+                acceptance_base.filter(
+                    document__kind=LegalDocument.Kind.TERMS,
+                    action=LegalAcceptance.Action.ACCEPTED,
+                )
+            ),
+            legal_privacy_current=Exists(
+                acceptance_base.filter(
+                    document__kind=LegalDocument.Kind.PLATFORM_PRIVACY,
+                    action=LegalAcceptance.Action.ACKNOWLEDGED,
+                )
+            ),
+            legal_processing_current=Exists(
+                acceptance_base.filter(
+                    document__kind=LegalDocument.Kind.DATA_PROCESSING,
+                    action=LegalAcceptance.Action.ACCEPTED,
+                    authority_declared=True,
+                )
+            ),
+            legal_latest_acceptance_at=Subquery(
+                acceptance_base.order_by("-accepted_at").values("accepted_at")[:1]
+            ),
+        )
+        .order_by("commercial_name", "pk")
+    )
+
+
 def _grouped_counts(queryset):
     return {
         row["business_id"]: row["total"]
@@ -200,6 +246,30 @@ def _business_payload(business):
         missing_setup.append("Horario")
     if not business.professionals_total:
         missing_setup.append("Acceso profesional")
+    if not business.legal_compliance_enabled:
+        legal_status = {
+            "is_current": True,
+            "status": "disabled",
+            "label": "Control legal no requerido",
+            "latest_acceptance_at": None,
+        }
+    else:
+        legal_is_current = all(
+            (
+                business.legal_profile_complete,
+                business.legal_terms_current,
+                business.legal_privacy_current,
+                business.legal_processing_current,
+            )
+        )
+        legal_status = {
+            "is_current": legal_is_current,
+            "status": "current" if legal_is_current else "pending_documents",
+            "label": "Documentación vigente" if legal_is_current else "Documentación pendiente",
+            "latest_acceptance_at": business.legal_latest_acceptance_at,
+        }
+    if not legal_status["is_current"]:
+        missing_setup.append("Documentación legal")
 
     if not business.is_active:
         health = {
@@ -234,6 +304,12 @@ def _business_payload(business):
         "public_booking_enabled": business.public_booking_enabled,
         "last_activity_at": _datetime_value(business.last_activity_at),
         "health": health,
+        "legal": {
+            "is_current": legal_status["is_current"],
+            "status": legal_status["status"],
+            "label": legal_status["label"],
+            "latest_acceptance_at": _datetime_value(legal_status["latest_acceptance_at"]),
+        },
         "counts": {
             "services": business.active_services_count,
             "work_lines": business.active_lines_count,
