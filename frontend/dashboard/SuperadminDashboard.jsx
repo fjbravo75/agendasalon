@@ -107,6 +107,41 @@ function AttentionSummary({ summary }) {
 }
 
 
+function ContinuitySummary({ continuity }) {
+  return (
+    <section
+      className={`superadmin-continuity superadmin-continuity--${continuity.status.tone}`}
+      aria-labelledby="superadmin-continuity-title"
+    >
+      <div className="superadmin-continuity__lead">
+        <span>Continuidad del servicio</span>
+        <h2 id="superadmin-continuity-title">{continuity.status.label}</h2>
+        <p>{continuity.status.detail}</p>
+        <a href={continuity.history_url}>Consultar historial y objetivos</a>
+      </div>
+      <dl className="superadmin-continuity__facts">
+        <div>
+          <dt>Última copia correcta</dt>
+          <dd>{continuity.last_successful_at ? formatDateTime(continuity.last_successful_at) : "Sin ejecuciones registradas"}</dd>
+        </div>
+        <div>
+          <dt>Integridad</dt>
+          <dd>{continuity.integrity_label}</dd>
+        </div>
+        <div>
+          <dt>Destino externo</dt>
+          <dd>{continuity.external_destination.label}</dd>
+        </div>
+        <div>
+          <dt>Automatización</dt>
+          <dd>{continuity.schedule.label}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+
 function BusinessCard({ business, index }) {
   const setup = [
     ["Servicios", business.counts.services],
@@ -306,6 +341,8 @@ export default function SuperadminDashboard({ config }) {
       </section>
 
       <AttentionSummary summary={summary} />
+
+      <ContinuitySummary continuity={data.continuity} />
 
       <div className="superadmin-dashboard-grid">
         <section className="superadmin-businesses" aria-labelledby="superadmin-businesses-title">

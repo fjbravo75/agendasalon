@@ -109,13 +109,28 @@ Con `DJANGO_DATABASE_URL` y `AGENDA_BACKUP_HMAC_KEY` disponibles en el entorno y
 de PostgreSQL instaladas:
 
 ```bash
-python ops/backup_restore.py backup \
+python manage.py backup_agendasalon \
   --backup-root /var/backups/agendasalon \
-  --media-root /srv/agendasalon/media
+  --media-root /srv/agendasalon/media \
+  --destination external_encrypted
 
 python ops/backup_restore.py verify \
   --backup-dir /var/backups/agendasalon/agendasalon-AAAAMMDDTHHMMSSZ
 ```
+
+El comando de Django reutiliza el motor operativo, verifica la copia antes de
+cerrar la ejecución y registra metadatos seguros para el panel
+`/superadmin/continuidad/`. `--destination external_encrypted` declara que la
+automatización ha replicado o replicará el conjunto en el almacenamiento externo
+cifrado definido por el despliegue; no realiza por sí solo esa transferencia.
+Hasta que esa integración exista debe usarse `--destination local` y el panel
+seguirá mostrando que el destino externo está pendiente.
+
+El registro conserva solo estado, tiempos, alcance, resultado de integridad,
+tamaño y un código de fallo controlado. No guarda rutas de artefactos,
+credenciales ni excepciones sin filtrar. La vista web es deliberadamente de solo
+lectura: crear, descargar y restaurar copias continúa siendo una responsabilidad
+operativa fuera del navegador.
 
 Cada copia contiene:
 
@@ -126,6 +141,12 @@ Cada copia contiene:
 
 La copia solo se considera válida si el comando de verificación termina
 correctamente y el conjunto se replica a un destino externo cifrado.
+
+En producción, el programador de tareas debe ejecutar el comando al menos una
+vez cada 24 horas, aplicar la retención 7/4/6, alertar ante fallos o ausencia de
+una copia reciente y comprobar periódicamente una restauración desde el destino
+externo. El estado `Protegido` del panel solo aparece después de una ejecución
+externa correcta y reciente.
 
 ## Restaurar en un entorno limpio
 

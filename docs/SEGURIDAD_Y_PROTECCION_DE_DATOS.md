@@ -316,3 +316,9 @@ La aplicación está **preparada para abrir la fase de despliegue**, pero no deb
 presentarse todavía como **lista para producción**. HTTPS, restricciones de
 infraestructura, destino externo de copias, monitorización y obligaciones de
 protección de datos requieren evidencia en el entorno definitivo.
+
+El superadministrador dispone ahora de un estado de continuidad verificable y
+un historial técnico de solo lectura. Esta visibilidad no cierra el riesgo
+residual: mientras no exista una ejecución reciente declarada como externa y
+verificada, la propia interfaz mantiene visibles la programación y el destino
+externo como pendientes de despliegue.

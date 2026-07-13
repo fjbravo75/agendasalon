@@ -10,6 +10,7 @@ from django.utils import timezone
 from apps.booking.models import Appointment, AvailabilityRule, Service, WorkLine
 from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 from apps.customers.models import BusinessClient
+from apps.dashboards.models import BackupExecution
 
 
 class SuperadminDashboardApiTests(TestCase):
@@ -87,7 +88,7 @@ class SuperadminDashboardApiTests(TestCase):
 
         payload = self.client.get(self.url).json()
 
-        self.assertEqual(payload["schema_version"], "1.0")
+        self.assertEqual(payload["schema_version"], "1.1")
         self.assertEqual(payload["summary"]["businesses_total"], 3)
         self.assertEqual(payload["summary"]["businesses_operational"], 1)
         self.assertEqual(payload["summary"]["businesses_setup_pending"], 1)
@@ -103,6 +104,31 @@ class SuperadminDashboardApiTests(TestCase):
             businesses["Salón por configurar"]["health"]["missing_setup"],
         )
         self.assertEqual(businesses["Barbería pausada"]["health"]["code"], "inactive")
+        self.assertEqual(payload["continuity"]["status"]["code"], "deployment_pending")
+        self.assertFalse(payload["continuity"]["external_destination"]["configured"])
+        self.assertEqual(
+            payload["continuity"]["history_url"],
+            reverse("dashboards:superadmin_continuity"),
+        )
+
+    def test_reports_a_recent_authenticated_external_backup_as_protected(self):
+        BackupExecution.objects.create(
+            status=BackupExecution.Status.SUCCEEDED,
+            destination=BackupExecution.Destination.EXTERNAL_ENCRYPTED,
+            finished_at=timezone.now(),
+            database_included=True,
+            media_included=True,
+            integrity_verified=True,
+            authenticity_verified=True,
+            total_size_bytes=4096,
+        )
+        self.client.force_login(self.superadmin)
+
+        continuity = self.client.get(self.url).json()["continuity"]
+
+        self.assertEqual(continuity["status"]["code"], "protected")
+        self.assertTrue(continuity["external_destination"]["configured"])
+        self.assertEqual(continuity["integrity_label"], "SHA-256 y HMAC verificados")
 
     def test_pending_closure_is_a_professional_task_not_a_fake_completed_appointment(self):
         client = BusinessClient.objects.create(
@@ -218,3 +244,55 @@ class SuperadminDashboardReactViewTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertNotContains(response, "superadmin-dashboard-root", status_code=403)
+
+
+class SuperadminContinuityViewTests(TestCase):
+    def setUp(self):
+        self.superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000503",
+            password="test-pass-123",
+            full_name="Admin AgendaSalon",
+        )
+        self.professional = get_user_model().objects.create_user(
+            normalized_phone="+34600000503",
+            password="test-pass-123",
+            full_name="Profesional",
+        )
+        self.url = reverse("dashboards:superadmin_continuity")
+
+    def test_is_read_only_and_restricted_to_superadmin(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+
+        self.client.force_login(self.professional)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+        self.client.force_login(self.superadmin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Continuidad del servicio")
+        self.assertContains(response, "no permite descargar, ejecutar ni restaurar")
+
+    def test_history_is_paginated_in_tens_without_exposing_artifact_paths(self):
+        BackupExecution.objects.bulk_create(
+            [
+                BackupExecution(
+                    status=BackupExecution.Status.SUCCEEDED,
+                    finished_at=timezone.now(),
+                    integrity_verified=True,
+                    authenticity_verified=True,
+                    total_size_bytes=2048,
+                )
+                for _index in range(12)
+            ]
+        )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(len(response.context["executions"]), 10)
+        self.assertEqual(response.context["execution_page"].paginator.num_pages, 2)
+        self.assertContains(response, "Página 1 de 2")
+        self.assertNotContains(response, "database.dump")
+        self.assertNotContains(response, "media.tar.gz")

@@ -312,6 +312,23 @@ variable `DJANGO_DATABASE_URL` para no exponer credenciales en la lista de
 procesos. El manifiesto de cada copia se autentica además con HMAC-SHA-256 usando
 `AGENDA_BACKUP_HMAC_KEY`, una clave independiente que no viaja con los artefactos.
 
+El dashboard del superadministrador incorpora un resumen de continuidad y la
+vista de solo lectura `/superadmin/continuidad/`. El registro muestra únicamente
+metadatos operativos seguros: estado, fecha, alcance, integridad, destino
+declarado y tamaño; nunca expone rutas, credenciales ni archivos descargables.
+Las ejecuciones destinadas a alimentar ese historial deben iniciarse con:
+
+```bash
+python manage.py backup_agendasalon \
+  --backup-root /var/backups/agendasalon \
+  --media-root /srv/agendasalon/media \
+  --destination external_encrypted
+```
+
+En local, mientras no haya una tarea programada ni un destino externo cifrado,
+la interfaz lo declara como pendiente de despliegue y no simula una protección
+que todavía no existe.
+
 La matriz académica de controles, las evidencias reproducibles y los riesgos
 que deben cerrarse durante el despliegue están reunidos en
 [`docs/SEGURIDAD_Y_PROTECCION_DE_DATOS.md`](docs/SEGURIDAD_Y_PROTECCION_DE_DATOS.md).
