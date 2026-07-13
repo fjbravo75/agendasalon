@@ -4,12 +4,14 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.templatetags.static import static
 from django.utils.text import slugify
 
 from apps.businesses.images import (
     PUBLIC_IMAGE_MAX_INPUT_BYTES,
     PUBLIC_IMAGE_MAX_INPUT_PIXELS,
+    PUBLIC_IMAGE_MAX_RETAINED_PER_BUSINESS,
     PublicImageProcessingError,
     sanitize_public_image,
 )
@@ -260,6 +262,13 @@ class BusinessVisualSettingsForm(forms.ModelForm):
         self.uploaded_image_label = "Imagen personalizada"
         self.saved_public_image = None
         custom_images = tuple(self.instance.public_images.all())
+        self.public_image_quota_reached = (
+            len(custom_images) >= PUBLIC_IMAGE_MAX_RETAINED_PER_BUSINESS
+        )
+        if self.public_image_quota_reached:
+            self.fields["new_public_image"].widget.attrs.update(
+                {"disabled": True, "aria-disabled": "true"}
+            )
         choices = [
             ("preset:salon", "Salón luminoso"),
             ("preset:barberia", "Barbería contemporánea"),
@@ -323,6 +332,11 @@ class BusinessVisualSettingsForm(forms.ModelForm):
         image = self.cleaned_data.get("new_public_image")
         if not image or "new_public_image" not in self.files:
             return image
+        if self.instance.public_images.count() >= PUBLIC_IMAGE_MAX_RETAINED_PER_BUSINESS:
+            raise forms.ValidationError(
+                "Este negocio ya tiene 12 imágenes guardadas. "
+                "Elige una de ellas para continuar."
+            )
         self.uploaded_image_label = Path(image.name or "Imagen personalizada").stem[:120]
         return _sanitize_visual_image(image)
 
@@ -349,28 +363,46 @@ class BusinessVisualSettingsForm(forms.ModelForm):
     def save(self, commit=True, uploaded_by=None):
         business = super().save(commit=False)
         if commit:
-            business.save()
-            uploaded_image = self.cleaned_data.get("new_public_image")
-            choice = self.cleaned_data["public_image_choice"]
-            if uploaded_image:
-                business.public_images.filter(is_selected=True).update(is_selected=False)
-                self.saved_public_image = BusinessPublicImage.objects.create(
-                    business=business,
-                    image=uploaded_image,
-                    label=self.uploaded_image_label,
-                    is_selected=True,
-                    uploaded_by=uploaded_by,
-                )
-            elif choice.startswith("custom:"):
-                image_id = int(choice.split(":", 1)[1])
-                business.public_images.filter(is_selected=True).exclude(pk=image_id).update(
-                    is_selected=False
-                )
-                business.public_images.filter(pk=image_id).update(is_selected=True)
-            else:
-                business.public_images.filter(is_selected=True).update(is_selected=False)
-                business.public_image_preset = choice.split(":", 1)[1]
-                business.save(update_fields=["public_image_preset", "updated_at"])
+            with transaction.atomic():
+                business.save()
+                locked_business = Business.objects.select_for_update().get(pk=business.pk)
+                uploaded_image = self.cleaned_data.get("new_public_image")
+                choice = self.cleaned_data["public_image_choice"]
+                if uploaded_image:
+                    if (
+                        locked_business.public_images.count()
+                        >= PUBLIC_IMAGE_MAX_RETAINED_PER_BUSINESS
+                    ):
+                        raise ValidationError(
+                            {
+                                "new_public_image": (
+                                    "Este negocio ya tiene 12 imágenes guardadas. "
+                                    "Elige una de ellas para continuar."
+                                )
+                            }
+                        )
+                    locked_business.public_images.filter(is_selected=True).update(
+                        is_selected=False
+                    )
+                    self.saved_public_image = BusinessPublicImage.objects.create(
+                        business=locked_business,
+                        image=uploaded_image,
+                        label=self.uploaded_image_label,
+                        is_selected=True,
+                        uploaded_by=uploaded_by,
+                    )
+                elif choice.startswith("custom:"):
+                    image_id = int(choice.split(":", 1)[1])
+                    locked_business.public_images.filter(is_selected=True).exclude(
+                        pk=image_id
+                    ).update(is_selected=False)
+                    locked_business.public_images.filter(pk=image_id).update(is_selected=True)
+                else:
+                    locked_business.public_images.filter(is_selected=True).update(
+                        is_selected=False
+                    )
+                    business.public_image_preset = choice.split(":", 1)[1]
+                    business.save(update_fields=["public_image_preset", "updated_at"])
         return business
 
 

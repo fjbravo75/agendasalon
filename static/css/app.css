@@ -6002,6 +6002,25 @@ a {
   white-space: nowrap;
 }
 
+.settings-file-control.is-disabled {
+  border-color: rgba(142, 111, 45, 0.28);
+  background: rgba(248, 243, 230, 0.72);
+}
+
+.settings-file-control.is-disabled .settings-file-trigger {
+  border-color: rgba(142, 111, 45, 0.24);
+  color: #725d2e;
+  background: rgba(255, 250, 237, 0.92);
+  cursor: not-allowed;
+}
+
+.settings-file-control.is-disabled > span:last-child {
+  overflow: visible;
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .settings-file-input:focus-visible + .settings-file-trigger {
   outline: 3px solid rgba(6, 117, 104, 0.3);
   outline-offset: 3px;

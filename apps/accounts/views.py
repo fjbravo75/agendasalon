@@ -14,11 +14,11 @@ from apps.businesses.services import (
 )
 from apps.core.security_throttle import (
     THROTTLE_MESSAGE,
-    clear_failed_attempts,
-    is_throttled,
+    ThrottleLimit,
     phone_throttle_key,
-    record_failed_attempt,
     request_ip,
+    reserve_throttle_attempts,
+    settle_successful_throttle,
 )
 
 
@@ -52,9 +52,13 @@ class AgendaSalonLoginView(LoginView):
 
     def post(self, request, *args, **kwargs):
         subject_key, ip_key = self._throttle_keys()
-        if is_throttled(scope="private_login_subject", key=subject_key) or is_throttled(
-            scope="private_login_ip", key=ip_key
-        ):
+        self._throttle_reservation = reserve_throttle_attempts(
+            limits=(
+                ThrottleLimit("private_login_subject", subject_key, 5, 15 * 60),
+                ThrottleLimit("private_login_ip", ip_key, 30, 15 * 60),
+            )
+        )
+        if not self._throttle_reservation.allowed:
             form = self.get_form_class()(
                 **self.get_form_kwargs(),
                 skip_authentication=True,
@@ -67,29 +71,19 @@ class AgendaSalonLoginView(LoginView):
         return super().post(request, *args, **kwargs)
 
     def form_invalid(self, form):
-        subject_key, ip_key = self._throttle_keys()
-        subject_blocked = record_failed_attempt(
-            scope="private_login_subject",
-            key=subject_key,
-            limit=5,
-            window_seconds=15 * 60,
-        )
-        ip_blocked = record_failed_attempt(
-            scope="private_login_ip",
-            key=ip_key,
-            limit=30,
-            window_seconds=15 * 60,
-        )
-        if subject_blocked or ip_blocked:
+        reservation = self._throttle_reservation
+        if reservation.blocked_scopes:
             form.add_error(None, THROTTLE_MESSAGE)
         response = super().form_invalid(form)
-        if subject_blocked or ip_blocked:
+        if reservation.blocked_scopes:
             response.status_code = 429
         return response
 
     def form_valid(self, form):
-        subject_key, _ = self._throttle_keys()
-        clear_failed_attempts(scope="private_login_subject", key=subject_key)
+        settle_successful_throttle(
+            self._throttle_reservation,
+            reset_scopes={"private_login_subject"},
+        )
         return super().form_valid(form)
 
 

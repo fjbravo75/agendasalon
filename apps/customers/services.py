@@ -54,9 +54,15 @@ def get_bookable_clients(access):
         is_active=True,
     ).filter(
         models.Q(pk=access.business_client_id)
-        | models.Q(
-            online_booking_grants__access=access,
-            online_booking_grants__is_active=True,
+        | (
+            models.Q(
+                online_booking_grants__access=access,
+                online_booking_grants__is_active=True,
+            )
+            & (
+                models.Q(online_booking_grants__authorized_contact__isnull=True)
+                | models.Q(online_booking_grants__authorized_contact__is_active=True)
+            )
         )
     ).distinct().order_by("full_name", "pk")
 
@@ -520,7 +526,6 @@ def set_authorized_contact_active(*, contact, is_active):
     contact.is_active = is_active
     contact.full_clean()
     contact.save(update_fields=["is_active", "is_primary_contact", "phone_normalized", "updated_at"])
-    BusinessClientAccessGrant.objects.filter(authorized_contact=contact).update(is_active=is_active)
     return contact, demoted_from_primary
 
 

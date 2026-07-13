@@ -1,4 +1,5 @@
 from io import BytesIO
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -315,6 +316,69 @@ class ProfessionalSettingsTests(TestCase):
         self.assertContains(response, "fachada-principal")
         self.assertContains(response, "zona-lavacabezas")
         self.assertContains(response, "data-public-image-choice", count=4)
+
+    def test_thirteenth_business_image_is_rejected_without_persisting_a_file(self):
+        for index in range(12):
+            BusinessPublicImage.objects.create(
+                business=self.business,
+                image=self._image_file(f"galeria-{index}.jpg"),
+                label=f"Galería {index}",
+                is_selected=index == 11,
+                uploaded_by=self.professional,
+            )
+        stored_names = set(
+            self.business.public_images.values_list("image", flat=True)
+        )
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            self.url,
+            {
+                "professional_theme": Business.ProfessionalTheme.LIGHT,
+                "new_public_image": self._image_file("imagen-decimotercera.jpg"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Este negocio ya tiene 12 imágenes guardadas. Elige una de ellas para continuar.",
+        )
+        self.assertEqual(self.business.public_images.count(), 12)
+        self.assertSetEqual(
+            set(self.business.public_images.values_list("image", flat=True)),
+            stored_names,
+        )
+
+        page = self.client.get(self.url)
+        self.assertContains(page, "Galería completa")
+        self.assertContains(page, "12 de 12 imágenes guardadas")
+        self.assertContains(page, "Has alcanzado el límite de 12 imágenes")
+        self.assertContains(page, 'data-public-image-upload="" disabled')
+
+    def test_uploaded_file_is_removed_if_the_database_transaction_rolls_back(self):
+        self.client.force_login(self.professional)
+
+        with (
+            patch(
+                "apps.businesses.views.record_business_activity",
+                side_effect=RuntimeError("fallo posterior a la escritura"),
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            self.client.post(
+                self.url,
+                {
+                    "professional_theme": Business.ProfessionalTheme.LIGHT,
+                    "new_public_image": self._image_file("imagen-huerfana.jpg"),
+                },
+            )
+
+        self.assertFalse(self.business.public_images.exists())
+        self.assertEqual(
+            [path for path in Path(self.media_directory.name).rglob("*") if path.is_file()],
+            [],
+        )
 
     def test_professional_cannot_select_an_image_from_another_business(self):
         foreign_image = BusinessPublicImage.objects.create(
