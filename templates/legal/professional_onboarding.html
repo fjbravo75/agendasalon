@@ -10,7 +10,7 @@
       <p>Identifica al responsable del tratamiento y deja constancia de los documentos vigentes. Hasta completar este paso no se recogerán nuevos datos de clientes.</p>
     </header>
 
-    <div class="legal-layout">
+    <div class="legal-layout legal-layout--single">
       <section class="legal-panel" aria-labelledby="business-data-title">
         <h2 id="business-data-title">Datos del responsable</h2>
         <p class="legal-panel__intro">Utiliza los datos reales del titular del negocio. Podrás actualizarlos cuando cambien.</p>
@@ -27,28 +27,19 @@
           <div class="legal-field">{{ onboarding_form.rights_contact_name.label_tag }}{{ onboarding_form.rights_contact_name }}{{ onboarding_form.rights_contact_name.errors }}</div>
           <div class="legal-field">{{ onboarding_form.retention_criteria.label_tag }}{{ onboarding_form.retention_criteria }}<small>{{ onboarding_form.retention_criteria.help_text }}</small>{{ onboarding_form.retention_criteria.errors }}</div>
           <div class="legal-checks">
-            <label class="legal-check">{{ onboarding_form.platform_privacy_acknowledged }}<span>{{ onboarding_form.platform_privacy_acknowledged.label }}</span></label>
+            <label class="legal-check">{{ onboarding_form.platform_privacy_acknowledged }}<span>He leído la información sobre el <a class="legal-text-link" href="{% url 'legal:platform_document' documents.platform_privacy.slug %}" target="_blank" rel="noopener">tratamiento de mis datos profesionales</a>.</span></label>
             {{ onboarding_form.platform_privacy_acknowledged.errors }}
-            <label class="legal-check">{{ onboarding_form.terms_accepted }}<span>{{ onboarding_form.terms_accepted.label }}</span></label>
+            <label class="legal-check">{{ onboarding_form.terms_accepted }}<span>He leído y acepto las <a class="legal-text-link" href="{% url 'legal:platform_document' documents.terms.slug %}" target="_blank" rel="noopener">condiciones del servicio de AgendaSalon</a>.</span></label>
             {{ onboarding_form.terms_accepted.errors }}
-            <label class="legal-check">{{ onboarding_form.data_processing_accepted }}<span>{{ onboarding_form.data_processing_accepted.label }}</span></label>
+            <label class="legal-check">{{ onboarding_form.data_processing_accepted }}<span>Acepto el <a class="legal-text-link" href="{% url 'legal:platform_document' documents.data_processing.slug %}" target="_blank" rel="noopener">acuerdo de encargo de tratamiento</a> en nombre del negocio.</span></label>
             {{ onboarding_form.data_processing_accepted.errors }}
             <label class="legal-check">{{ onboarding_form.authority_declared }}<span>{{ onboarding_form.authority_declared.label }}</span></label>
             {{ onboarding_form.authority_declared.errors }}
           </div>
+          <p class="legal-form-note">Se guardan la versión, la huella del contenido, la fecha y la identidad de quien realiza esta declaración.</p>
           <button class="button" type="submit">Guardar y activar privacidad</button>
         </form>
       </section>
-
-      <aside class="legal-panel legal-panel--sticky" aria-labelledby="documents-title">
-        <h2 id="documents-title">Documentos que aceptas</h2>
-        <p class="legal-panel__intro">Se guarda la versión, la huella del contenido, la fecha y la identidad del negocio.</p>
-        <ul class="legal-document-list">
-          <li><span>Privacidad de la plataforma</span><a class="legal-text-link" href="{% url 'legal:platform_document' documents.platform_privacy.slug %}" target="_blank" rel="noopener">Leer · {{ documents.platform_privacy.version }}</a></li>
-          <li><span>Condiciones del servicio</span><a class="legal-text-link" href="{% url 'legal:platform_document' documents.terms.slug %}" target="_blank" rel="noopener">Leer · {{ documents.terms.version }}</a></li>
-          <li><span>Encargo de tratamiento</span><a class="legal-text-link" href="{% url 'legal:platform_document' documents.data_processing.slug %}" target="_blank" rel="noopener">Leer · {{ documents.data_processing.version }}</a></li>
-        </ul>
-      </aside>
     </div>
   </section>
 {% endblock %}

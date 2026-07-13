@@ -176,7 +176,12 @@ la identidad del responsable y acepta el encargo de tratamiento antes de poder
 recoger nuevos datos. El registro y las invitaciones de clientes muestran la
 privacidad del negocio con una casilla no premarcada. Las cuentas cliente pueden
 registrar solicitudes de derechos y el negocio documenta su seguimiento desde
-`/legal/profesional/`.
+`/legal/profesional/`. Las altas rápidas realizadas por un profesional desde
+Clientes o Nueva cita exigen indicar el canal utilizado y confirmar que se ha
+facilitado la información; la evidencia conserva documento, versión, huella,
+fecha, actor y persona informada. El superadministrador puede consultar por
+negocio el estado vigente y el historial de aceptaciones sin mezclar la
+aceptación contractual del salón con la información recibida por sus clientes.
 
 La reserva online está disponible en `/reservar/<slug>/`. Permite al cliente
 elegir servicios, ver duración, precio y opciones recomendadas sin sesión. Al

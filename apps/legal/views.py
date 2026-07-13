@@ -17,6 +17,7 @@ from apps.legal.forms import (
 from apps.legal.models import DataRightsRequest, LegalAcceptance, LegalDocument
 from apps.legal.services import (
     accept_professional_legal_documents,
+    business_legal_status,
     business_legal_snapshot,
     get_active_document,
     get_public_legal_documents,
@@ -90,6 +91,7 @@ def business_privacy(request, slug):
                 if client_access is not None
                 else ()
             ),
+            "professional_theme": business.professional_theme,
         },
     )
 
@@ -185,10 +187,11 @@ def professional_center(request):
     acceptances = (
         LegalAcceptance.objects.filter(
             business=business,
-            actor_user=request.user,
+            actor_user__isnull=False,
             context=LegalAcceptance.Context.PROFESSIONAL_ONBOARDING,
+            document__is_active=True,
         )
-        .select_related("document")
+        .select_related("document", "actor_user")
         .order_by("document__kind")
     )
     rights_requests = tuple(
@@ -202,6 +205,7 @@ def professional_center(request):
         {
             "business": business,
             "business_legal": business_legal_snapshot(business),
+            "legal_status": business_legal_status(business),
             "acceptances": acceptances,
             "rights_requests": rights_requests,
             "rights_rows": tuple(

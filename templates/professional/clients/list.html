@@ -139,6 +139,32 @@
             {{ quick_form.internal_notes.errors }}
           </div>
 
+          {% if business.legal_compliance_enabled %}
+            <section class="quick-client-privacy" aria-labelledby="quick-client-privacy-title">
+              <div class="quick-client-privacy__copy">
+                <span id="quick-client-privacy-title">Información al cliente</span>
+                <p>
+                  {{ business.commercial_name }} utilizará estos datos para crear la ficha y
+                  gestionar sus citas. La persona puede consultar la
+                  <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">política de privacidad completa</a>
+                  y ejercer sus derechos mediante el contacto indicado.
+                </p>
+              </div>
+              <div class="field">
+                {{ quick_form.privacy_channel.label_tag }}
+                {{ quick_form.privacy_channel }}
+                {{ quick_form.privacy_channel.errors }}
+              </div>
+              <div class="quick-client-privacy__confirmation{% if quick_form.privacy_information_provided.errors %} is-error{% endif %}">
+                {{ quick_form.privacy_information_provided }}
+                <label for="{{ quick_form.privacy_information_provided.id_for_label }}">
+                  {{ quick_form.privacy_information_provided.label }}
+                </label>
+              </div>
+              {{ quick_form.privacy_information_provided.errors }}
+            </section>
+          {% endif %}
+
           <details class="new-client-authorized"{% if selected_authorized_client or quick_form.authorized_client_search.errors or quick_form.authorized_relationship.errors or quick_form.authorized_allow_online.errors %} open{% endif %}>
             <summary>
               <span>

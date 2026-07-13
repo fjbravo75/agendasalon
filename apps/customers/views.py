@@ -29,10 +29,13 @@ from apps.customers.forms import (
     ProfessionalClientEditForm,
     ProfessionalClientQuickForm,
 )
+from apps.legal.forms import CustomerPrivacyEvidenceForm
 from apps.legal.models import LegalAcceptance
 from apps.legal.services import (
     acknowledge_customer_privacy,
     business_can_collect_personal_data,
+    customer_privacy_status,
+    record_customer_privacy_information,
 )
 from apps.customers.models import (
     BusinessClient,
@@ -79,7 +82,7 @@ def professional_client_list(request):
         quick_form = ProfessionalClientQuickForm(request.POST, business=business)
         if quick_form.is_valid():
             try:
-                client, created = quick_form.save()
+                client, created = quick_form.save(recorded_by=request.user)
             except FormValidationError as exc:
                 quick_form.add_error(None, exc)
             else:
@@ -179,6 +182,30 @@ def professional_client_detail(request, client_id):
         "professional/clients/detail.html",
         _professional_client_context(business, business_client),
     )
+
+
+@login_required
+@require_POST
+def professional_client_privacy_record(request, client_id):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+
+    business_client = _get_professional_client(business, client_id)
+    form = CustomerPrivacyEvidenceForm(request.POST)
+    if form.is_valid():
+        record_customer_privacy_information(
+            business_client=business_client,
+            recorded_by=request.user,
+            channel=form.cleaned_data["channel"],
+        )
+        messages.success(
+            request,
+            "Queda registrada la entrega de la información de privacidad vigente.",
+        )
+    else:
+        messages.error(request, "Selecciona el canal utilizado para registrar la constancia.")
+    return redirect("customers:professional_client_detail", client_id=business_client.id)
 
 
 @login_required
@@ -549,6 +576,7 @@ def _professional_client_context(business, business_client):
         )
         contact.online_grant = grant_by_contact.get(contact.id)
 
+    privacy_status = customer_privacy_status(business_client)
     return {
         "business": business,
         "business_client": business_client,
@@ -563,6 +591,8 @@ def _professional_client_context(business, business_client):
             status=Appointment.Status.CONFIRMED,
             ends_at__gt=now,
         ).count(),
+        "privacy_status": privacy_status,
+        "privacy_evidence_form": CustomerPrivacyEvidenceForm(),
     }
 
 

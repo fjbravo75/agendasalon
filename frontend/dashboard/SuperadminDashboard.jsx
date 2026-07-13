@@ -113,6 +113,7 @@ function BusinessCard({ business, index }) {
     ["Líneas", business.counts.work_lines],
     ["Horario", business.counts.schedule_rules],
     ["Accesos", business.counts.professionals],
+    ["Privacidad", business.legal?.is_current ? 1 : 0],
   ];
   return (
     <article className="superadmin-business-card">
@@ -126,6 +127,7 @@ function BusinessCard({ business, index }) {
             </span>
           </div>
           <p>{business.city} · {business.health.detail}</p>
+          <small className="superadmin-business-card__legal">{business.legal?.label}</small>
         </div>
       </div>
 
@@ -298,7 +300,7 @@ export default function SuperadminDashboard({ config }) {
 
       <section className="superadmin-metrics" aria-label="Resumen general">
         <MetricCard label="Negocios operativos" value={summary.businesses_operational} detail={`De ${summary.businesses_active} negocios activos con la configuración básica completa.`} tone="primary" />
-        <MetricCard label="Por configurar" value={summary.businesses_setup_pending} detail="Negocios activos a los que les falta algún dato esencial." tone={summary.businesses_setup_pending ? "warning" : "default"} />
+        <MetricCard label="Por configurar" value={summary.businesses_setup_pending} detail="Negocios activos con configuración operativa o documentación legal pendiente." tone={summary.businesses_setup_pending ? "warning" : "default"} />
         <MetricCard label="Equipos con citas por cerrar" value={summary.businesses_with_pending_closure} detail={`${summary.pending_closure_appointments} citas cuyo resultado debe registrar el profesional.`} tone={summary.businesses_with_pending_closure ? "warning" : "default"} />
         <MetricCard label="Reserva online activa" value={summary.businesses_public_booking} detail={`De ${summary.businesses_active} negocios activos que aceptan reservas online.`} />
       </section>

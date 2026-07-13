@@ -34,6 +34,12 @@ from apps.customers.models import (
     BusinessClientAuthorizedContact,
 )
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
+from apps.legal.models import CustomerPrivacyEvidence, LegalDocument
+from apps.legal.services import (
+    accept_professional_legal_documents,
+    business_legal_snapshot,
+    get_active_document,
+)
 from apps.notifications.models import InternalNotification
 
 
@@ -123,6 +129,7 @@ class DemoSeeder:
         appointments = self._create_appointments()
         self._create_notifications(appointments)
         self._create_secondary_business_demo()
+        self._create_legal_demo()
         self._create_activity_events()
 
         return {
@@ -424,6 +431,82 @@ class DemoSeeder:
     def _create_client_accesses(self):
         self._upsert_client_access(self.clients["maria"])
         self._upsert_client_access(self.clients["lucia"])
+
+    def _create_legal_demo(self):
+        profiles = (
+            (
+                self.business,
+                self.professional,
+                {
+                    "legal_name": "Peluquería Mari · demostración",
+                    "tax_identifier": "B00000001",
+                    "registered_address": "Calle Mayor 12, Madrid",
+                    "privacy_email": "privacidad@peluqueriamari.local",
+                    "rights_contact_name": "Mari Profesional",
+                    "retention_criteria": (
+                        "Durante la relación con el salón y, después, durante los plazos "
+                        "necesarios para atender obligaciones y posibles responsabilidades."
+                    ),
+                },
+            ),
+            (
+                self.secondary_business,
+                self.secondary_professional,
+                {
+                    "legal_name": "Barbería Norte · demostración",
+                    "tax_identifier": "B00000002",
+                    "registered_address": "Avenida Norte 18, Madrid",
+                    "privacy_email": "privacidad@barberianorte.local",
+                    "rights_contact_name": "Norte Profesional",
+                    "retention_criteria": (
+                        "Durante la relación con la barbería y, después, durante los plazos "
+                        "necesarios para atender obligaciones y posibles responsabilidades."
+                    ),
+                },
+            ),
+        )
+        for business, professional, profile_data in profiles:
+            if not business.legal_compliance_enabled:
+                business.legal_compliance_enabled = True
+                business.save(update_fields=["legal_compliance_enabled", "updated_at"])
+            accept_professional_legal_documents(
+                user=professional,
+                business=business,
+                profile_data=profile_data,
+            )
+
+        document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+        if document is None:
+            raise CommandError("No hay una política de privacidad de clientes vigente.")
+        CustomerPrivacyEvidence.objects.filter(
+            business__in=(self.business, self.secondary_business)
+        ).delete()
+        for business, professional, _ in profiles:
+            for client in BusinessClient.objects.filter(business=business).order_by("pk"):
+                access = getattr(client, "access", None)
+                evidence = CustomerPrivacyEvidence(
+                    document=document,
+                    business=business,
+                    business_client=client,
+                    client_access=access,
+                    recorded_by=None if access else professional,
+                    event_type=(
+                        CustomerPrivacyEvidence.EventType.ACKNOWLEDGED
+                        if access
+                        else CustomerPrivacyEvidence.EventType.INFORMATION_PROVIDED
+                    ),
+                    channel=(
+                        CustomerPrivacyEvidence.Channel.ONLINE_REGISTRATION
+                        if access
+                        else CustomerPrivacyEvidence.Channel.IN_PERSON
+                    ),
+                    informed_party_type=CustomerPrivacyEvidence.InformedParty.CLIENT,
+                    informed_party_name_snapshot=client.full_name,
+                    document_hash_snapshot=document.content_hash,
+                    legal_context_snapshot=business_legal_snapshot(business),
+                )
+                evidence.full_clean()
+                evidence.save()
 
     def _create_family_booking_demo(self):
         access = BusinessClientAccess.objects.get(

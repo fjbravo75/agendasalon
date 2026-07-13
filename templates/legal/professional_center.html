@@ -42,11 +42,11 @@
       </section>
 
       <aside class="legal-panel legal-panel--sticky" aria-labelledby="evidence-title">
-        <h2 id="evidence-title">Documentación vigente</h2>
+        <h2 id="evidence-title">{{ legal_status.label }}</h2>
         <p class="legal-panel__intro">Estas evidencias están vinculadas al negocio y conservan la versión exacta aceptada.</p>
         <ul class="legal-acceptance-list">
           {% for acceptance in acceptances %}
-            <li><span><strong>{{ acceptance.document.title }}</strong><br><small>{{ acceptance.accepted_at|date:"d/m/Y · H:i" }}</small></span><small>v. {{ acceptance.document.version }}</small></li>
+            <li><span><strong>{{ acceptance.document.title }}</strong><br><small>{{ acceptance.accepted_at|date:"d/m/Y · H:i" }} · {{ acceptance.actor_user.full_name }}</small></span><small>v. {{ acceptance.document.version }}</small></li>
           {% endfor %}
         </ul>
         <a class="legal-text-link" href="{% url 'legal:professional_onboarding' %}">Revisar datos del responsable</a>

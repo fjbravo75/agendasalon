@@ -228,6 +228,119 @@ class LegalAcceptance(models.Model):
         return f"{self.document} · {self.business}"
 
 
+class CustomerPrivacyEvidence(models.Model):
+    """Constancia versionada de la información facilitada a una persona cliente."""
+
+    class EventType(models.TextChoices):
+        ACKNOWLEDGED = "acknowledged", "Información leída por la persona cliente"
+        INFORMATION_PROVIDED = "information_provided", "Información facilitada por el negocio"
+
+    class Channel(models.TextChoices):
+        ONLINE_REGISTRATION = "online_registration", "Registro online"
+        CLIENT_INVITATION = "client_invitation", "Invitación online"
+        BOOKING = "booking", "Confirmación de reserva"
+        PHONE = "phone", "Teléfono"
+        WHATSAPP = "whatsapp", "WhatsApp"
+        IN_PERSON = "in_person", "En el establecimiento"
+        EMAIL = "email", "Correo electrónico"
+        OTHER = "other", "Otro canal"
+
+    class InformedParty(models.TextChoices):
+        CLIENT = "client", "Cliente"
+        AUTHORIZED_PERSON = "authorized_person", "Persona autorizada"
+
+    document = models.ForeignKey(
+        LegalDocument,
+        on_delete=models.PROTECT,
+        related_name="customer_privacy_evidence",
+        verbose_name="documento",
+    )
+    business = models.ForeignKey(
+        "businesses.Business",
+        on_delete=models.PROTECT,
+        related_name="customer_privacy_evidence",
+        verbose_name="negocio",
+    )
+    business_client = models.ForeignKey(
+        "customers.BusinessClient",
+        on_delete=models.PROTECT,
+        related_name="privacy_evidence",
+        verbose_name="cliente",
+    )
+    client_access = models.ForeignKey(
+        "customers.BusinessClientAccess",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="privacy_evidence",
+        verbose_name="cuenta cliente",
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="recorded_customer_privacy_evidence",
+        verbose_name="registrado por",
+    )
+    event_type = models.CharField("tipo de constancia", max_length=24, choices=EventType.choices)
+    channel = models.CharField("canal", max_length=24, choices=Channel.choices)
+    informed_party_type = models.CharField(
+        "persona informada",
+        max_length=24,
+        choices=InformedParty.choices,
+        default=InformedParty.CLIENT,
+    )
+    informed_party_name_snapshot = models.CharField(
+        "nombre de la persona informada",
+        max_length=160,
+    )
+    document_hash_snapshot = models.CharField("huella mostrada", max_length=64)
+    legal_context_snapshot = models.JSONField("contexto legal mostrado", default=dict)
+    occurred_at = models.DateTimeField("fecha y hora del hecho", default=timezone.now)
+    created_at = models.DateTimeField("registrado el", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "constancia de privacidad de cliente"
+        verbose_name_plural = "constancias de privacidad de clientes"
+        ordering = ["-occurred_at", "-pk"]
+        indexes = [
+            models.Index(
+                fields=["business_client", "document", "-occurred_at"],
+                name="customer_privacy_client_idx",
+            ),
+            models.Index(
+                fields=["business", "document", "-occurred_at"],
+                name="customer_privacy_business_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.document_id and self.document.kind != LegalDocument.Kind.CUSTOMER_PRIVACY:
+            raise ValidationError({"document": "Debe ser una política de privacidad de clientes."})
+        if self.document_id and self.document_hash_snapshot != self.document.content_hash:
+            raise ValidationError({"document_hash_snapshot": "La huella no coincide con el documento."})
+        if self.business_client_id and self.business_client.business_id != self.business_id:
+            raise ValidationError({"business_client": "La ficha debe pertenecer al mismo negocio."})
+        if self.client_access_id:
+            if self.client_access.business_id != self.business_id:
+                raise ValidationError({"client_access": "La cuenta debe pertenecer al mismo negocio."})
+            if self.client_access.business_client_id != self.business_client_id:
+                raise ValidationError({"client_access": "La cuenta debe corresponder a la misma ficha."})
+        if self.event_type == self.EventType.ACKNOWLEDGED and not self.client_access_id:
+            raise ValidationError({"client_access": "La lectura online debe estar vinculada a una cuenta."})
+        if self.event_type == self.EventType.INFORMATION_PROVIDED and not self.recorded_by_id:
+            raise ValidationError({"recorded_by": "La entrega manual debe identificar al profesional."})
+        if not self.informed_party_name_snapshot.strip():
+            raise ValidationError(
+                {"informed_party_name_snapshot": "Debe identificarse a la persona informada."}
+            )
+
+    def __str__(self):
+        return f"{self.business_client} · {self.get_channel_display()} · {self.document.version}"
+
+
 class DataRightsRequest(models.Model):
     """Solicitud registrada por una cuenta cliente para su gestión por el negocio."""
 

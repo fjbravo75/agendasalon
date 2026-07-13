@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from apps.legal.models import (
     BusinessLegalProfile,
+    CustomerPrivacyEvidence,
     DataRightsRequest,
     LegalAcceptance,
     LegalDocument,
@@ -61,3 +62,42 @@ class DataRightsRequestAdmin(admin.ModelAdmin):
     list_filter = ("request_type", "status", "business")
     search_fields = ("client_access__business_client__full_name", "detail")
     readonly_fields = ("business", "client_access", "request_type", "detail", "created_at")
+
+
+@admin.register(CustomerPrivacyEvidence)
+class CustomerPrivacyEvidenceAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_client",
+        "informed_party_name_snapshot",
+        "business",
+        "event_type",
+        "channel",
+        "document",
+        "occurred_at",
+    )
+    list_filter = ("event_type", "channel", "document__version", "business")
+    search_fields = ("business_client__full_name", "business__commercial_name")
+    readonly_fields = (
+        "document",
+        "business",
+        "business_client",
+        "client_access",
+        "recorded_by",
+        "event_type",
+        "channel",
+        "informed_party_type",
+        "informed_party_name_snapshot",
+        "document_hash_snapshot",
+        "legal_context_snapshot",
+        "occurred_at",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

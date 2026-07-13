@@ -36,6 +36,8 @@ from apps.businesses.services import (
 from apps.holidays.forms import NationalHolidaySyncForm
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 from apps.holidays.services import BoeSyncError, sync_boe_national_holidays
+from apps.legal.models import LegalAcceptance
+from apps.legal.services import business_legal_status
 
 
 ACTIVITY_FILTERS = (
@@ -179,6 +181,7 @@ def superadmin_business_detail(request, business_id):
         for channel, total in channel_counts.items()
         if channel != Appointment.ManualChannel.PUBLIC_WEB
     )
+    legal_status = business_legal_status(business)
     return render(
         request,
         "superadmin/businesses/detail.html",
@@ -193,6 +196,31 @@ def superadmin_business_detail(request, business_id):
             "activity_filters": ACTIVITY_FILTERS,
             "online_appointments_count": online_appointments_count,
             "professional_appointments_count": professional_appointments_count,
+            "legal_status": legal_status,
+        },
+    )
+
+
+@superadmin_required
+def superadmin_business_legal_evidence(request, business_id):
+    business = get_object_or_404(Business, pk=business_id)
+    legal_status = business_legal_status(business)
+    acceptance_history = (
+        LegalAcceptance.objects.filter(
+            business=business,
+            actor_user__isnull=False,
+            context=LegalAcceptance.Context.PROFESSIONAL_ONBOARDING,
+        )
+        .select_related("document", "actor_user")
+        .order_by("-accepted_at", "-pk")
+    )
+    return render(
+        request,
+        "superadmin/businesses/legal_evidence.html",
+        {
+            "business": business,
+            "legal_status": legal_status,
+            "acceptance_history": acceptance_history,
         },
     )
 

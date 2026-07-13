@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Privacidad de {{ business.commercial_name }} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="saas-dashboard legal-evidence-page" aria-labelledby="legal-evidence-title">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Evidencia legal del negocio</span>
+        <h1 class="page-title page-title--compact" id="legal-evidence-title">{{ business.commercial_name }}</h1>
+        <p>Identidad del responsable, documentos vigentes y constancias históricas conservadas para auditoría.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'businesses:superadmin_business_detail' business.id %}">Volver al negocio</a>
+      </div>
+    </header>
+
+    <div class="legal-evidence-layout">
+      <section class="saas-side-panel" aria-labelledby="current-compliance-title">
+        <div class="ops-section-head ops-section-head--compact">
+          <div><span>Estado actual</span><h2 id="current-compliance-title">{{ legal_status.label }}</h2></div>
+        </div>
+        <dl class="saas-fact-list">
+          <div><dt>Responsable</dt><dd>{{ legal_status.snapshot.legal_name|default:"Pendiente" }}</dd></div>
+          <div><dt>Identificación fiscal</dt><dd>{{ legal_status.snapshot.tax_identifier|default:"Pendiente" }}</dd></div>
+          <div><dt>Domicilio</dt><dd>{{ legal_status.snapshot.registered_address|default:"Pendiente" }}</dd></div>
+          <div><dt>Contacto de privacidad</dt><dd>{{ legal_status.snapshot.privacy_email|default:"Pendiente" }}</dd></div>
+          <div><dt>Criterio de conservación</dt><dd>{{ legal_status.snapshot.retention_criteria|default:"Pendiente" }}</dd></div>
+        </dl>
+      </section>
+
+      <section class="saas-side-panel" aria-labelledby="current-documents-title">
+        <div class="ops-section-head ops-section-head--compact">
+          <div><span>Versiones exigidas</span><h2 id="current-documents-title">Documentos vigentes</h2></div>
+        </div>
+        <div class="legal-evidence-list">
+          {% for row in legal_status.document_rows %}
+            <article class="legal-evidence-row">
+              <div>
+                <strong>{{ row.label }}</strong>
+                {% if row.document %}<small>Versión {{ row.document.version }} · huella {{ row.document.content_hash|slice:":12" }}…</small>{% endif %}
+              </div>
+              <div>
+                {% if row.is_current %}
+                  <strong>Registrado</strong>
+                  <small>{{ row.acceptance.accepted_at|date:"d/m/Y · H:i" }} por {{ row.acceptance.actor_user.full_name }}</small>
+                {% else %}
+                  <strong>Pendiente</strong>
+                  <small>No consta aceptación de la versión vigente.</small>
+                {% endif %}
+              </div>
+            </article>
+          {% empty %}
+            <p class="soft-note">El control legal está desactivado para este negocio.</p>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+
+    <section class="saas-side-panel" aria-labelledby="acceptance-history-title">
+      <div class="ops-section-head ops-section-head--compact">
+        <div><span>Histórico inmutable</span><h2 id="acceptance-history-title">Constancias conservadas</h2></div>
+      </div>
+      <div class="legal-evidence-history">
+        {% for acceptance in acceptance_history %}
+          <article>
+            <div><strong>{{ acceptance.document.get_kind_display }}</strong><small>Versión {{ acceptance.document.version }} · {{ acceptance.get_action_display }}</small></div>
+            <div><strong>{{ acceptance.actor_user.full_name }}</strong><small>{{ acceptance.accepted_at|date:"d/m/Y · H:i" }}{% if acceptance.authority_declared %} · autoridad declarada{% endif %}</small></div>
+            <code title="Huella completa del documento">{{ acceptance.document_hash_snapshot }}</code>
+          </article>
+        {% empty %}
+          <p class="soft-note">Todavía no existe ninguna constancia de aceptación.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </section>
+{% endblock %}

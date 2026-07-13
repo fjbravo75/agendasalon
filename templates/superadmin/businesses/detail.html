@@ -36,6 +36,27 @@
           </dl>
         </section>
 
+        <section class="saas-side-panel business-legal-summary" aria-labelledby="business-legal-title">
+          <div class="ops-section-head ops-section-head--compact">
+            <div><span>Privacidad y contrato</span><h2 id="business-legal-title">Documentación del negocio</h2></div>
+          </div>
+          <div class="business-legal-summary__state business-legal-summary__state--{{ legal_status.status }}">
+            <strong>{{ legal_status.label }}</strong>
+            {% if legal_status.is_current %}
+              <p>El responsable está identificado y constan los documentos vigentes exigidos para tratar datos de clientes.</p>
+            {% else %}
+              <p>El negocio no puede recoger nuevos datos personales hasta completar esta documentación.</p>
+            {% endif %}
+          </div>
+          <dl class="saas-fact-list">
+            <div><dt>Responsable</dt><dd>{{ legal_status.snapshot.legal_name|default:"Pendiente" }}</dd></div>
+            <div><dt>NIF</dt><dd>{{ legal_status.snapshot.tax_identifier|default:"Pendiente" }}</dd></div>
+            <div><dt>Correo de privacidad</dt><dd>{{ legal_status.snapshot.privacy_email|default:"Pendiente" }}</dd></div>
+            <div><dt>Última aceptación</dt><dd>{% if legal_status.latest_acceptance_at %}{{ legal_status.latest_acceptance_at|date:"d/m/Y · H:i" }}{% else %}Sin constancia{% endif %}</dd></div>
+          </dl>
+          <a class="text-action-link" href="{% url 'businesses:superadmin_business_legal_evidence' business.id %}">Consultar evidencia y versiones</a>
+        </section>
+
         <section class="saas-side-panel">
           <div class="ops-section-head ops-section-head--compact"><div><span>Ciclo reversible</span><h2>Estado y reservas</h2></div></div>
           <div class="saas-control-list">

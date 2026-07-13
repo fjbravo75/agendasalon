@@ -15,14 +15,12 @@
       </div>
     </header>
 
-    <section class="legal-grid" aria-label="Documentos vigentes">
+    <section class="legal-directory" aria-label="Documentos vigentes">
       {% for document in documents %}
-        <article class="legal-card">
-          <div>
-            <h2>{{ document.title }}</h2>
-            <p>{{ document.lead }}</p>
-          </div>
-          <a href="{% url 'legal:platform_document' document.slug %}">Leer documento · versión {{ document.version }}</a>
+        <article class="legal-directory__row">
+          <span class="legal-directory__number">{{ forloop.counter|stringformat:"02d" }}</span>
+          <div><h2>{{ document.title }}</h2><p>{{ document.lead }}</p></div>
+          <a href="{% url 'legal:platform_document' document.slug %}">Leer · versión {{ document.version }}</a>
         </article>
       {% empty %}
         <p class="legal-empty">No hay documentos publicados en este entorno.</p>

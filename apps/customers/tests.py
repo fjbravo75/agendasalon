@@ -29,6 +29,7 @@ from apps.customers.services import (
     register_client_access,
     set_authorized_contact_active,
 )
+from apps.legal.models import CustomerPrivacyEvidence
 
 
 class CustomerModelTests(TestCase):
@@ -675,6 +676,11 @@ class ProfessionalClientViewTests(TestCase):
         self.assertContains(response, "Clientes de Peluquería Mari")
         self.assertContains(response, "María López")
         self.assertContains(response, "Guardar cliente")
+        self.assertContains(response, "Información al cliente")
+        self.assertContains(
+            response,
+            reverse("legal:business_privacy", args=[self.business.slug]),
+        )
         self.assertNotContains(response, "Javier Martín")
 
     def test_professional_client_list_paginates_six_at_a_time_and_preserves_filters(self):
@@ -722,6 +728,8 @@ class ProfessionalClientViewTests(TestCase):
                 "phone": "600333111",
                 "email": "paula@example.local",
                 "internal_notes": "Prefiere primera hora.",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+                "privacy_information_provided": "on",
             },
         )
 
@@ -730,6 +738,38 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(response["Location"], reverse("customers:professional_client_detail", args=[client.id]))
         self.assertEqual(client.phone_normalized, "+34600333111")
         self.assertEqual(client.source, BusinessClient.Source.PROFESSIONAL)
+        evidence = CustomerPrivacyEvidence.objects.get(business_client=client)
+        self.assertEqual(evidence.channel, CustomerPrivacyEvidence.Channel.PHONE)
+        self.assertEqual(evidence.recorded_by, self.professional)
+        self.assertEqual(
+            evidence.informed_party_type,
+            CustomerPrivacyEvidence.InformedParty.CLIENT,
+        )
+        self.assertEqual(evidence.informed_party_name_snapshot, "Paula Vega")
+
+    def test_professional_quick_client_requires_privacy_information(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("customers:professional_client_list"),
+            {
+                "full_name": "Cliente sin constancia",
+                "phone": "600333119",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Confirma que el cliente o su persona autorizada ha recibido la información.",
+        )
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente sin constancia",
+            ).exists()
+        )
 
     def test_professional_can_create_profile_without_own_phone(self):
         self.client.force_login(self.professional)
@@ -741,6 +781,8 @@ class ProfessionalClientViewTests(TestCase):
                 "phone": "",
                 "email": "",
                 "internal_notes": "Menor gestionado por su madre.",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                "privacy_information_provided": "on",
             },
         )
 
@@ -767,6 +809,8 @@ class ProfessionalClientViewTests(TestCase):
                 "authorized_client_search": authorized_client.full_name,
                 "authorized_relationship": BusinessClientAuthorizedContact.Relationship.MOTHER,
                 "authorized_allow_online": "on",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                "privacy_information_provided": "on",
             },
         )
 
@@ -788,6 +832,12 @@ class ProfessionalClientViewTests(TestCase):
                 is_active=True,
             ).exists()
         )
+        evidence = CustomerPrivacyEvidence.objects.get(business_client=profile)
+        self.assertEqual(
+            evidence.informed_party_type,
+            CustomerPrivacyEvidence.InformedParty.AUTHORIZED_PERSON,
+        )
+        self.assertEqual(evidence.informed_party_name_snapshot, authorized_client.full_name)
 
     def test_professional_client_lookup_is_scoped_and_reports_online_status(self):
         self.client.force_login(self.professional)
@@ -831,6 +881,8 @@ class ProfessionalClientViewTests(TestCase):
                 "phone": "600333222",
                 "manual_channel": "telefono",
                 "target_date": "2026-07-09",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.WHATSAPP,
+                "privacy_information_provided": "on",
             },
         )
 
@@ -839,6 +891,8 @@ class ProfessionalClientViewTests(TestCase):
         self.assertIn(f"business_client={client.id}", response["Location"])
         self.assertIn("manual_channel=telefono", response["Location"])
         self.assertIn("target_date=2026-07-09", response["Location"])
+        evidence = CustomerPrivacyEvidence.objects.get(business_client=client)
+        self.assertEqual(evidence.channel, CustomerPrivacyEvidence.Channel.WHATSAPP)
 
     def test_professional_edit_form_is_preloaded(self):
         self.client.force_login(self.professional)

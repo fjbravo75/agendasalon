@@ -93,11 +93,9 @@
                   <label for="{{ registration_form.privacy_acknowledged.id_for_label }}">
                     {{ registration_form.privacy_acknowledged }}
                     <span>
-                      He leído la información sobre el tratamiento de mis datos por
-                      {{ business.commercial_name }}. No incluye publicidad.
+                      He leído la <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">información sobre el tratamiento de mis datos</a> por {{ business.commercial_name }}. No incluye publicidad.
                     </span>
                   </label>
-                  <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">Consultar privacidad</a>
                   {% if registration_form.privacy_acknowledged.errors %}
                     <div class="login-field-error" role="alert">{{ registration_form.privacy_acknowledged.errors }}</div>
                   {% endif %}
