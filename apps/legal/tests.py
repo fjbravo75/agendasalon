@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -75,6 +75,32 @@ class LegalExperienceTests(TestCase):
         self.assertEqual(document_response.status_code, 200)
         self.assertContains(document_response, "Privacidad de AgendaSalon")
         self.assertContains(document_response, "Huella")
+
+    @override_settings(
+        AGENDA_PLATFORM_LEGAL_NAME="AgendaSalon · demostración académica",
+        AGENDA_PLATFORM_TAX_ID="",
+        AGENDA_PLATFORM_LEGAL_ADDRESS="",
+        AGENDA_PLATFORM_PRIVACY_EMAIL="privacidad@example.com",
+        AGENDA_PLATFORM_WEBSITE="https://agendasalon.example.com",
+        AGENDA_PLATFORM_LEGAL_DEMO=True,
+    )
+    def test_academic_demo_is_explicit_and_hides_fiscal_identity(self):
+        index_response = self.client.get(reverse("legal:legal_index"))
+        document_response = self.client.get(
+            reverse("legal:platform_document", args=["aviso-legal"])
+        )
+
+        self.assertContains(
+            index_response,
+            "Demostración académica sin actividad comercial",
+        )
+        self.assertContains(
+            document_response,
+            "Demostración académica sin actividad comercial",
+        )
+        document_content = document_response.content.decode().lower()
+        self.assertNotIn("identificación fiscal", document_content)
+        self.assertNotIn("domicilio", document_content)
 
     def test_incomplete_business_cannot_collect_new_customer_data(self):
         response = self.client.get(

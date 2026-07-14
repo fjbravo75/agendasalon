@@ -177,12 +177,12 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
 AGENDA_PLATFORM_LEGAL_NAME = os.environ.get(
     "AGENDA_PLATFORM_LEGAL_NAME",
-    "AgendaSalon · entorno de demostración",
+    "AgendaSalon · demostración académica",
 )
 AGENDA_PLATFORM_TAX_ID = os.environ.get("AGENDA_PLATFORM_TAX_ID", "")
 AGENDA_PLATFORM_LEGAL_ADDRESS = os.environ.get(
     "AGENDA_PLATFORM_LEGAL_ADDRESS",
-    "Identidad legal pendiente de configuración para el despliegue",
+    "",
 )
 AGENDA_PLATFORM_PRIVACY_EMAIL = os.environ.get(
     "AGENDA_PLATFORM_PRIVACY_EMAIL",
