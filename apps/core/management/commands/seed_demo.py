@@ -223,19 +223,22 @@ class DemoSeeder:
         user = User.objects.filter(normalized_phone=normalized_phone).first()
         if user is None:
             user = User(normalized_phone=normalized_phone, phone=phone)
+
+        # La semilla es un escenario académico reiniciable: si alguien cambia
+        # una credencial demo durante una prueba, la siguiente ejecución debe
+        # restaurar la contraseña documentada sin tocar cuentas ajenas.
+        if not user.check_password(DEMO_PASSWORD):
             user.set_password(DEMO_PASSWORD)
-        elif not user.has_usable_password():
-            user.set_password(DEMO_PASSWORD)
-        else:
-            # Verifica la credencial demo y actualiza un hash heredado si procede.
-            user.check_password(DEMO_PASSWORD)
 
         user.full_name = full_name
         user.email = email
+        user.email_verified_at = timezone.now()
+        user.email_verification_required = False
         user.phone = phone
         user.is_staff = is_staff
         user.is_superuser = is_superuser
         user.is_active = True
+        user.password_change_required = False
         user.save()
         return user
 
@@ -551,6 +554,11 @@ class DemoSeeder:
         access.business = business
         access.business_client = client
         access.phone = client.phone
+        access.email = client.email or f"cliente{client.pk}@agendasalon.local"
+        access.email_verified_at = timezone.now()
+        if client.email != access.email:
+            client.email = access.email
+            client.save(update_fields=["email", "updated_at"])
         access.is_active = True
         access.set_password(DEMO_PASSWORD)
         access.full_clean()

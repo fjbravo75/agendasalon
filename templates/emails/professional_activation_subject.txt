@@ -1,0 +1,1 @@
+Activa tu acceso a {% if business %}{{ business.commercial_name }}{% else %}AgendaSalon{% endif %}

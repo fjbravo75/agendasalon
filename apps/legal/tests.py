@@ -151,6 +151,7 @@ class LegalExperienceTests(TestCase):
             {
                 "full_name": "Ana Cliente",
                 "phone": "600 555 111",
+                "email": "ana.cliente@example.test",
                 "password": test_password,
                 "password_confirm": test_password,
                 "privacy_acknowledged": "on",

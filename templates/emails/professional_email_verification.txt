@@ -1,0 +1,6 @@
+Hola, {{ user.full_name }}.
+
+Verifica que este es tu correo para seguir usando AgendaSalon y recibir avisos de seguridad:
+{{ action_url }}
+
+Si no has solicitado este cambio, no abras el enlace.

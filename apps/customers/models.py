@@ -223,6 +223,18 @@ class BusinessClientAccess(models.Model):
         max_length=32,
         editable=False,
     )
+    email = models.EmailField("correo electrónico", blank=True)
+    email_normalized = models.EmailField(
+        "correo normalizado",
+        null=True,
+        blank=True,
+        editable=False,
+    )
+    email_verified_at = models.DateTimeField(
+        "correo verificado el",
+        null=True,
+        blank=True,
+    )
     password_hash = models.CharField("hash de contraseña", max_length=128)
     is_active = models.BooleanField("activo", default=True)
     last_login_at = models.DateTimeField("último acceso", null=True, blank=True)
@@ -237,7 +249,12 @@ class BusinessClientAccess(models.Model):
             models.UniqueConstraint(
                 fields=["business", "phone_normalized"],
                 name="unique_business_client_access_phone",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["business", "email_normalized"],
+                condition=models.Q(email_normalized__isnull=False),
+                name="unique_business_client_access_email",
+            ),
         ]
         indexes = [
             models.Index(fields=["business", "phone_normalized"], name="client_access_phone_idx"),
@@ -264,11 +281,15 @@ class BusinessClientAccess(models.Model):
         if not self.phone.strip():
             raise ValidationError({"phone": "El teléfono es obligatorio."})
         self.phone_normalized = normalize_phone(self.phone)
+        self.email = (self.email or "").strip()
+        self.email_normalized = self.email.lower() or None
 
     def save(self, *args, **kwargs):
         if self.business_client_id and not self.business_id:
             self.business = self.business_client.business
         self.phone_normalized = normalize_phone(self.phone)
+        self.email = (self.email or "").strip()
+        self.email_normalized = self.email.lower() or None
         super().save(*args, **kwargs)
 
     def __str__(self):

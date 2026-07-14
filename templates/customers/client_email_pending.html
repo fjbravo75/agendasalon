@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Revisa tu correo - {{ business.commercial_name }}{% endblock %}
+{% block body_class %}login-body client-auth-body{% endblock %}
+{% block content %}
+<div class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--client-auth-bg:url('{{ client_auth_image_url }}')"{% endif %}>
+  <section class="login-shell client-auth-shell"><div class="login-topbar"><a class="login-brand" href="{% url 'public_booking' business.slug %}"><strong>{{ business.commercial_name }}</strong><span>Reserva online con AgendaSalon</span></a></div>
+    <div class="client-auth-content"><div class="login-hero-copy client-auth-copy"><div class="client-auth-business-signal">Cuenta cliente de {{ business.commercial_name }}</div><h1>Revisa tu<br>correo.</h1><p>Te hemos enviado un enlace para terminar el registro. Cuando lo abras, volverás a tu reserva.</p></div>
+      <aside class="login-panel client-auth-panel"><div class="login-panel__inner"><div class="client-auth-panel-context">{{ access.email }}</div><h2>Un último paso.</h2><p>Abre el mensaje de {{ business.commercial_name }} y pulsa <strong>Confirmar mi correo</strong>. El enlace caduca en 48 horas.</p><form method="post">{% csrf_token %}<button class="login-button" type="submit">Enviar un enlace nuevo</button></form><div class="login-panel-note">Si no lo ves, revisa la carpeta de correo no deseado. No hace falta crear otra cuenta.</div></div></aside>
+    </div><div class="client-auth-image-space" aria-hidden="true"></div>
+  </section>
+</div>
+{% endblock %}

@@ -8,7 +8,7 @@
       <div class="professional-dashboard__copy">
         <span>Administración de la plataforma</span>
         <h1 class="page-title page-title--compact">{% if editing %}Editar negocio{% else %}Nuevo negocio{% endif %}</h1>
-        <p>{% if editing %}Actualiza la identidad y configuración de {{ business.commercial_name }}.{% else %}Crea el negocio y su primer acceso profesional en una sola operación.{% endif %}</p>
+        <p>{% if editing %}Actualiza la identidad y configuración de {{ business.commercial_name }}.{% elif signup_request %}Revisa y completa los datos de {{ signup_request.business_name }} antes de crear el negocio y su acceso profesional.{% else %}Crea el negocio y su primer acceso profesional en una sola operación.{% endif %}</p>
       </div>
       <div class="professional-dashboard__actions">
         <a class="button button--secondary" href="{% if editing %}{% url 'businesses:superadmin_business_detail' business.id %}{% else %}{% url 'businesses:superadmin_business_list' %}{% endif %}">Cancelar</a>
@@ -17,6 +17,17 @@
 
     <form class="saas-management-form" method="post">
       {% csrf_token %}
+      {% if signup_request %}<input type="hidden" name="signup_request_id" value="{{ signup_request.pk }}">{% endif %}
+      {% if signup_request %}
+        <div class="signup-conversion-notice">
+          <div>
+            <span>Alta desde solicitud #{{ signup_request.pk }}</span>
+            <strong>{{ signup_request.contact_name }} · {{ signup_request.phone }}</strong>
+            <p>Se han propuesto la identidad, la ubicación y los datos del primer profesional. El teléfono y el correo públicos quedan vacíos hasta que los confirmes expresamente.</p>
+          </div>
+          <a href="{% url 'businesses:superadmin_signup_request_detail' signup_request.pk %}">Ver solicitud original</a>
+        </div>
+      {% endif %}
       <section class="saas-side-panel">
         <div class="ops-section-head ops-section-head--compact"><div><span>Negocio</span><h2>Identidad y contacto</h2></div></div>
         {{ business_form.non_field_errors }}
@@ -41,7 +52,7 @@
             {% endfor %}
           </div>
           <p class="saas-form-guidance" id="professional-access-guidance">
-            {{ professional_form.phone.help_text }} {{ professional_form.password.help_text }}
+            {{ professional_form.phone.help_text }} {{ professional_form.email.help_text }}
           </p>
         </section>
       {% endif %}

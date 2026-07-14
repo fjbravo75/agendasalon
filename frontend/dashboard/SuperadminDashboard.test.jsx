@@ -9,6 +9,7 @@ const config = {
   dataEndpoint: "/api/superadmin/",
   businessListUrl: "/superadmin/negocios/",
   businessCreateUrl: "/superadmin/negocios/nuevo/",
+  signupRequestListUrl: "/superadmin/negocios/solicitudes/",
 };
 
 function jsonResponse(payload, { ok = true } = {}) {
@@ -57,6 +58,7 @@ function dashboardPayload() {
       professionals_active: 2,
       clients_total: 8,
       appointments_total: 24,
+      signup_requests_pending: 2,
     },
     businesses,
     continuity: {
@@ -87,6 +89,7 @@ describe("SuperadminDashboard", () => {
     expect(await screen.findByRole("heading", { name: "Negocios" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Preparado para desplegar" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Consultar historial y objetivos" })).toHaveAttribute("href", "/superadmin/continuidad/");
+    expect(screen.getByRole("link", { name: "Revisar solicitudes" })).toHaveAttribute("href", "/superadmin/negocios/solicitudes/");
     const activity = screen.getByRole("list", { name: "Actividad reciente, 7 movimientos" });
     expect(activity).toHaveClass("superadmin-activity-list--scrollable");
     expect(activity).toHaveAttribute("tabindex", "0");

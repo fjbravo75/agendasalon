@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 
 class InternalNotification(models.Model):
@@ -86,5 +87,80 @@ class InternalNotification(models.Model):
 
     def __str__(self):
         return f"{self.get_event_type_display()} - {self.business}"
+
+
+class OutboundEmail(models.Model):
+    """Cola persistente de correos transaccionales, sin guardar tokens ni cuerpos."""
+
+    class Kind(models.TextChoices):
+        PROFESSIONAL_ACTIVATION = "professional_activation", "Activación profesional"
+        PROFESSIONAL_EMAIL_VERIFICATION = (
+            "professional_email_verification",
+            "Verificación profesional",
+        )
+        CLIENT_EMAIL_VERIFICATION = "client_email_verification", "Verificación cliente"
+        APPOINTMENT_CONFIRMATION = "appointment_confirmation", "Confirmación de cita"
+        APPOINTMENT_REMINDER = "appointment_reminder", "Recordatorio de cita"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        PROCESSING = "processing", "Procesando"
+        SENT = "sent", "Enviado"
+        FAILED = "failed", "Fallido"
+        CANCELLED = "cancelled", "Cancelado"
+
+    kind = models.CharField("tipo", max_length=48, choices=Kind.choices)
+    status = models.CharField(
+        "estado",
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    business = models.ForeignKey(
+        "businesses.Business",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="outbound_emails",
+    )
+    recipient_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="outbound_emails",
+    )
+    client_access = models.ForeignKey(
+        "customers.BusinessClientAccess",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="outbound_emails",
+    )
+    appointment = models.ForeignKey(
+        "booking.Appointment",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="outbound_emails",
+    )
+    recipient_email = models.EmailField("destinatario")
+    deduplication_key = models.CharField(max_length=255, unique=True)
+    scheduled_for = models.DateTimeField("programado para", default=timezone.now, db_index=True)
+    attempts = models.PositiveSmallIntegerField("intentos", default=0)
+    sent_at = models.DateTimeField("enviado el", null=True, blank=True)
+    last_error = models.CharField("último error", max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["scheduled_for", "pk"]
+        indexes = [
+            models.Index(fields=["status", "scheduled_for"], name="email_status_schedule_idx")
+        ]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} -> {self.recipient_email}"
 
 # Create your models here.
