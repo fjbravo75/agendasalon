@@ -1,3 +1,4 @@
+import importlib
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -6,6 +7,26 @@ from django.urls import reverse
 
 from apps.accounts.forms import PhoneAuthenticationForm
 from apps.businesses.models import Business, BusinessMembership, PlatformSettings
+
+
+class DemoAccountMigrationTests(TestCase):
+    def test_known_demo_accounts_remain_verified_after_migration(self):
+        user = get_user_model().objects.create_user(
+            normalized_phone="+34910000999",
+            full_name="Demo migrada",
+            email="mari@agendasalon.local",
+            password="DemoAgendaSalon2026!",
+            email_verification_required=True,
+        )
+        migration = importlib.import_module(
+            "apps.accounts.migrations.0005_verify_demo_seed_accounts"
+        )
+
+        migration.verify_demo_seed_accounts(importlib.import_module("django.apps").apps, None)
+
+        user.refresh_from_db()
+        self.assertIsNotNone(user.email_verified_at)
+        self.assertFalse(user.email_verification_required)
 
 
 class PhoneAuthenticationFormTests(TestCase):
