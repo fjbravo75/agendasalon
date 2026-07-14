@@ -87,12 +87,12 @@ class SuperadminBusinessManagementTests(TestCase):
         )
         self.assertContains(
             response,
-            "Debe tener al menos 8 caracteres y no ser demasiado común.",
+            "Enviaremos aquí un enlace para activar la cuenta y crear su contraseña.",
             count=1,
         )
-        self.assertContains(response, "Correo electrónico (opcional)")
+        self.assertContains(response, "Correo de acceso")
         professional_form = response.context["professional_form"]
-        for field_name in ("phone", "password"):
+        for field_name in ("phone", "email"):
             self.assertEqual(
                 professional_form.fields[field_name].widget.attrs["aria-describedby"],
                 "professional-access-guidance",
@@ -115,7 +115,6 @@ class SuperadminBusinessManagementTests(TestCase):
                 "full_name": "Laura Profesional",
                 "phone": "600333002",
                 "email": "laura@saloncentro.local",
-                "password": "AgendaSalonNueva2026!",
             },
         )
 
@@ -127,7 +126,9 @@ class SuperadminBusinessManagementTests(TestCase):
         )
         self.assertTrue(business.is_active)
         self.assertFalse(business.public_booking_enabled)
-        self.assertTrue(professional.check_password("AgendaSalonNueva2026!"))
+        self.assertFalse(professional.has_usable_password())
+        self.assertFalse(professional.is_active)
+        self.assertTrue(professional.email_verification_required)
         self.assertTrue(
             BusinessMembership.objects.filter(
                 business=business,
@@ -194,7 +195,7 @@ class SuperadminBusinessManagementTests(TestCase):
                 "is_active": "on",
                 "full_name": "Otra profesional",
                 "phone": self.professional.normalized_phone,
-                "password": "AgendaSalonNueva2026!",
+                "email": "otra.profesional@example.test",
             },
         )
 

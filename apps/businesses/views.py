@@ -17,6 +17,7 @@ from apps.booking.models import Appointment, BusinessCalendarSettings
 from apps.businesses.activity import record_business_activity
 from apps.businesses.forms import (
     BusinessForm,
+    BusinessSignupRequestReviewForm,
     BusinessVisualSettingsForm,
     PlatformVisualSettingsForm,
     ProfessionalCreateForm,
@@ -25,6 +26,7 @@ from apps.businesses.models import (
     Business,
     BusinessActivityEvent,
     BusinessMembership,
+    BusinessSignupRequest,
     PlatformSettings,
 )
 from apps.businesses.services import (
@@ -37,6 +39,7 @@ from apps.holidays.forms import NationalHolidaySyncForm
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 from apps.holidays.services import BoeSyncError, sync_boe_national_holidays
 from apps.legal.models import LegalAcceptance
+from apps.notifications.services import queue_and_dispatch, queue_professional_activation
 from apps.legal.services import business_legal_status
 
 
@@ -102,19 +105,64 @@ def superadmin_business_list(request):
             "query": query,
             "status": status,
             "result_count": businesses.count(),
+            "open_signup_requests_count": BusinessSignupRequest.objects.filter(
+                status__in=BusinessSignupRequest.open_statuses()
+            ).count(),
         },
     )
 
 
 @superadmin_required
 def superadmin_business_create(request):
-    business_form = BusinessForm(request.POST or None)
-    professional_form = ProfessionalCreateForm(request.POST or None)
+    signup_request_id = request.POST.get("signup_request_id") or request.GET.get("solicitud")
+    signup_request = None
+    if signup_request_id:
+        signup_request = get_object_or_404(BusinessSignupRequest, pk=signup_request_id)
+        if signup_request.status not in BusinessSignupRequest.open_statuses():
+            messages.error(request, "Esta solicitud ya no se puede convertir en un negocio.")
+            return redirect(
+                "businesses:superadmin_signup_request_detail",
+                request_id=signup_request.pk,
+            )
+
+    business_initial = {}
+    professional_initial = {}
+    if signup_request is not None:
+        business_initial = {
+            "commercial_name": signup_request.business_name,
+            "city": signup_request.city,
+            "province": signup_request.province,
+        }
+        professional_initial = {
+            "full_name": signup_request.contact_name,
+            "phone": signup_request.phone,
+            "email": signup_request.email,
+        }
+
+    business_form = BusinessForm(request.POST or None, initial=business_initial)
+    professional_form = ProfessionalCreateForm(request.POST or None, initial=professional_initial)
     if request.method == "POST":
         business_valid = business_form.is_valid()
         professional_valid = professional_form.is_valid()
         if business_valid and professional_valid:
             with transaction.atomic():
+                locked_signup_request = None
+                if signup_request is not None:
+                    locked_signup_request = BusinessSignupRequest.objects.select_for_update().get(
+                        pk=signup_request.pk
+                    )
+                    if locked_signup_request.status in {
+                        BusinessSignupRequest.Status.CONVERTED,
+                        BusinessSignupRequest.Status.DISMISSED,
+                    }:
+                        messages.error(
+                            request,
+                            "Esta solicitud ya no se puede convertir en un negocio.",
+                        )
+                        return redirect(
+                            "businesses:superadmin_signup_request_detail",
+                            request_id=locked_signup_request.pk,
+                        )
                 business = business_form.save()
                 business.legal_compliance_enabled = True
                 business.save(update_fields=["legal_compliance_enabled", "updated_at"])
@@ -139,10 +187,33 @@ def superadmin_business_create(request):
                     actor=request.user,
                     entity_type="business_membership",
                 )
-            messages.success(
-                request,
-                f"{business.commercial_name} queda dado de alta con su acceso profesional.",
+                if locked_signup_request is not None:
+                    locked_signup_request.status = BusinessSignupRequest.Status.CONVERTED
+                    locked_signup_request.converted_business = business
+                    locked_signup_request.converted_at = timezone.now()
+                    locked_signup_request.handled_by = request.user
+                    locked_signup_request.save(
+                        update_fields=[
+                            "status",
+                            "converted_business",
+                            "converted_at",
+                            "handled_by",
+                            "updated_at",
+                        ]
+                    )
+            delivery = queue_and_dispatch(
+                queue_professional_activation(professional, business=business)
             )
+            if delivery.status == delivery.Status.SENT:
+                messages.success(
+                    request,
+                    f"{business.commercial_name} queda dado de alta. Hemos enviado el enlace de activación a {professional.email}.",
+                )
+            else:
+                messages.warning(
+                    request,
+                    f"{business.commercial_name} queda dado de alta, pero el correo de activación está pendiente de envío.",
+                )
             return redirect("businesses:superadmin_business_detail", business_id=business.id)
 
     return render(
@@ -152,6 +223,80 @@ def superadmin_business_create(request):
             "business_form": business_form,
             "professional_form": professional_form,
             "editing": False,
+            "signup_request": signup_request,
+        },
+    )
+
+
+@superadmin_required
+def superadmin_signup_request_list(request):
+    signup_requests = BusinessSignupRequest.objects.select_related(
+        "handled_by", "converted_business"
+    )
+    query = request.GET.get("q", "").strip()
+    status = request.GET.get("status", "all")
+    if query:
+        signup_requests = signup_requests.filter(
+            Q(business_name__icontains=query)
+            | Q(contact_name__icontains=query)
+            | Q(city__icontains=query)
+            | Q(phone__icontains=query)
+            | Q(email__icontains=query)
+        )
+    valid_statuses = {choice.value for choice in BusinessSignupRequest.Status}
+    if status in valid_statuses:
+        signup_requests = signup_requests.filter(status=status)
+    else:
+        status = "all"
+
+    result_count = signup_requests.count()
+    page = Paginator(signup_requests, 20).get_page(request.GET.get("page"))
+    return render(
+        request,
+        "superadmin/businesses/signup_requests/list.html",
+        {
+            "signup_requests": page,
+            "page": page,
+            "query": query,
+            "status": status,
+            "status_choices": BusinessSignupRequest.Status.choices,
+            "result_count": result_count,
+            "new_count": BusinessSignupRequest.objects.filter(
+                status=BusinessSignupRequest.Status.NEW
+            ).count(),
+        },
+    )
+
+
+@superadmin_required
+def superadmin_signup_request_detail(request, request_id):
+    signup_request = get_object_or_404(
+        BusinessSignupRequest.objects.select_related(
+            "privacy_document", "handled_by", "converted_business"
+        ),
+        pk=request_id,
+    )
+    is_converted = signup_request.status == BusinessSignupRequest.Status.CONVERTED
+    form = None
+    if not is_converted:
+        form = BusinessSignupRequestReviewForm(request.POST or None, instance=signup_request)
+        if request.method == "POST" and form.is_valid():
+            reviewed_request = form.save(commit=False)
+            reviewed_request.handled_by = request.user
+            reviewed_request.save()
+            messages.success(request, "El seguimiento de la solicitud se ha actualizado.")
+            return redirect(
+                "businesses:superadmin_signup_request_detail",
+                request_id=signup_request.pk,
+            )
+
+    return render(
+        request,
+        "superadmin/businesses/signup_requests/detail.html",
+        {
+            "signup_request": signup_request,
+            "review_form": form,
+            "is_converted": is_converted,
         },
     )
 
@@ -358,13 +503,47 @@ def superadmin_professional_create(request, business_id):
                 entity=membership,
                 entity_type="business_membership",
             )
-        messages.success(request, f"{professional.full_name} ya puede entrar en {business.commercial_name}.")
+        delivery = queue_and_dispatch(
+            queue_professional_activation(professional, business=business)
+        )
+        if delivery.status == delivery.Status.SENT:
+            messages.success(
+                request,
+                f"Acceso preparado. Hemos enviado a {professional.email} el enlace para activarlo.",
+            )
+        else:
+            messages.warning(
+                request,
+                f"El acceso de {professional.full_name} está preparado, pero el correo sigue pendiente de envío.",
+            )
         return redirect("businesses:superadmin_business_detail", business_id=business.id)
     return render(
         request,
         "superadmin/businesses/professional_form.html",
         {"business": business, "professional_form": professional_form},
     )
+
+
+@superadmin_required
+@require_POST
+def superadmin_professional_activation_resend(request, business_id, membership_id):
+    membership = get_object_or_404(
+        BusinessMembership.objects.select_related("user", "business"),
+        pk=membership_id,
+        business_id=business_id,
+    )
+    user = membership.user
+    if user.is_active or not user.email_normalized:
+        messages.error(request, "Esta cuenta no necesita un enlace de activación.")
+    else:
+        delivery = queue_and_dispatch(
+            queue_professional_activation(user, business=membership.business)
+        )
+        if delivery.status == delivery.Status.SENT:
+            messages.success(request, f"Enlace de activación reenviado a {user.email}.")
+        else:
+            messages.warning(request, "El reenvío ha quedado pendiente. No se ha perdido la solicitud.")
+    return redirect("businesses:superadmin_business_detail", business_id=business_id)
 
 
 @superadmin_required

@@ -8,7 +8,7 @@ const OUT_DIR = path.join(__dirname, "..", "_visual_checks", "auth");
 const pages = [
   {
     label: "professional-login",
-    url: "/cuenta/entrar/",
+    url: "/entrar/",
     expectedImage: "agendasalon-internal-login-bg.png",
   },
   {

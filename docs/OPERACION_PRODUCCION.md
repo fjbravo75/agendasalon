@@ -85,6 +85,65 @@ La URL y el resto de secretos deben vivir en el gestor de variables del
 servidor, nunca en Git, el README, una unidad de servicio ni la línea de
 comandos.
 
+## Correo transaccional
+
+AgendaSalon dispone de una cola persistente para activaciones profesionales,
+verificaciones de correo, confirmaciones de cita y recordatorios programados para
+24 horas antes. Una operación de negocio no se revierte porque el proveedor de
+correo falle: el mensaje queda pendiente o registra un fallo controlado para
+reintento y diagnóstico.
+
+El proveedor elegido para producción es Brevo. La cuenta, el remitente
+`AgendaSalon <agendasalon@brvsoftwarestudio.com>` y el dominio
+`brvsoftwarestudio.com` están verificados. El subdominio de marca es
+`correo.brvsoftwarestudio.com` y los registros CNAME, DKIM, DMARC y código de
+verificación se publican en el DNS autoritativo de DigitalOcean.
+
+DigitalOcean bloquea en sus droplets los puertos SMTP 25, 465 y 587. Por ese
+motivo AgendaSalon utiliza el relay de Brevo por el puerto 2525 con STARTTLS:
+
+```text
+AGENDA_TRANSACTIONAL_EMAIL_ENABLED=1
+EMAIL_HOST=smtp-relay.brevo.com
+EMAIL_PORT=2525
+EMAIL_HOST_USER=usuario-smtp-asignado-por-brevo
+EMAIL_HOST_PASSWORD=secreto-fuera-de-git
+DEFAULT_FROM_EMAIL=AgendaSalon <agendasalon@brvsoftwarestudio.com>
+EMAIL_USE_TLS=1
+EMAIL_USE_SSL=0
+```
+
+La clave SMTP y la clave API se conservan en Windows Credential Manager bajo
+los destinos `AgendaSalonBrevoSmtpKey` y `AgendaSalonBrevoApiKey`. El script
+`ops/configure_brevo_smtp_production.ps1` lee la clave SMTP sin mostrarla y
+actualiza el fichero protegido `/etc/agendasalon/agendasalon.env`, cuyo modo debe
+seguir siendo `600`. Ninguna clave se almacena en Git, documentación o línea de
+comandos.
+
+Brevo restringe las claves SMTP y API a las direcciones autorizadas. Deben
+permanecer en la lista la IP pública de administración y la IP del droplet de
+AgendaSalon; cualquier cambio de infraestructura obliga a actualizar primero
+esa lista para evitar una interrupción silenciosa del envío.
+
+La validación del 14 de julio de 2026 se realizó desde Django en el droplet: el
+backend SMTP devolvió un envío y Brevo registró el mismo mensaje como solicitado,
+abierto y entregado. Esta prueba valida proveedor, puerto, TLS, autenticación,
+remitente, DNS y restricción de IP. No sustituye la prueba funcional posterior al
+despliegue del código de outbox y del temporizador.
+
+TLS y SSL directo son excluyentes. Si se activa el correo y falta un dato SMTP,
+el perfil de producción detiene el arranque para evitar una configuración a
+medias. El procesamiento periódico se realiza con
+`ops/systemd/agendasalon-email.timer`, que ejecuta cada cinco minutos:
+
+```bash
+python manage.py process_outbound_emails
+```
+
+Instalar o habilitar esa unidad, introducir credenciales o cambiar el entorno
+público requiere una actuación de despliegue deliberada. La existencia de estos
+archivos en el repositorio no modifica por sí sola la demo publicada.
+
 ## Cabeceras y contenido activo
 
 AgendaSalon envía una CSP en todas las respuestas. Las rutas de producto solo

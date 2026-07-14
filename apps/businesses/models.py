@@ -2,8 +2,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
 from django.db import models
+from django.db.models import Q
 
 
 def business_public_image_upload_to(instance, filename):
@@ -93,6 +95,133 @@ class Business(models.Model):
 
     def accepts_public_bookings(self):
         return self.is_active and self.public_booking_enabled
+
+
+class BusinessSignupRequest(models.Model):
+    """Solicitud pública revisada antes de crear un negocio en AgendaSalon."""
+
+    class BusinessType(models.TextChoices):
+        HAIR_SALON = "hair_salon", "Peluquería"
+        BARBERSHOP = "barbershop", "Barbería"
+        BEAUTY_SALON = "beauty_salon", "Salón de belleza"
+        OTHER = "other", "Otro"
+
+    class PreferredChannel(models.TextChoices):
+        PHONE = "phone", "Teléfono"
+        WHATSAPP = "whatsapp", "WhatsApp"
+        EMAIL = "email", "Correo electrónico"
+
+    class Status(models.TextChoices):
+        NEW = "new", "Nueva"
+        REVIEWING = "reviewing", "En revisión"
+        CONTACTED = "contacted", "Contactada"
+        CONVERTED = "converted", "Convertida"
+        DISMISSED = "dismissed", "Descartada"
+
+    business_name = models.CharField("nombre comercial", max_length=160)
+    business_type = models.CharField(
+        "tipo de negocio",
+        max_length=24,
+        choices=BusinessType.choices,
+    )
+    city = models.CharField("localidad", max_length=120)
+    province = models.CharField("provincia", max_length=120, blank=True)
+    contact_name = models.CharField("persona de contacto", max_length=150)
+    phone = models.CharField("teléfono", max_length=32)
+    normalized_phone = models.CharField("teléfono normalizado", max_length=32, db_index=True)
+    email = models.EmailField("correo electrónico", blank=True)
+    preferred_channel = models.CharField(
+        "canal preferido",
+        max_length=16,
+        choices=PreferredChannel.choices,
+    )
+    need_text = models.CharField("necesidad principal", max_length=300, blank=True)
+    privacy_document = models.ForeignKey(
+        "legal.LegalDocument",
+        on_delete=models.PROTECT,
+        related_name="business_signup_requests",
+        verbose_name="información de privacidad mostrada",
+    )
+    privacy_document_version = models.CharField("versión de privacidad", max_length=24)
+    privacy_document_hash = models.CharField("huella de privacidad", max_length=64)
+    privacy_acknowledged_at = models.DateTimeField("información de privacidad leída")
+    status = models.CharField(
+        "estado",
+        max_length=16,
+        choices=Status.choices,
+        default=Status.NEW,
+        db_index=True,
+    )
+    admin_note = models.TextField("nota interna", max_length=1000, blank=True)
+    handled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="handled_business_signup_requests",
+        verbose_name="gestionada por",
+        null=True,
+        blank=True,
+    )
+    converted_business = models.ForeignKey(
+        Business,
+        on_delete=models.PROTECT,
+        related_name="signup_requests",
+        verbose_name="negocio creado",
+        null=True,
+        blank=True,
+    )
+    converted_at = models.DateTimeField("convertida el", null=True, blank=True)
+    created_at = models.DateTimeField("recibida el", auto_now_add=True)
+    updated_at = models.DateTimeField("actualizada el", auto_now=True)
+
+    class Meta:
+        verbose_name = "solicitud de alta de negocio"
+        verbose_name_plural = "solicitudes de alta de negocio"
+        ordering = ["-created_at", "-pk"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"], name="signup_status_created_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status="converted",
+                        converted_business__isnull=False,
+                        converted_at__isnull=False,
+                    )
+                    | Q(
+                        ~Q(status="converted"),
+                        converted_business__isnull=True,
+                        converted_at__isnull=True,
+                    )
+                ),
+                name="signup_conversion_fields_coherent",
+            )
+        ]
+
+    @classmethod
+    def open_statuses(cls):
+        return (cls.Status.NEW, cls.Status.REVIEWING, cls.Status.CONTACTED)
+
+    def clean(self):
+        super().clean()
+        is_converted = self.status == self.Status.CONVERTED
+        has_conversion = bool(self.converted_business_id and self.converted_at)
+        if is_converted != has_conversion:
+            raise ValidationError(
+                "Una solicitud convertida debe conservar el negocio y la fecha de conversión."
+            )
+        if self.privacy_document_id:
+            if self.privacy_document.kind != "platform_privacy":
+                raise ValidationError(
+                    {"privacy_document": "Debe usarse la privacidad de la plataforma."}
+                )
+            if self.privacy_document_version != self.privacy_document.version:
+                raise ValidationError({"privacy_document_version": "La versión no coincide."})
+            if self.privacy_document_hash != self.privacy_document.content_hash:
+                raise ValidationError({"privacy_document_hash": "La huella no coincide."})
+
+    def __str__(self):
+        return f"{self.business_name} · {self.contact_name}"
 
 
 class BusinessPublicImage(models.Model):

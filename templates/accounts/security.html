@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}{% if password_change_required %}Crea tu contraseña{% else %}Seguridad de la cuenta{% endif %} - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="settings-shell account-security-shell" aria-labelledby="account-security-title">
+    <header class="professional-dashboard__hero settings-hero account-security-hero">
+      <div class="professional-dashboard__copy">
+        <span>{% if password_change_required %}Primer acceso{% else %}Mi cuenta{% endif %}</span>
+        <h1 class="page-title page-title--compact" id="account-security-title">
+          {% if password_change_required %}Crea tu contraseña personal{% else %}Seguridad de la cuenta{% endif %}
+        </h1>
+        <p>
+          {% if password_change_required %}
+            Estás usando una contraseña temporal. Sustitúyela antes de entrar en la zona de trabajo.
+          {% else %}
+            Actualiza la contraseña que utilizas para entrar en AgendaSalon.
+          {% endif %}
+        </p>
+      </div>
+      {% if not password_change_required %}
+        <div class="account-security-identity" aria-label="Cuenta actual">
+          <span>Cuenta actual</span>
+          <strong>{{ user.full_name }}</strong>
+          <small>{{ user.phone }}</small>
+        </div>
+      {% endif %}
+    </header>
+
+    <div class="account-security-grid">
+      <section class="settings-panel account-security-context" aria-labelledby="account-security-context-title">
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>{% if password_change_required %}Paso necesario{% else %}Protección personal{% endif %}</span>
+            <h2 id="account-security-context-title">
+              {% if password_change_required %}La contraseña temporal deja de servir{% else %}Solo tú debes conocerla{% endif %}
+            </h2>
+          </div>
+        </div>
+        <p class="settings-panel__intro">
+          {% if password_change_required %}
+            Cuando guardes la nueva contraseña, podrás continuar con el alta del negocio y el superadministrador dejará de conocer tu clave de acceso.
+          {% else %}
+            AgendaSalon comprobará tu contraseña actual antes de aceptar el cambio. No mostramos ni enviamos contraseñas desde esta pantalla.
+          {% endif %}
+        </p>
+        <ul class="account-security-facts">
+          <li>Tu sesión actual permanecerá abierta.</li>
+          <li>Las demás sesiones perderán el acceso.</li>
+          <li>La contraseña se guardará protegida con Argon2id.</li>
+        </ul>
+      </section>
+
+      <form class="settings-panel account-security-form" method="post" novalidate>
+        {% csrf_token %}
+        {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+        <div class="ops-section-head ops-section-head--compact">
+          <div>
+            <span>Credenciales</span>
+            <h2>{% if password_change_required %}Define tu nueva contraseña{% else %}Cambiar contraseña{% endif %}</h2>
+          </div>
+        </div>
+
+        {% if password_form.non_field_errors %}
+          <div class="login-form-error" role="alert">{{ password_form.non_field_errors }}</div>
+        {% endif %}
+
+        <div class="account-security-fields">
+          {% for field in password_form %}
+            <div class="field account-security-field{% if field.errors %} is-error{% endif %}">
+              {{ field.label_tag }}
+              {{ field }}
+              {% if field.errors %}<div class="account-security-field__error" role="alert">{{ field.errors }}</div>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+
+        <p class="account-password-rules" id="account-password-rules">
+          Usa al menos 12 caracteres. Evita claves comunes, solo números o datos demasiado parecidos a tu información personal.
+        </p>
+
+        <div class="account-security-actions">
+          {% if not password_change_required %}
+            <a class="button button--secondary" href="{% if user.is_superuser %}{% url 'dashboards:superadmin_home' %}{% else %}{% url 'dashboards:professional_home' %}{% endif %}">Cancelar</a>
+          {% endif %}
+          <button class="button" type="submit">
+            {% if password_change_required %}Crear mi contraseña{% else %}Guardar nueva contraseña{% endif %}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

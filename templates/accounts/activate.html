@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Activa tu cuenta - AgendaSalon{% endblock %}
+{% block body_class %}login-body{% endblock %}
+{% block content %}
+<div class="login-page internal-auth-page"{% if internal_login_image_url %} style="--internal-auth-bg:url('{{ internal_login_image_url }}')"{% endif %}>
+  <section class="login-shell internal-auth-shell">
+    <div class="login-topbar"><a class="login-brand" href="{% url 'home' %}"><strong>AgendaSalon</strong><span>Acceso profesional</span></a></div>
+    <div class="internal-auth-content">
+      <div class="login-hero-copy internal-auth-copy"><span>Tu cuenta, tus claves</span><h1>Activa tu<br>acceso.</h1><p>El negocio ya está preparado. Ahora crea una contraseña que solo tú conozcas y empieza a trabajar con tu agenda.</p></div>
+      <aside class="login-panel internal-auth-panel" aria-label="Activación profesional"><div class="login-panel__inner">
+        {% if activation_valid %}
+          <h2>Hola, {{ activation_user.full_name }}.</h2><p>Elige tu contraseña personal para terminar.</p>
+          <form method="post" class="login-form-stack" novalidate>{% csrf_token %}
+            {{ activation_form.non_field_errors }}
+            <div class="login-field{% if activation_form.new_password1.errors %} is-error{% endif %}">{{ activation_form.new_password1.label_tag }}{{ activation_form.new_password1 }}{{ activation_form.new_password1.errors }}</div>
+            <div class="login-field{% if activation_form.new_password2.errors %} is-error{% endif %}">{{ activation_form.new_password2.label_tag }}{{ activation_form.new_password2 }}{{ activation_form.new_password2.errors }}</div>
+            <small id="account-password-rules">Usa al menos 12 caracteres y evita claves comunes o solo numéricas.</small>
+            <button class="login-button" type="submit">Activar mi cuenta</button>
+          </form>
+        {% else %}
+          <h2>Este enlace ya no está disponible.</h2><p>Puede que ya se haya usado o que la cuenta haya cambiado. Pide al administrador que prepare un enlace nuevo.</p><a class="login-button login-button--link" href="{% url 'accounts:login' %}">Volver a entrar</a>
+        {% endif %}
+      </div></aside>
+    </div><div class="internal-auth-image-space" aria-hidden="true"></div>
+  </section>
+</div>
+{% endblock %}

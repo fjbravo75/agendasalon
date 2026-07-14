@@ -7,14 +7,20 @@ def professional_appearance(request):
         return {}
     resolver_match = getattr(request, "resolver_match", None)
     legal_namespace = getattr(resolver_match, "namespace", None) == "legal"
+    account_namespace = getattr(resolver_match, "namespace", None) == "accounts"
     if user.is_superuser:
-        if not request.path.startswith("/superadmin/") and not legal_namespace:
+        if not (
+            request.path.startswith("/superadmin/")
+            or legal_namespace
+            or account_namespace
+        ):
             return {}
         return {"professional_theme": get_platform_settings().admin_theme}
     if not (
         request.path.startswith("/profesional/")
         or request.path.startswith("/clientes/profesional/")
         or legal_namespace
+        or account_namespace
     ):
         return {}
     business = get_primary_business_for_user(user)

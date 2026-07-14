@@ -139,6 +139,29 @@ class SeedDemoCommandTests(TestCase):
         )
         self.assertEqual(suggestions[0].starts_at.date(), date(2026, 7, 9))
 
+    def test_seed_demo_restores_internal_demo_credentials_and_removes_password_gate(self):
+        call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
+        User = get_user_model()
+        demo_phones = (
+            "+34910000001",
+            "+34600111001",
+            "+34600222001",
+        )
+
+        for user in User.objects.filter(normalized_phone__in=demo_phones):
+            user.set_password("Contraseña modificada durante la prueba 2026")
+            user.password_change_required = True
+            user.save(update_fields=["password", "password_change_required"])
+
+        call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
+
+        restored_users = User.objects.filter(normalized_phone__in=demo_phones)
+        self.assertEqual(restored_users.count(), 3)
+        for user in restored_users:
+            self.assertTrue(user.check_password("DemoAgendaSalon2026!"))
+            self.assertFalse(user.check_password("Contraseña modificada durante la prueba 2026"))
+            self.assertFalse(user.password_change_required)
+
     def test_seed_demo_merges_service_names_that_only_differ_by_accents(self):
         call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
         business = Business.objects.get(slug="peluqueria-mari")

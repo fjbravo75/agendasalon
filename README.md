@@ -61,7 +61,9 @@ cuentas:
 | Cliente de Barbería Norte | `600222201` |
 
 Son credenciales exclusivamente demostrativas y no deben reutilizarse en un
-despliegue real.
+despliegue real. Cada ejecución de `seed_demo` restaura estas credenciales y
+elimina cualquier cambio de contraseña obligatorio de las cuentas internas de
+demostración, para que el escenario académico siga siendo reproducible.
 
 ## Estado actual
 
@@ -77,8 +79,8 @@ teléfono normalizado.
 
 Incluye negocios, pertenencias profesionales, servicios, disponibilidad, cierres,
 líneas de trabajo, fichas de cliente, contactos autorizados, citas,
-accesos cliente, servicios dentro de cita, festivos y notificaciones internas
-simuladas.
+accesos cliente, servicios dentro de cita, festivos y una cola transaccional de
+correo para activaciones, verificaciones y avisos de citas.
 
 También incluye acceso visual, plantillas base, redirección por rol y resolución
 del negocio activo del profesional autenticado.
@@ -176,6 +178,25 @@ después de un acceso correcto. Los intentos de acceso se limitan por identidad 
 IP sin guardar esos identificadores en claro. La sesión cliente rota al entrar y
 salir, y caduca tras una hora sin actividad.
 
+Los accesos profesionales creados por el superadministrador reciben un correo de
+activación de un solo uso. Desde ese enlace, cada persona crea su propia
+contraseña y verifica el correo antes de entrar en la operativa. Las cuentas
+internas anteriores que todavía no tengan un correo verificado deben completarlo
+desde `/cuenta/correo/`. Después, profesionales y superadministradores pueden
+cambiar su contraseña desde `Mi cuenta`: el cambio comprueba la contraseña
+actual, conserva la sesión presente e invalida las demás sesiones. El mecanismo
+anterior de contraseña temporal se mantiene solo como compatibilidad para
+cuentas heredadas o intervenciones administrativas controladas.
+
+Las cuentas cliente también verifican su correo antes de reservar. Al confirmar
+una cita, AgendaSalon prepara una confirmación y, si queda margen suficiente, un
+recordatorio para 24 horas antes. El envío se gestiona mediante una cola
+persistente e idempotente: en desarrollo usa la consola y en producción se ha
+preparado Brevo mediante SMTP con STARTTLS por el puerto 2525. El dominio y el
+remitente están autenticados y una prueba directa desde Django fue entregada;
+la activación de los flujos reales queda condicionada al despliegue de este
+bloque y a la instalación de su temporizador.
+
 AgendaSalon incorpora una capa de privacidad operativa, no solo informativa.
 Los documentos legales se publican por versión y huella; cada negocio completa
 la identidad del responsable y acepta el encargo de tratamiento antes de poder
@@ -200,6 +221,13 @@ negocios. Puede dar de alta un salón con su primer acceso profesional, editarlo
 pausarlo o reactivarlo, gestionar profesionales y activar o detener la reserva
 online sin borrar el historial. Esta administración no entra en el recorrido de
 reserva del cliente.
+
+El acceso interno ofrece además una vía para negocios que todavía no tienen
+cuenta. `/solicitar-alta/` recoge una solicitud mínima, informa de que aún no se
+ha creado ningún acceso y la entrega a una bandeja privada del
+superadministrador. Desde allí puede registrarse el seguimiento y reutilizar el
+alta existente para crear el negocio y su primer profesional. Los datos privados
+de contacto no se publican automáticamente.
 
 La ficha de cada negocio incorpora un historial de actividad de solo lectura.
 Registra cambios reales de estado: citas creadas, canceladas o cerradas;
@@ -230,7 +258,10 @@ caducados o acumulados. Para una fecha reproducible puede usarse
 ## Rutas principales
 
 - `/`: redirección al acceso interno, sin directorio público de negocios.
-- `/cuenta/entrar/`: acceso de profesionales y superadministración.
+- `/entrar/`: acceso canónico de profesionales y superadministración.
+- `/cuenta/entrar/`: compatibilidad; redirige a `/entrar/`.
+- `/cuenta/seguridad/`: cambio obligatorio o voluntario de contraseña interna.
+- `/solicitar-alta/`: solicitud pública previa al alta de un negocio.
 - `/cuenta/desconectado/`: confirmación de cierre de la sesión interna.
 - `/profesional/`: agenda operativa de la jornada.
 - `/profesional/agenda/`: agenda profesional interactiva.
@@ -246,6 +277,7 @@ caducados o acumulados. Para una fecha reproducible puede usarse
 - `/superadmin/dashboard/`: estado general de AgendaSalon.
 - `/superadmin/dashboard/datos/`: datos JSON protegidos del cuadro de mando.
 - `/superadmin/negocios/`: alta y gestión de negocios y accesos profesionales.
+- `/superadmin/negocios/solicitudes/`: revisión y conversión de solicitudes de alta.
 - `/superadmin/ajustes/`: tema de administración e imagen del acceso interno.
 - `/superadmin/negocios/<id>/actividad/`: historial filtrable de un negocio.
 - `/reservar/<slug>/`: reserva online híbrida.

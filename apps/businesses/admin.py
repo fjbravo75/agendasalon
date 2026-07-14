@@ -5,6 +5,7 @@ from .models import (
     BusinessActivityEvent,
     BusinessMembership,
     BusinessPublicImage,
+    BusinessSignupRequest,
     PlatformLoginImage,
     PlatformSettings,
 )
@@ -31,6 +32,31 @@ class BusinessAdmin(admin.ModelAdmin):
     search_fields = ("commercial_name", "slug", "public_phone", "public_email")
     prepopulated_fields = {"slug": ("commercial_name",)}
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(BusinessSignupRequest)
+class BusinessSignupRequestAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_name",
+        "contact_name",
+        "city",
+        "preferred_channel",
+        "status",
+        "created_at",
+    )
+    list_filter = ("status", "business_type", "preferred_channel", "province")
+    search_fields = ("business_name", "contact_name", "phone", "email", "city")
+    readonly_fields = (
+        "normalized_phone",
+        "privacy_document",
+        "privacy_document_version",
+        "privacy_document_hash",
+        "privacy_acknowledged_at",
+        "converted_business",
+        "converted_at",
+        "created_at",
+        "updated_at",
+    )
 
 
 @admin.register(BusinessMembership)

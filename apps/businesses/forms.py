@@ -2,7 +2,6 @@ from pathlib import Path
 
 from django import forms
 from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.templatetags.static import static
@@ -19,6 +18,7 @@ from apps.businesses.models import (
     Business,
     BusinessMembership,
     BusinessPublicImage,
+    BusinessSignupRequest,
     PlatformLoginImage,
     PlatformSettings,
 )
@@ -163,30 +163,23 @@ class ProfessionalCreateForm(forms.Form):
         help_text="Será su identificador para entrar en AgendaSalon.",
     )
     email = forms.EmailField(
-        label="Correo electrónico (opcional)",
-        required=False,
+        label="Correo de acceso",
+        max_length=254,
+        required=True,
         widget=forms.EmailInput(
             attrs={
                 "autocomplete": "email",
                 "placeholder": "Ej. profesional@negocio.es",
             }
         ),
-    )
-    password = forms.CharField(
-        label="Contraseña temporal",
-        strip=False,
-        widget=forms.PasswordInput(
-            attrs={
-                "autocomplete": "new-password",
-                "placeholder": "Mínimo 8 caracteres",
-            }
+        help_text=(
+            "Enviaremos aquí un enlace para activar la cuenta y crear su contraseña."
         ),
-        help_text="Debe tener al menos 8 caracteres y no ser demasiado común.",
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field_name in ("phone", "password"):
+        for field_name in ("phone", "email"):
             self.fields[field_name].widget.attrs["aria-describedby"] = (
                 "professional-access-guidance"
             )
@@ -202,18 +195,22 @@ class ProfessionalCreateForm(forms.Form):
         self.normalized_phone = normalized_phone
         return phone
 
-    def clean_password(self):
-        password = self.cleaned_data["password"]
-        validate_password(password)
-        return password
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        if get_user_model().objects.filter(email_normalized=email).exists():
+            raise forms.ValidationError("Ya existe una cuenta interna con este correo.")
+        return email
 
     def create_professional(self, *, business):
         user = get_user_model().objects.create_user(
             normalized_phone=self.normalized_phone,
             phone=self.cleaned_data["phone"],
-            password=self.cleaned_data["password"],
+            password=None,
             full_name=self.cleaned_data["full_name"],
             email=self.cleaned_data["email"],
+            is_active=False,
+            password_change_required=False,
+            email_verification_required=True,
         )
         BusinessMembership.objects.create(
             business=business,
@@ -222,6 +219,140 @@ class ProfessionalCreateForm(forms.Form):
             is_active=True,
         )
         return user
+
+
+class BusinessSignupRequestForm(forms.ModelForm):
+    business_type = forms.ChoiceField(
+        label="Tipo de negocio",
+        choices=(("", "Selecciona un tipo"), *BusinessSignupRequest.BusinessType.choices),
+    )
+    preferred_channel = forms.ChoiceField(
+        label="¿Cómo prefieres que contactemos contigo?",
+        choices=BusinessSignupRequest.PreferredChannel.choices,
+        widget=forms.RadioSelect(),
+    )
+    privacy_acknowledged = forms.BooleanField(
+        label="He leído la información sobre el tratamiento de mis datos.",
+        required=True,
+    )
+    email = forms.EmailField(
+        label="Correo electrónico",
+        max_length=254,
+        required=True,
+        widget=forms.EmailInput(
+            attrs={"autocomplete": "email", "placeholder": "Ej. nombre@correo.es"}
+        ),
+        help_text="Lo usaremos para responderte y activar el acceso si aprobamos el alta.",
+        error_messages={
+            "required": "Indica un correo para recibir la respuesta y activar el acceso."
+        },
+    )
+
+    class Meta:
+        model = BusinessSignupRequest
+        fields = (
+            "business_name",
+            "business_type",
+            "city",
+            "province",
+            "contact_name",
+            "phone",
+            "email",
+            "preferred_channel",
+            "need_text",
+        )
+        labels = {
+            "business_name": "Nombre comercial",
+            "business_type": "Tipo de negocio",
+            "city": "Localidad",
+            "province": "Provincia (opcional)",
+            "contact_name": "Tu nombre",
+            "phone": "Teléfono",
+            "email": "Correo electrónico",
+            "preferred_channel": "¿Cómo prefieres que contactemos contigo?",
+            "need_text": "¿Qué te gustaría organizar mejor? (opcional)",
+        }
+        widgets = {
+            "business_name": forms.TextInput(
+                attrs={"autocomplete": "organization", "placeholder": "Ej. Peluquería Mari"}
+            ),
+            "city": forms.TextInput(
+                attrs={"autocomplete": "address-level2", "placeholder": "Ej. Córdoba"}
+            ),
+            "province": forms.TextInput(
+                attrs={"autocomplete": "address-level1", "placeholder": "Ej. Córdoba"}
+            ),
+            "contact_name": forms.TextInput(
+                attrs={"autocomplete": "name", "placeholder": "Nombre y apellidos"}
+            ),
+            "phone": forms.TelInput(
+                attrs={"autocomplete": "tel", "inputmode": "tel", "placeholder": "Ej. 600 111 001"}
+            ),
+            "email": forms.EmailInput(
+                attrs={"autocomplete": "email", "placeholder": "Ej. nombre@correo.es"}
+            ),
+            "need_text": forms.Textarea(
+                attrs={
+                    "rows": 4,
+                    "maxlength": 300,
+                    "placeholder": "Cuéntanos brevemente qué parte de tu agenda te da más trabajo.",
+                }
+            ),
+        }
+
+    def clean_phone(self):
+        phone = self.cleaned_data["phone"]
+        try:
+            self.normalized_phone = normalize_phone(phone)
+        except ValidationError as exc:
+            raise forms.ValidationError(exc.messages) from exc
+        return phone
+
+    def clean_email(self):
+        email = self.cleaned_data.get("email", "").strip().lower()
+        if not email:
+            raise forms.ValidationError(
+                "Indica un correo para recibir la respuesta y activar el acceso."
+            )
+        return email
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if (
+            cleaned_data.get("preferred_channel")
+            == BusinessSignupRequest.PreferredChannel.EMAIL
+            and not cleaned_data.get("email")
+        ):
+            self.add_error("email", "Indica un correo para poder contactar por este canal.")
+        return cleaned_data
+
+
+class BusinessSignupRequestReviewForm(forms.ModelForm):
+    status = forms.ChoiceField(
+        label="Estado de la solicitud",
+        choices=(
+            (BusinessSignupRequest.Status.NEW, "Nueva"),
+            (BusinessSignupRequest.Status.REVIEWING, "En revisión"),
+            (BusinessSignupRequest.Status.CONTACTED, "Contactada"),
+            (BusinessSignupRequest.Status.DISMISSED, "Descartada"),
+        ),
+    )
+
+    class Meta:
+        model = BusinessSignupRequest
+        fields = ("status", "admin_note")
+        labels = {"admin_note": "Nota interna"}
+        widgets = {
+            "admin_note": forms.Textarea(
+                attrs={"rows": 5, "maxlength": 1000, "placeholder": "Seguimiento, acuerdos o motivo de descarte."}
+            )
+        }
+
+    def clean_admin_note(self):
+        note = self.cleaned_data["admin_note"].strip()
+        if len(note) > 1000:
+            raise forms.ValidationError("La nota no puede superar los 1000 caracteres.")
+        return note
 
 
 class BusinessVisualSettingsForm(forms.ModelForm):

@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from apps.accounts.forms import PhoneAuthenticationForm
@@ -41,6 +41,17 @@ class PhoneAuthenticationFormTests(TestCase):
 
 
 class LoginPageTemplateTests(TestCase):
+    def test_login_uses_short_canonical_route_and_keeps_legacy_redirect(self):
+        self.assertEqual(reverse("accounts:login"), "/entrar/")
+
+        response = self.client.get("/cuenta/entrar/?next=/profesional/")
+
+        self.assertRedirects(
+            response,
+            "/entrar/?next=/profesional/",
+            fetch_redirect_response=False,
+        )
+
     def test_login_page_uses_private_editorial_copy(self):
         response = self.client.get(reverse("accounts:login"))
 
@@ -171,6 +182,207 @@ class LoginRoutingTests(TestCase):
         )
 
         self.assertRedirects(response, reverse("accounts:no_business"))
+
+    def test_temporary_professional_login_requires_personal_password_first(self):
+        user = get_user_model().objects.create_user(
+            normalized_phone="+34600111004",
+            password="TemporalAgendaSalon2026!",
+            full_name="Profesional con clave temporal",
+            password_change_required=True,
+        )
+        business = Business.objects.create(
+            commercial_name="Salón Temporal",
+            slug="salon-temporal",
+        )
+        BusinessMembership.objects.create(business=business, user=user)
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "username": "600 111 004",
+                "password": "TemporalAgendaSalon2026!",
+            },
+        )
+
+        security_url = reverse("accounts:security")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f"{security_url}?next=%2Fprofesional%2F",
+        )
+
+
+class AccountSecurityTests(TestCase):
+    old_password = "TemporalAgendaSalon2026!"
+    new_password = "CuentaPersonal2026!Segura"
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            normalized_phone="+34600111999",
+            phone="600 111 999",
+            password=self.old_password,
+            full_name="Laura Profesional",
+            password_change_required=True,
+        )
+        self.business = Business.objects.create(
+            commercial_name="Salón Seguridad",
+            slug="salon-seguridad",
+            professional_theme=Business.ProfessionalTheme.DARK,
+        )
+        BusinessMembership.objects.create(business=self.business, user=self.user)
+
+    def _payload(self, **overrides):
+        payload = {
+            "old_password": self.old_password,
+            "new_password1": self.new_password,
+            "new_password2": self.new_password,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_security_page_requires_authentication(self):
+        response = self.client.get(reverse("accounts:security"))
+
+        self.assertRedirects(
+            response,
+            f'{reverse("accounts:login")}?next={reverse("accounts:security")}',
+        )
+
+    def test_required_change_blocks_the_operational_product(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("dashboards:professional_home"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f'{reverse("accounts:security")}?next=%2Fprofesional%2F',
+        )
+
+    def test_required_page_uses_dark_theme_and_only_exposes_logout_navigation(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("accounts:security"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Crea tu contraseña personal")
+        self.assertContains(response, "Contraseña temporal")
+        self.assertContains(response, "theme-dark")
+        self.assertContains(response, ">Salir</button>")
+        self.assertNotContains(response, ">Resumen</a>")
+        self.assertNotContains(response, ">Agenda</a>")
+
+    def test_wrong_current_password_is_rejected(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("accounts:security"),
+            self._payload(old_password="NoEsLaTemporal2026!"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "La contraseña actual no es correcta.")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.password_change_required)
+
+    def test_same_password_is_rejected(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("accounts:security"),
+            self._payload(
+                new_password1=self.old_password,
+                new_password2=self.old_password,
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "La nueva contraseña debe ser diferente de la actual.",
+        )
+
+    def test_weak_and_mismatched_passwords_are_rejected(self):
+        self.client.force_login(self.user)
+
+        weak_response = self.client.post(
+            reverse("accounts:security"),
+            self._payload(new_password1="12345678", new_password2="12345678"),
+        )
+        mismatch_response = self.client.post(
+            reverse("accounts:security"),
+            self._payload(new_password2="OtraCuentaPersonal2026!"),
+        )
+
+        self.assertContains(weak_response, "La contraseña es demasiado corta")
+        self.assertContains(
+            mismatch_response,
+            "Las dos contraseñas nuevas no coinciden.",
+        )
+
+    def test_successful_required_change_keeps_current_session_and_clears_gate(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("accounts:security"),
+            {**self._payload(), "next": reverse("accounts:no_business")},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("accounts:no_business"))
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.password_change_required)
+        self.assertFalse(self.user.check_password(self.old_password))
+        self.assertTrue(self.user.check_password(self.new_password))
+        self.assertEqual(
+            self.client.get(reverse("accounts:security")).status_code,
+            200,
+        )
+
+    def test_password_change_invalidates_other_sessions(self):
+        other_client = Client()
+        self.client.force_login(self.user)
+        other_client.force_login(self.user)
+
+        self.client.post(reverse("accounts:security"), self._payload())
+        other_response = other_client.get(reverse("accounts:security"))
+
+        self.assertEqual(other_response.status_code, 302)
+        self.assertTrue(other_response.url.startswith(reverse("accounts:login")))
+        self.assertEqual(self.client.get(reverse("accounts:security")).status_code, 200)
+
+    def test_unsafe_next_url_is_not_used_after_change(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("accounts:security"),
+            {**self._payload(), "next": "https://example.com/steal-session"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("dashboards:professional_home"))
+
+    def test_superadmin_can_change_password_voluntarily(self):
+        superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000999",
+            password=self.old_password,
+            full_name="Admin AgendaSalon",
+        )
+        PlatformSettings.objects.create(
+            admin_theme=PlatformSettings.AdminTheme.DARK,
+            updated_by=superadmin,
+        )
+        self.client.force_login(superadmin)
+
+        page = self.client.get(reverse("accounts:security"))
+        response = self.client.post(reverse("accounts:security"), self._payload())
+
+        self.assertContains(page, "Seguridad de la cuenta")
+        self.assertContains(page, "Mi cuenta")
+        self.assertContains(page, "theme-dark")
+        self.assertRedirects(response, reverse("accounts:security"))
+        superadmin.refresh_from_db()
+        self.assertTrue(superadmin.check_password(self.new_password))
 
 
 class LogoutFlowTests(TestCase):

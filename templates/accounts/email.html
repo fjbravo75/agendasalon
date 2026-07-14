@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Verifica tu correo - AgendaSalon{% endblock %}
+{% block content %}
+<section class="account-security-page email-verification-page">
+  <header class="account-security-hero"><div><span>Seguridad de la cuenta</span><h1>Verifica tu correo.</h1><p>Lo usaremos para activar accesos y avisarte de cambios importantes en tu cuenta. No recibirás publicidad.</p></div></header>
+  <div class="account-security-layout"><section class="account-security-card"><div class="account-security-card__copy"><span>Correo personal</span><h2>{% if request.user.email %}Revisa o reenvía el enlace{% else %}Añade tu correo{% endif %}</h2><p>Debe ser una dirección a la que tengas acceso. Hasta verificarla, la operativa permanecerá protegida.</p></div>
+    <form method="post" class="account-security-form" novalidate>{% csrf_token %}<input type="hidden" name="next" value="{{ next_url }}">{{ email_form.non_field_errors }}
+      <div class="field{% if email_form.email.errors %} is-error{% endif %}">{{ email_form.email.label_tag }}{{ email_form.email }}{{ email_form.email.errors }}</div>
+      <button class="button" type="submit">{% if request.user.email %}Enviar un enlace nuevo{% else %}Guardar y verificar{% endif %}</button>
+    </form>
+  </section><aside class="account-security-aside"><span>Qué ocurre ahora</span><ol><li>Recibes un enlace personal.</li><li>Lo abres desde tu correo.</li><li>Vuelves a AgendaSalon con el acceso protegido.</li></ol></aside></div>
+</section>
+{% endblock %}

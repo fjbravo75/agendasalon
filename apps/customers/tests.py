@@ -133,6 +133,7 @@ class CustomerModelTests(TestCase):
                 business=self.business,
                 full_name="Otra persona",
                 phone="600111222",
+                email="otra@example.test",
                 password="ClienteDemo2026!",
             )
 
@@ -189,6 +190,7 @@ class CustomerModelTests(TestCase):
             business=self.business,
             full_name="Cliente Mari",
             phone="600111222",
+            email="mari@example.test",
             password="ClienteDemo2026!",
         )
 
@@ -276,11 +278,14 @@ class ClientAccessViewTests(TestCase):
             business=other_business,
             full_name="Cliente Norte",
             phone="600999222",
+            email="norte@example.test",
         )
         other_access = BusinessClientAccess(
             business=other_business,
             business_client=other_client,
             phone="600999222",
+            email="norte@example.test",
+            email_verified_at=timezone.now(),
         )
         other_access.set_password("ClienteDemo2026!")
         other_access.save()
@@ -309,33 +314,38 @@ class ClientAccessViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], reverse("public_booking", args=[other_business.slug]))
 
-    def test_registration_logs_client_into_booking_flow(self):
+    def test_registration_waits_for_email_verification_before_booking(self):
         response = self.client.post(
             reverse("customers:client_register", args=[self.business.slug]),
             {
                 "next": reverse("public_booking", args=[self.business.slug]),
                 "full_name": "Cliente Web",
                 "phone": "600999001",
+                "email": "cliente.web@example.test",
                 "password": "ClienteDemo2026!",
                 "password_confirm": "ClienteDemo2026!",
             },
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], reverse("public_booking", args=[self.business.slug]))
-        self.assertTrue(
-            BusinessClientAccess.objects.filter(
+        self.assertEqual(
+            response["Location"],
+            reverse("customers:client_email_pending", args=[self.business.slug]),
+        )
+        access = BusinessClientAccess.objects.get(
                 business=self.business,
                 business_client__full_name="Cliente Web",
                 phone_normalized="+34600999001",
-            ).exists()
         )
+        self.assertIsNone(access.email_verified_at)
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, self.client.session)
 
     def test_new_client_password_uses_argon2(self):
         access = register_client_access(
             business=self.business,
             full_name="Cliente Argon2",
             phone="600999010",
+            email="argon2@example.test",
             password="ClienteDemo2026!",
         )
 
@@ -346,11 +356,14 @@ class ClientAccessViewTests(TestCase):
             business=self.business,
             full_name="Cliente heredado",
             phone="600999011",
+            email="heredado@example.test",
         )
         access = BusinessClientAccess.objects.create(
             business=self.business,
             business_client=client_file,
             phone="600999011",
+            email="heredado@example.test",
+            email_verified_at=timezone.now(),
             password_hash=make_password("ClienteDemo2026!", hasher="pbkdf2_sha256"),
         )
 
@@ -368,7 +381,9 @@ class ClientAccessViewTests(TestCase):
             business=self.business,
             full_name="Cliente sesión",
             phone="600999012",
+            email="sesion@example.test",
             password="ClienteDemo2026!",
+            email_verified=True,
         )
         session = self.client.session
         session["preserved_state"] = "ok"
@@ -423,6 +438,7 @@ class ClientAccessViewTests(TestCase):
             {
                 "full_name": "Otra persona",
                 "phone": "600999002",
+                "email": "otra@example.test",
                 "password": "ClienteDemo2026!",
                 "password_confirm": "ClienteDemo2026!",
             },
@@ -446,7 +462,9 @@ class ClientAccessViewTests(TestCase):
             business=self.business,
             full_name="Cliente Web",
             phone="600999001",
+            email="web@example.test",
             password="ClienteDemo2026!",
+            email_verified=True,
         )
         self.client.post(
             reverse("customers:client_access", args=[self.business.slug]),
@@ -474,7 +492,9 @@ class ClientAccessViewTests(TestCase):
             business=self.business,
             full_name="Cliente inactivo",
             phone="600999021",
+            email="inactivo@example.test",
             password="ClienteDemo2026!",
+            email_verified=True,
         )
         session = self.client.session
         session[CLIENT_ACCESS_SESSION_KEY] = access.id
@@ -566,13 +586,14 @@ class ClientAccessInvitationTests(TestCase):
         activation_response = customer_browser.post(
             reverse("customers:client_invitation_activate", args=[self.business.slug]),
             {
+                "email": "invitada@example.test",
                 "password": "ClienteInvitado2026!",
                 "password_confirm": "ClienteInvitado2026!",
             },
         )
         self.assertRedirects(
             activation_response,
-            reverse("public_booking", args=[self.business.slug]),
+            reverse("customers:client_email_pending", args=[self.business.slug]),
         )
 
         access = BusinessClientAccess.objects.get(business_client=self.business_client)
@@ -580,7 +601,8 @@ class ClientAccessInvitationTests(TestCase):
         self.assertEqual(access.business, self.business)
         self.assertIsNotNone(invitation.used_at)
         self.assertEqual(identify_hasher(access.password_hash).algorithm, "argon2")
-        self.assertEqual(customer_browser.session[CLIENT_ACCESS_SESSION_KEY], access.id)
+        self.assertIsNone(access.email_verified_at)
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, customer_browser.session)
         self.assertTrue(
             BusinessActivityEvent.objects.filter(
                 business=self.business,
@@ -609,6 +631,7 @@ class ClientAccessInvitationTests(TestCase):
             activation_url,
             {
                 "csrfmiddlewaretoken": csrf_token,
+                "email": "csrf@example.test",
                 "password": "ClienteInvitado2026!",
                 "password_confirm": "ClienteInvitado2026!",
             },
@@ -617,7 +640,7 @@ class ClientAccessInvitationTests(TestCase):
 
         self.assertRedirects(
             response,
-            reverse("public_booking", args=[self.business.slug]),
+            reverse("customers:client_email_pending", args=[self.business.slug]),
         )
 
     def test_invitation_cannot_be_used_from_another_business_url(self):

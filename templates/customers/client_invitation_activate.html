@@ -35,6 +35,13 @@
                 <div class="login-form-error" role="alert">{{ activation_form.non_field_errors }}</div>
               {% endif %}
 
+              <div class="login-field{% if activation_form.email.errors %} is-error{% endif %}">
+                <label for="{{ activation_form.email.id_for_label }}">CORREO ELECTRÓNICO <span aria-hidden="true">*</span></label>
+                {{ activation_form.email }}
+                <small>Lo verificaremos antes de activar las reservas online.</small>
+                {% if activation_form.email.errors %}<div class="login-field-error" role="alert">{{ activation_form.email.errors }}</div>{% endif %}
+              </div>
+
               <div class="login-field{% if activation_form.password.errors %} is-error{% endif %}">
                 <label for="{{ activation_form.password.id_for_label }}">CONTRASEÑA <span aria-hidden="true">*</span></label>
                 {{ activation_form.password }}
@@ -60,7 +67,7 @@
                 </div>
               {% endif %}
 
-              <button class="login-button" type="submit">Activar mi cuenta</button>
+              <button class="login-button" type="submit">Continuar y verificar correo</button>
             </form>
             <nav class="legal-inline-links" aria-label="Información legal">
               <a href="{% url 'legal:business_privacy' business.slug %}">Privacidad</a>

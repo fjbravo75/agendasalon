@@ -88,11 +88,12 @@ class SuperadminDashboardApiTests(TestCase):
 
         payload = self.client.get(self.url).json()
 
-        self.assertEqual(payload["schema_version"], "1.1")
+        self.assertEqual(payload["schema_version"], "1.2")
         self.assertEqual(payload["summary"]["businesses_total"], 3)
         self.assertEqual(payload["summary"]["businesses_operational"], 1)
         self.assertEqual(payload["summary"]["businesses_setup_pending"], 1)
         self.assertEqual(payload["summary"]["businesses_inactive"], 1)
+        self.assertEqual(payload["summary"]["signup_requests_pending"], 0)
         businesses = {item["name"]: item for item in payload["businesses"]}
         self.assertEqual(businesses["Peluquería Mari"]["health"]["code"], "operational")
         self.assertEqual(
@@ -214,7 +215,7 @@ class SuperadminDashboardApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertLessEqual(
             len(queries),
-            12,
+            13,
             f"El dashboard ha superado su presupuesto de consultas: {len(queries)}",
         )
 

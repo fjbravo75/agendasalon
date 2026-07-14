@@ -1,0 +1,1 @@
+Tu cita en {{ business.commercial_name }} está confirmada

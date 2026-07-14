@@ -1140,6 +1140,7 @@ def _appointment_detail_context(business, appointment, cancel_form):
         "business": business,
         "appointment": appointment,
         "appointment_services": tuple(appointment.appointment_services.all()),
+        "appointment_emails": tuple(appointment.outbound_emails.order_by("scheduled_for", "pk")),
         "cancel_form": cancel_form,
         "can_cancel": is_confirmed,
         "can_complete": can_complete,
