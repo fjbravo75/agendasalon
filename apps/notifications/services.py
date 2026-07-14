@@ -263,7 +263,7 @@ def _is_still_valid(email):
 
 def dispatch_outbound_email(email_id):
     with transaction.atomic():
-        email = OutboundEmail.objects.select_for_update().select_related(
+        email = OutboundEmail.objects.select_for_update(of=("self",)).select_related(
             "business",
             "recipient_user",
             "client_access__business_client",
