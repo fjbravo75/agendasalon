@@ -18,6 +18,7 @@ class ProductionEntrypointTests(SimpleTestCase):
         "AGENDA_PLATFORM_PRIVACY_EMAIL",
         "AGENDA_PLATFORM_WEBSITE",
         "AGENDA_PLATFORM_LEGAL_DEMO",
+        "AGENDA_BACKUP_SCHEDULE_CONFIGURED",
     )
 
     def _run_code(self, code, **environment):
@@ -48,6 +49,7 @@ class ProductionEntrypointTests(SimpleTestCase):
             "AGENDA_PLATFORM_PRIVACY_EMAIL": "privacidad@example.test",
             "AGENDA_PLATFORM_WEBSITE": "https://example.test",
             "AGENDA_PLATFORM_LEGAL_DEMO": "1",
+            "AGENDA_BACKUP_SCHEDULE_CONFIGURED": "0",
         }
         environment.update(overrides)
         return environment
@@ -85,10 +87,11 @@ assert prod.CSRF_COOKIE_SECURE is True
 assert prod.SECURE_SSL_REDIRECT is True
 assert prod.SECURE_PROXY_SSL_HEADER == ("HTTP_X_FORWARDED_PROTO", "https")
 assert prod.AGENDA_PLATFORM_LEGAL_DEMO is True
+assert prod.AGENDA_BACKUP_SCHEDULE_CONFIGURED is True
 assert prod.AGENDA_PLATFORM_TAX_ID == ""
 assert prod.AGENDA_PLATFORM_LEGAL_ADDRESS == ""
 """,
-            **self._base_environment(),
+            **self._base_environment(AGENDA_BACKUP_SCHEDULE_CONFIGURED="1"),
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -135,6 +138,15 @@ assert prod.AGENDA_PLATFORM_LEGAL_ADDRESS == ""
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("AGENDA_PLATFORM_LEGAL_DEMO must be one of", result.stderr)
+
+    def test_invalid_backup_schedule_flag_fails_closed(self):
+        result = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(AGENDA_BACKUP_SCHEDULE_CONFIGURED="quizas"),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("AGENDA_BACKUP_SCHEDULE_CONFIGURED must be one of", result.stderr)
 
 
 class PostgreSQLConfigurationTests(SimpleTestCase):

@@ -53,6 +53,9 @@ def _required_environment_value(variable):
 
 
 AGENDA_PLATFORM_LEGAL_DEMO = _environment_flag("AGENDA_PLATFORM_LEGAL_DEMO")
+AGENDA_BACKUP_SCHEDULE_CONFIGURED = _environment_flag(
+    "AGENDA_BACKUP_SCHEDULE_CONFIGURED"
+)
 
 _required_legal_settings = {
     variable: _required_environment_value(variable)
