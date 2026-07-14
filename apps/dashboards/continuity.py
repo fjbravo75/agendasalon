@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -43,10 +44,7 @@ def continuity_snapshot(*, now=None, executions=None):
             "configured": bool(external_success),
             "label": "Registrado y verificado" if external_success else "Pendiente de despliegue",
         },
-        "schedule": {
-            "configured": False,
-            "label": "Pendiente de programación",
-        },
+        "schedule": _schedule_payload(),
         "integrity_label": (
             "SHA-256 y HMAC verificados"
             if latest_success
@@ -61,6 +59,16 @@ def continuity_snapshot(*, now=None, executions=None):
         },
         "history_url": reverse("dashboards:superadmin_continuity"),
         "recent_executions": [_execution_payload(run) for run in executions[:3]],
+    }
+
+
+def _schedule_payload():
+    configured = settings.AGENDA_BACKUP_SCHEDULE_CONFIGURED
+    return {
+        "configured": configured,
+        "label": (
+            "Programación diaria activa" if configured else "Pendiente de programación"
+        ),
     }
 
 

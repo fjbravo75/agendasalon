@@ -1,7 +1,9 @@
 # Operación segura de AgendaSalon
 
-Este documento define el contrato técnico previo al despliegue. No activa
-ningún servidor ni servicio externo.
+Este documento define el contrato técnico y las operaciones del despliegue. La
+demo académica quedó publicada el 14 de julio de 2026 en
+`https://agendasalon.brvsoftwarestudio.com`; los comandos siguen requiriendo una
+ejecución deliberada y no se activan por leer este documento.
 
 ## Perfil de producción
 
@@ -12,6 +14,10 @@ perfil por defecto y detienen el arranque cuando falta alguna de estas variables
 - `DJANGO_ALLOWED_HOSTS`;
 - `DJANGO_DATABASE_URL`;
 - `AGENDA_BACKUP_HMAC_KEY`, secreto aleatorio independiente del destino de copias.
+
+`AGENDA_BACKUP_SCHEDULE_CONFIGURED=1` declara en el panel que el operador ha
+instalado y comprobado la programación. No activa ninguna tarea por sí solo y no
+debe usarse si el temporizador real no está habilitado.
 
 La configuración legal se elige de forma explícita:
 
@@ -40,6 +46,31 @@ es segura si Nginx sobrescribe siempre `X-Forwarded-Proto` con su propio
 `$scheme`, sin conservar un valor enviado por el cliente. El socket de Gunicorn
 no debe quedar expuesto a Internet.
 
+## Despliegue académico verificado
+
+La instancia pública usa esta topología:
+
+- Nginx termina TLS y sirve estáticos y medios;
+- `gunicorn-agendasalon.service` está habilitado y comunica únicamente mediante
+  `/run/agendasalon/gunicorn.sock`;
+- PostgreSQL utiliza un rol y una base exclusivos de AgendaSalon;
+- el entorno protegido vive fuera del repositorio y solo declara
+  `127.0.0.1` como proxy de confianza;
+- el certificado Let's Encrypt ECDSA vence el 12 de octubre de 2026 y dispone de
+  renovación automática.
+
+La validación pública recorrió el centro legal, el acceso profesional, el panel
+profesional y la consulta de huecos de reserva en escritorio y 390 x 844 px. No
+aparecieron errores de consola, errores de página, recursos fallidos ni
+desbordamiento horizontal. HTTP redirige a HTTPS y las cabeceras CSP, HSTS,
+`Permissions-Policy`, CORP, COOP, `nosniff` y política de referencia están
+presentes.
+
+El 14 de julio de 2026 se creó una primera copia local autenticada y verificada
+de PostgreSQL y medios y se habilitó `backup-agendasalon.timer` con ejecución
+diaria persistente. Este hito no equivale a continuidad completa: la retención
+7/4/6, las alertas y el destino externo cifrado siguen pendientes.
+
 La base de datos de producción debe ser PostgreSQL. Formato esperado:
 
 ```text
@@ -61,7 +92,7 @@ autorizado. Django Admin recibe una excepción de script inline limitada a
 geolocalización, pagos, USB y Topics; CORP limita los recursos propios al mismo
 origen.
 
-Antes de desplegar deben recorrerse reserva, agenda React, dashboard React y
+En cada despliegue deben recorrerse reserva, agenda React, dashboard React y
 Django Admin con la consola del navegador abierta. HSTS preload no se activa
 hasta confirmar dominio definitivo, HTTPS estable y el periodo de HSTS exigido.
 
@@ -125,7 +156,7 @@ de PostgreSQL instaladas:
 ```bash
 python manage.py backup_agendasalon \
   --backup-root /var/backups/agendasalon \
-  --media-root /srv/agendasalon/media \
+  --media-root /var/www/agendasalon/shared/media \
   --destination external_encrypted
 
 python ops/backup_restore.py verify \
@@ -173,7 +204,7 @@ export DJANGO_DATABASE_URL='postgresql://usuario:contraseña@servidor:5432/agend
 
 python ops/backup_restore.py restore \
   --backup-dir /var/backups/agendasalon/agendasalon-AAAAMMDDTHHMMSSZ \
-  --media-target /srv/agendasalon/media-restaurada \
+  --media-target /var/www/agendasalon/shared/media-restaurada \
   --confirm-restore
 ```
 

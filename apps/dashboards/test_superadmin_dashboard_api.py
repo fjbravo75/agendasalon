@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -129,6 +129,15 @@ class SuperadminDashboardApiTests(TestCase):
         self.assertEqual(continuity["status"]["code"], "protected")
         self.assertTrue(continuity["external_destination"]["configured"])
         self.assertEqual(continuity["integrity_label"], "SHA-256 y HMAC verificados")
+
+    @override_settings(AGENDA_BACKUP_SCHEDULE_CONFIGURED=True)
+    def test_reports_the_operator_declared_backup_schedule(self):
+        self.client.force_login(self.superadmin)
+
+        schedule = self.client.get(self.url).json()["continuity"]["schedule"]
+
+        self.assertTrue(schedule["configured"])
+        self.assertEqual(schedule["label"], "Programación diaria activa")
 
     def test_pending_closure_is_a_professional_task_not_a_fake_completed_appointment(self):
         client = BusinessClient.objects.create(

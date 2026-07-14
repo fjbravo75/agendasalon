@@ -10,15 +10,15 @@ La revisión distingue tres estados:
 
 - **Aplicado y verificado**: el control está implementado y dispone de pruebas o
   comprobaciones reproducibles.
-- **Preparado para despliegue**: la aplicación incorpora la configuración, pero
-  la comprobación definitiva necesita una URL pública con HTTPS.
+- **Verificado en despliegue**: el control se ha comprobado también sobre la URL
+  pública con HTTPS.
 - **Pendiente de operación**: depende de infraestructura, automatización o
   procedimientos que no deben fingirse en el entorno local.
 
-Fecha de la evidencia: **11 de julio de 2026**.
+Fecha de la evidencia: **14 de julio de 2026**.
 
-Código funcional revisado: estado de la rama principal y bloque de cierre previo
-al despliegue del 11 de julio de 2026.
+Código funcional revisado: commit `967d554` de la rama principal y despliegue
+público del 14 de julio de 2026.
 
 ## Arquitectura de seguridad
 
@@ -28,7 +28,7 @@ flowchart LR
     P["Profesional del negocio"]
     S["Superadministrador funcional"]
     T["Personal técnico autorizado"]
-    E["Proxy HTTPS<br/>pendiente de despliegue"]
+    E["Nginx HTTPS<br/>desplegado"]
     D["Aplicación Django"]
     R["Islas React<br/>solo datos JSON protegidos"]
     DB[("PostgreSQL<br/>obligatorio en producción")]
@@ -81,7 +81,7 @@ La aplicación separa cuatro superficies:
 | Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
 | Secretos | Variables de entorno obligatorias en producción; arranque detenido si faltan secreto, hosts o PostgreSQL | `config/settings/prod.py`, `.env.example`, pruebas de producción | Aplicado y verificado |
 | Base de datos | SQLite solo para desarrollo; PostgreSQL obligatorio en producción, conexión persistente con comprobación de salud | `config/settings/database.py`, `config/settings/prod.py` | Aplicado y verificado |
-| HTTPS | Redirección a HTTPS, cookies seguras, orígenes CSRF configurables y HSTS inicial | `config/settings/prod.py` | Preparado para despliegue |
+| HTTPS | Redirección a HTTPS, cookies seguras, orígenes CSRF configurables y HSTS inicial | `config/settings/prod.py` y validación pública del 14-07-2026 | Verificado en despliegue |
 | Dependencias | Versiones fijadas; auditorías Python y Node sin vulnerabilidades conocidas en la fecha de revisión | `requirements.txt`, `package-lock.json`, comandos de evidencia | Aplicado y verificado |
 | Copias | Copia de PostgreSQL y `media`, hashes SHA-256 y manifiesto autenticado con HMAC mediante clave separada; verificación previa y restauración protegida | `ops/backup_restore.py`, `ops/test_backup_restore.py` | Aplicado y verificado localmente |
 | Destino externo de copias | Retención definida y requisito de almacenamiento cifrado fuera del servidor | `docs/OPERACION_PRODUCCION.md` | Pendiente de operación |
@@ -181,7 +181,7 @@ credenciales reales. Gitleaks no detectó secretos en el historial Git completo
 existente en la fecha de revisión ni en los cambios preparados del bloque de
 cierre.
 
-## HTTPS: configuración preparada y evidencia pendiente
+## HTTPS: configuración y evidencia pública verificadas
 
 El perfil de producción activa:
 
@@ -191,11 +191,11 @@ El perfil de producción activa:
 - `upgrade-insecure-requests` dentro de la CSP;
 - lista explícita de hosts y orígenes CSRF.
 
-No se afirma que HTTPS esté validado porque la aplicación todavía no está
-desplegada. `SECURE_HSTS_PRELOAD` permanece desactivado de manera deliberada. El
-chequeo `manage.py check --deploy` solo informa de esa decisión. El preload no
-debe activarse hasta confirmar dominio definitivo, certificado válido,
-redirecciones correctas y estabilidad de todos los subdominios.
+HTTPS está validado en `agendasalon.brvsoftwarestudio.com`: certificado vigente,
+redirección desde HTTP, cookies y cabeceras seguras, recursos estáticos y flujos
+de acceso y reserva. `SECURE_HSTS_PRELOAD` permanece desactivado de manera
+deliberada. El preload no debe activarse hasta sostener la estabilidad del
+dominio y revisar el efecto sobre todos sus subdominios.
 
 ## Copias de seguridad y recuperación
 
@@ -210,8 +210,10 @@ comparó los recuentos de 2 negocios, 19 citas y 7 clientes. Los objetivos
 iniciales son RPO de 24 horas, RTO inferior a 2 horas y retención de 7 copias
 diarias, 4 semanales y 6 mensuales.
 
-La automatización periódica y el destino externo cifrado siguen pendientes del
-despliegue. El procedimiento está probado; la operación continua todavía no.
+La primera copia local autenticada y verificada se creó en el despliegue y un
+temporizador persistente programa su ejecución diaria. La retención, las alertas
+y el destino externo cifrado siguen pendientes. El procedimiento está probado;
+la continuidad externa y la conservación 7/4/6 todavía no.
 
 ## Protección y minimización de datos
 
@@ -305,9 +307,9 @@ decimotercera solicitud, como corresponde al nuevo control.
 
 | Riesgo residual | Prioridad | Decisión o condición de cierre |
 | --- | --- | --- |
-| HTTPS todavía no comprobado en una URL pública | Bloqueante para producción | Validar certificado, redirecciones, cookies seguras, CSRF y cabeceras en el dominio definitivo |
-| Terminación TLS del proxy pendiente de validación pública | Bloqueante para producción | Nginx debe sobrescribir `X-Forwarded-Proto`, acceder a Gunicorn solo por socket y validar que `SECURE_PROXY_SSL_HEADER` no permite falsear peticiones seguras |
-| Copias sin destino externo cifrado ni tarea programada | Bloqueante para producción | Elegir destino, automatizar, alertar fallos y repetir una restauración desde la copia externa |
+| HTTPS público | Cerrado para la demo | Certificado válido, redirección HTTP, cabeceras, acceso y reserva comprobados en `agendasalon.brvsoftwarestudio.com` |
+| Terminación TLS del proxy | Cerrado para la demo | Nginx sobrescribe `X-Forwarded-Proto`, Gunicorn solo escucha en socket y Django confía únicamente en el proxy local declarado |
+| Copias sin destino externo cifrado, retención ni alertas | Alta para continuidad; bloqueante para explotación comercial | Elegir destino, aplicar 7/4/6, alertar fallos y repetir una restauración desde la copia externa |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
 | Sin segundo factor para cuentas técnicas | Alta para explotación comercial | Incorporar MFA o proteger el acceso mediante identidad del proveedor o VPN |
 | Galería limitada a 12 archivos, pero sin límite temporal de subidas | Media | Añadir límite por cuenta o proxy; pasar el procesamiento a un worker si aumenta el volumen |

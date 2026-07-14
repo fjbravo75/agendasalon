@@ -65,6 +65,12 @@ despliegue real.
 
 ## Estado actual
 
+La demostración académica está publicada en
+[`https://agendasalon.brvsoftwarestudio.com`](https://agendasalon.brvsoftwarestudio.com).
+Funciona con `DEBUG=False`, PostgreSQL, Nginx, Gunicorn por socket interno y HTTPS
+Let's Encrypt. El entorno muestra de forma explícita que no existe actividad
+comercial y utiliza `agendasalon@brvsoftwarestudio.com` como contacto real.
+
 Base Django creada con configuración separada por entorno, usuario personalizado
 interno desde el inicio, núcleo de modelos SaaS/agenda y entrada autenticada por
 teléfono normalizado.
@@ -268,12 +274,12 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La última verificación completa deja la batería en 257 pruebas Django y
+La última verificación completa deja la batería en 276 pruebas Django y
 operativas, además de 21 pruebas frontend: 17 unitarias y 4 de componentes
 React. La cobertura con ramas es del 82 % y el umbral automatizado impide bajar
-de ese valor. Las 257 pruebas se ejecutaron también sobre PostgreSQL 17,
-incluida la concurrencia real. Ruff, el build de producción, `pip-audit`, `npm audit` y
-`pip check` finalizaron sin incidencias. GitHub Actions reproduce lint,
+de ese valor. La matriz de CI ejecuta la batería sobre SQLite y PostgreSQL 17,
+incluida la concurrencia real. Ruff, el build de producción, `pip-audit`,
+`npm audit` y `pip check` finalizaron sin incidencias. GitHub Actions reproduce lint,
 cobertura, SQLite, PostgreSQL, frontend, auditorías y detección de secretos en
 cada `push` a `main` y en cada pull request.
 También se puede ejecutar por dominios:
@@ -329,13 +335,14 @@ Las ejecuciones destinadas a alimentar ese historial deben iniciarse con:
 ```bash
 python manage.py backup_agendasalon \
   --backup-root /var/backups/agendasalon \
-  --media-root /srv/agendasalon/media \
+  --media-root /var/www/agendasalon/shared/media \
   --destination external_encrypted
 ```
 
-En local, mientras no haya una tarea programada ni un destino externo cifrado,
-la interfaz lo declara como pendiente de despliegue y no simula una protección
-que todavía no existe.
+La demo pública conserva copias locales autenticadas y verificadas mediante una
+tarea diaria de systemd. Mientras no haya retención automatizada, alertas y un
+destino externo cifrado, la interfaz mantiene la continuidad externa como
+pendiente y no simula una protección que todavía no existe.
 
 La matriz académica de controles, las evidencias reproducibles y los riesgos
 que deben cerrarse durante el despliegue están reunidos en

@@ -196,3 +196,4 @@ AGENDA_PLATFORM_LEGAL_DEMO = os.environ.get(
     "AGENDA_PLATFORM_LEGAL_DEMO",
     "1",
 ).strip().lower() in {"1", "true", "yes", "on"}
+AGENDA_BACKUP_SCHEDULE_CONFIGURED = False
