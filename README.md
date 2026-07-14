@@ -194,8 +194,9 @@ recordatorio para 24 horas antes. El envío se gestiona mediante una cola
 persistente e idempotente: en desarrollo usa la consola y en producción se ha
 preparado Brevo mediante SMTP con STARTTLS por el puerto 2525. El dominio y el
 remitente están autenticados y una prueba directa desde Django fue entregada;
-la activación de los flujos reales queda condicionada al despliegue de este
-bloque y a la instalación de su temporizador.
+desde el 14 de julio de 2026 el código de outbox, sus migraciones y el
+temporizador de cinco minutos están desplegados y verificados en la aplicación
+pública.
 
 AgendaSalon incorpora una capa de privacidad operativa, no solo informativa.
 Los documentos legales se publican por versión y huella; cada negocio completa

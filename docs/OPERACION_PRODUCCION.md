@@ -128,8 +128,9 @@ esa lista para evitar una interrupción silenciosa del envío.
 La validación del 14 de julio de 2026 se realizó desde Django en el droplet: el
 backend SMTP devolvió un envío y Brevo registró el mismo mensaje como solicitado,
 abierto y entregado. Esta prueba valida proveedor, puerto, TLS, autenticación,
-remitente, DNS y restricción de IP. No sustituye la prueba funcional posterior al
-despliegue del código de outbox y del temporizador.
+remitente, DNS y restricción de IP. El despliegue posterior dejó aplicadas las
+migraciones de outbox y activó el temporizador. Su ejecución manual de control
+terminó con cero mensajes pendientes o fallidos, sin generar envíos ficticios.
 
 TLS y SSL directo son excluyentes. Si se activa el correo y falta un dato SMTP,
 el perfil de producción detiene el arranque para evitar una configuración a
@@ -141,8 +142,19 @@ python manage.py process_outbound_emails
 ```
 
 Instalar o habilitar esa unidad, introducir credenciales o cambiar el entorno
-público requiere una actuación de despliegue deliberada. La existencia de estos
-archivos en el repositorio no modifica por sí sola la demo publicada.
+público requiere una actuación de despliegue deliberada. En la demo publicada,
+la unidad quedó instalada, habilitada y activa el 14 de julio de 2026; la mera
+existencia de estos archivos en otros entornos no activa por sí sola el correo.
+
+Estado de referencia del despliegue de correo:
+
+- commit de aplicación: `ed509e2e59fa1721ef9abf3951951cc8bf999547`;
+- migraciones aplicadas: `accounts.0005`, `customers.0010` y
+  `notifications.0002`;
+- `agendasalon-email.timer`: habilitado y activo;
+- comando de outbox verificado: 0 procesados, 0 enviados y 0 pendientes o
+  fallidos;
+- cuentas y citas demo preservadas sin ejecutar de nuevo `seed_demo`.
 
 ## Cabeceras y contenido activo
 
