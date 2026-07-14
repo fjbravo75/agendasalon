@@ -17,7 +17,7 @@ La revisión distingue tres estados:
 
 Fecha de la evidencia: **14 de julio de 2026**.
 
-Código funcional revisado: commit `967d554` de la rama principal y despliegue
+Código funcional revisado: commit `cba4690` de la rama principal y despliegue
 público del 14 de julio de 2026.
 
 ## Arquitectura de seguridad
@@ -83,7 +83,7 @@ La aplicación separa cuatro superficies:
 | Base de datos | SQLite solo para desarrollo; PostgreSQL obligatorio en producción, conexión persistente con comprobación de salud | `config/settings/database.py`, `config/settings/prod.py` | Aplicado y verificado |
 | HTTPS | Redirección a HTTPS, cookies seguras, orígenes CSRF configurables y HSTS inicial | `config/settings/prod.py` y validación pública del 14-07-2026 | Verificado en despliegue |
 | Dependencias | Versiones fijadas; auditorías Python y Node sin vulnerabilidades conocidas en la fecha de revisión | `requirements.txt`, `package-lock.json`, comandos de evidencia | Aplicado y verificado |
-| Copias | Copia de PostgreSQL y `media`, hashes SHA-256 y manifiesto autenticado con HMAC mediante clave separada; verificación previa y restauración protegida | `ops/backup_restore.py`, `ops/test_backup_restore.py` | Aplicado y verificado localmente |
+| Copias | Copia diaria de PostgreSQL y `media`, hashes SHA-256, manifiesto HMAC, retención 7/4/6 y control de frescura inferior a 36 horas | `ops/backup_restore.py`, `ops/test_backup_restore.py`, `ops/systemd/` | Verificado en despliegue |
 | Destino externo de copias | Retención definida y requisito de almacenamiento cifrado fuera del servidor | `docs/OPERACION_PRODUCCION.md` | Pendiente de operación |
 
 ## Autenticación, sesiones y contraseñas
@@ -211,9 +211,13 @@ iniciales son RPO de 24 horas, RTO inferior a 2 horas y retención de 7 copias
 diarias, 4 semanales y 6 mensuales.
 
 La primera copia local autenticada y verificada se creó en el despliegue y un
-temporizador persistente programa su ejecución diaria. La retención, las alertas
-y el destino externo cifrado siguen pendientes. El procedimiento está probado;
-la continuidad externa y la conservación 7/4/6 todavía no.
+temporizador persistente programa su ejecución diaria. La retención 7/4/6 se
+aplica únicamente después de verificar todas las copias gestionadas. Un segundo
+temporizador falla si no existe una copia auténtica, íntegra y con menos de 36
+horas, y una vigilancia local informa a Fran ante fallos o poco espacio. Estas
+medidas quedaron verificadas sobre el Droplet el 14 de julio de 2026. El destino
+externo cifrado continúa pendiente; por tanto, la continuidad externa todavía
+no está cerrada.
 
 ## Protección y minimización de datos
 
@@ -309,11 +313,11 @@ decimotercera solicitud, como corresponde al nuevo control.
 | --- | --- | --- |
 | HTTPS público | Cerrado para la demo | Certificado válido, redirección HTTP, cabeceras, acceso y reserva comprobados en `agendasalon.brvsoftwarestudio.com` |
 | Terminación TLS del proxy | Cerrado para la demo | Nginx sobrescribe `X-Forwarded-Proto`, Gunicorn solo escucha en socket y Django confía únicamente en el proxy local declarado |
-| Copias sin destino externo cifrado, retención ni alertas | Alta para continuidad; bloqueante para explotación comercial | Elegir destino, aplicar 7/4/6, alertar fallos y repetir una restauración desde la copia externa |
+| Copias sin destino externo cifrado | Alta para continuidad; bloqueante para explotación comercial | La retención 7/4/6 y la vigilancia local están activas; falta elegir el destino externo y repetir una restauración desde él |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
 | Sin segundo factor para cuentas técnicas | Alta para explotación comercial | Incorporar MFA o proteger el acceso mediante identidad del proveedor o VPN |
 | Galería limitada a 12 archivos, pero sin límite temporal de subidas | Media | Añadir límite por cuenta o proxy; pasar el procesamiento a un worker si aumenta el volumen |
-| Sin monitorización central ni alertas operativas | Media | Definir logs estructurados, disponibilidad, errores, uso de disco y avisos de copias |
+| Sin monitorización central de toda la plataforma | Media | La vigilancia de copias y disco ya avisa localmente; falta centralizar disponibilidad, errores y logs del conjunto |
 | `unsafe-inline` en scripts de Django Admin | Media y acotada | Mantener la excepción solo en `/admin/` y revisar nonce o hash si se personaliza la consola |
 | Estilos inline permitidos en el producto | Baja | Sustituir valores inline por clases o variables controladas y retirar progresivamente `unsafe-inline` de las directivas de estilo |
 | Política de privacidad y conservación definitiva no cerradas | Bloqueante para uso real con clientes | Completar la capa jurídica y operativa antes de recopilar datos reales |
@@ -325,13 +329,14 @@ AgendaSalon supera el alcance técnico exigible para explicar autenticación,
 hashing, validación, CSRF, XSS, permisos, secretos y copias de seguridad. Los
 controles de aplicación están implementados y respaldados por pruebas.
 
-La aplicación está **preparada para abrir la fase de despliegue**, pero no debe
-presentarse todavía como **lista para producción**. HTTPS, restricciones de
-infraestructura, destino externo de copias, monitorización y obligaciones de
-protección de datos requieren evidencia en el entorno definitivo.
+La aplicación está publicada como **demo académica** y HTTPS, proxy, aislamiento,
+copias locales, retención y vigilancia de frescura disponen de evidencia en el
+entorno definitivo. No debe presentarse como **lista para explotación
+comercial**: el destino externo de copias, la monitorización central, el acceso
+técnico reforzado y las obligaciones jurídicas reales siguen pendientes.
 
 El superadministrador dispone ahora de un estado de continuidad verificable y
 un historial técnico de solo lectura. Esta visibilidad no cierra el riesgo
 residual: mientras no exista una ejecución reciente declarada como externa y
 verificada, la propia interfaz mantiene visibles la programación y el destino
-externo como pendientes de despliegue.
+externo como pendiente de operación.

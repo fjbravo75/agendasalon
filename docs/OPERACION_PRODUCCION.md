@@ -68,8 +68,12 @@ presentes.
 
 El 14 de julio de 2026 se creó una primera copia local autenticada y verificada
 de PostgreSQL y medios y se habilitó `backup-agendasalon.timer` con ejecución
-diaria persistente. Este hito no equivale a continuidad completa: la retención
-7/4/6, las alertas y el destino externo cifrado siguen pendientes.
+diaria persistente. La misma unidad aplica después la retención 7/4/6 y
+`check-agendasalon-backup.timer` comprueba diariamente que la copia más reciente
+sea auténtica, íntegra y tenga menos de 36 horas. Una vigilancia local de Codex
+revisa además temporizadores, resultados, frescura y espacio en disco. El
+destino externo cifrado continúa pendiente, por lo que la continuidad completa
+todavía no se declara cerrada.
 
 La base de datos de producción debe ser PostgreSQL. Formato esperado:
 
@@ -184,14 +188,39 @@ Cada copia contiene:
 - `manifest.json`, sin credenciales, con sumas SHA-256 y una autenticación
   HMAC-SHA-256 anclada en una clave que no se almacena junto a la copia.
 
-La copia solo se considera válida si el comando de verificación termina
-correctamente y el conjunto se replica a un destino externo cifrado.
+La copia local solo se considera válida si el comando de verificación termina
+correctamente. La continuidad solo se considera protegida cuando, además, el
+conjunto se replica y se comprueba en un destino externo cifrado.
 
-En producción, el programador de tareas debe ejecutar el comando al menos una
-vez cada 24 horas, aplicar la retención 7/4/6, alertar ante fallos o ausencia de
-una copia reciente y comprobar periódicamente una restauración desde el destino
-externo. El estado `Protegido` del panel solo aparece después de una ejecución
-externa correcta y reciente.
+En producción, `backup-agendasalon.timer` ejecuta la copia al menos una vez cada
+24 horas. Su `ExecStartPost` aplica la retención de 7 representantes diarios, 4
+semanales y 6 mensuales. Antes de seleccionar o borrar, verifica con HMAC y
+SHA-256 todas las carpetas gestionadas; si encuentra una anomalía, falla sin
+borrar ninguna. La simulación sin borrado es:
+
+```bash
+python -m ops.backup_restore retention \
+  --backup-root /var/backups/agendasalon \
+  --daily 7 --weekly 4 --monthly 6
+```
+
+El borrado requiere añadir `--apply`. En el servidor lo ejecuta únicamente la
+unidad versionada en `ops/systemd/backup-agendasalon.service`.
+
+`check-agendasalon-backup.timer` ejecuta cada día:
+
+```bash
+python -m ops.backup_restore health \
+  --backup-root /var/backups/agendasalon \
+  --max-age-hours 36
+```
+
+La comprobación falla ante ausencia, caducidad, fecha futura, autenticidad o
+integridad incorrectas. La automatización local `Vigilar copias de AgendaSalon`
+revisa el resultado y avisa a Fran si detecta un problema; no borra ni repara.
+Todavía debe comprobarse periódicamente una restauración desde el futuro
+destino externo. El estado `Protegido` del panel solo aparece después de una
+ejecución externa correcta y reciente.
 
 ## Restaurar en un entorno limpio
 
@@ -234,8 +263,10 @@ El 11 de julio de 2026 se ejecutó un ensayo local aislado con PostgreSQL 17:
 - comparación final: 2 negocios, 19 citas y 7 clientes en origen y destino;
 - 172 pruebas correctas sobre PostgreSQL, incluida concurrencia real de estados.
 
-El ensayo valida el procedimiento técnico. Antes del despliegue falta elegir y
-probar el destino externo cifrado que conservará las copias programadas.
+El ensayo valida el procedimiento técnico. La programación local, la retención
+7/4/6 y la vigilancia de frescura quedaron activas y verificadas en el
+despliegue del 14 de julio de 2026. Falta elegir y probar el destino externo
+cifrado que conservará otra copia fuera del Droplet.
 
 Como comprobación posterior, el 12 de julio de 2026 se ejecutó la suite completa
 de 240 pruebas sobre PostgreSQL 17 en un contenedor aislado. Incluyó migraciones,

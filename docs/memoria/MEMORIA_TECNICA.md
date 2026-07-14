@@ -275,7 +275,7 @@ Las imágenes públicas admiten JPG, PNG o WebP, con máximo de 5 MB y 16 millon
 
 ### 12.6 Secretos, HTTPS y copias
 
-Producción exige secreto, hosts, orígenes CSRF y PostgreSQL mediante variables de entorno. La configuración activa redirección HTTPS, cookies seguras y HSTS. Las copias incluyen base de datos y medios, manifiesto SHA-256 y verificación de restauración. El destino externo cifrado y la prueba sobre infraestructura real quedan pendientes del despliegue.
+Producción exige secreto, hosts, orígenes CSRF y PostgreSQL mediante variables de entorno. La configuración activa redirección HTTPS, cookies seguras y HSTS. Las copias incluyen base de datos y medios, manifiesto SHA-256 y verificación de restauración. En el despliegue público se han activado la copia diaria, la retención 7/4/6 y el control de una antigüedad máxima de 36 horas. El destino externo cifrado y la restauración desde él siguen pendientes.
 
 ## 13. Pruebas y calidad
 

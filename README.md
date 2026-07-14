@@ -340,9 +340,11 @@ python manage.py backup_agendasalon \
 ```
 
 La demo pública conserva copias locales autenticadas y verificadas mediante una
-tarea diaria de systemd. Mientras no haya retención automatizada, alertas y un
-destino externo cifrado, la interfaz mantiene la continuidad externa como
-pendiente y no simula una protección que todavía no existe.
+tarea diaria de systemd. La tarea aplica la retención 7/4/6 después de cada
+copia y otro temporizador comprueba diariamente que exista una copia válida de
+menos de 36 horas. Una vigilancia local adicional avisa a Fran si falla la
+programación, la integridad, la frescura o el espacio en disco. El destino
+externo cifrado sigue pendiente y la interfaz no simula esa protección.
 
 La matriz académica de controles, las evidencias reproducibles y los riesgos
 que deben cerrarse durante el despliegue están reunidos en
