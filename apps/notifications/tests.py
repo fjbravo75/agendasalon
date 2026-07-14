@@ -53,6 +53,8 @@ class TransactionalEmailTests(TestCase):
 
         self.assertEqual(delivery.status, OutboundEmail.Status.SENT)
         self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("ya está preparado", mail.outbox[0].body)
+        self.assertIn("contraseña personal", mail.outbox[0].body)
         activation_url = next(
             line for line in mail.outbox[0].body.splitlines() if line.startswith("http")
         )
@@ -247,3 +249,5 @@ class TransactionalEmailTests(TestCase):
         self.assertEqual(queue_and_dispatch(confirmation).status, OutboundEmail.Status.SENT)
         self.assertEqual(queue_and_dispatch(reminder).status, OutboundEmail.Status.SENT)
         self.assertEqual(len(mail.outbox), 2)
+        self.assertIn("está confirmada", mail.outbox[0].body)
+        self.assertIn("mañana tienes cita", mail.outbox[1].body)
