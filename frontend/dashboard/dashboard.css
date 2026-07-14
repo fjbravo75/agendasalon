@@ -179,6 +179,67 @@
   background: linear-gradient(145deg, var(--sa-warning-soft), #fffdf9 72%);
 }
 
+.superadmin-signup-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  margin-top: 12px;
+  border: 1px solid var(--sa-border);
+  border-left: 4px solid var(--sa-green);
+  border-radius: 13px;
+  padding: 15px 18px;
+  background: color-mix(in srgb, var(--sa-surface) 94%, var(--sa-green-soft));
+}
+
+.superadmin-signup-summary--pending {
+  border-left-color: var(--sa-warning);
+  background: color-mix(in srgb, var(--sa-surface) 82%, var(--sa-warning-soft));
+}
+
+.superadmin-signup-summary > div > span {
+  display: block;
+  color: var(--sa-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.superadmin-signup-summary strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 1rem;
+}
+
+.superadmin-signup-summary p {
+  margin: 3px 0 0;
+  color: var(--sa-muted);
+  font-size: 0.82rem;
+}
+
+.superadmin-signup-summary a {
+  flex: none;
+  border: 1px solid var(--sa-green);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: #fff;
+  background: var(--sa-green);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.superadmin-signup-summary a:hover {
+  border-color: var(--sa-green-dark);
+  background: var(--sa-green-dark);
+}
+
+.superadmin-signup-summary a:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--sa-green) 30%, transparent);
+  outline-offset: 2px;
+}
+
 .superadmin-clear-state,
 .superadmin-attention {
   margin-top: 12px;
@@ -824,6 +885,8 @@
   .superadmin-react-dashboard__actions { display: grid; grid-template-columns: 1fr 1fr; max-width: none; margin-top: 18px; }
   .superadmin-react-dashboard__actions .button:first-child { grid-column: 1 / -1; }
   .superadmin-meta-line { display: grid; }
+  .superadmin-signup-summary { align-items: stretch; flex-direction: column; }
+  .superadmin-signup-summary a { width: 100%; text-align: center; }
   .superadmin-metrics { grid-template-columns: 1fr 1fr; }
   .superadmin-metric { min-height: 145px; padding: 15px; }
   .superadmin-metric strong { font-size: 2.4rem; }

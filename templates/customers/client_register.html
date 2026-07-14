@@ -71,6 +71,13 @@
                 {% endif %}
               </div>
 
+              <div class="login-field{% if registration_form.email.errors %} is-error{% endif %}">
+                <label for="{{ registration_form.email.id_for_label }}">CORREO ELECTRÓNICO <span aria-hidden="true">*</span></label>
+                {{ registration_form.email }}
+                <small>Te enviaremos un enlace para verificarlo y los avisos de tus citas.</small>
+                {% if registration_form.email.errors %}<div class="login-field-error" role="alert">{{ registration_form.email.errors }}</div>{% endif %}
+              </div>
+
               <div class="login-field{% if registration_form.password.errors %} is-error{% endif %}">
                 <label for="{{ registration_form.password.id_for_label }}">CONTRASEÑA <span aria-hidden="true">*</span></label>
                 {{ registration_form.password }}
@@ -102,7 +109,7 @@
                 </div>
               {% endif %}
 
-              <button class="login-button" type="submit">{% if has_pending_booking %}Crear cuenta y revisar reserva{% else %}Crear mi cuenta{% endif %}</button>
+              <button class="login-button" type="submit">{% if has_pending_booking %}Crear cuenta y verificar correo{% else %}Crear mi cuenta{% endif %}</button>
             </form>
             <div class="login-panel-note client-auth-note">
               ¿Ya tienes cuenta?

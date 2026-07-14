@@ -12,6 +12,9 @@
       </div>
       <div class="professional-dashboard__actions">
         <a class="button button--secondary" href="{% url 'dashboards:superadmin_home' %}">Dashboard</a>
+        <a class="button button--secondary" href="{% url 'businesses:superadmin_signup_request_list' %}">
+          Solicitudes de alta{% if open_signup_requests_count %} · {{ open_signup_requests_count }}{% endif %}
+        </a>
         <a class="button" href="{% url 'businesses:superadmin_business_create' %}">Nuevo negocio</a>
       </div>
     </header>

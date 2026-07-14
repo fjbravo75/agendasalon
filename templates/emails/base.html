@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin:0; padding:0; background:#f3f0ea; color:#25231f; font-family:Arial,sans-serif; }
+    .wrap { width:100%; padding:32px 14px; }
+    .card { max-width:620px; margin:0 auto; overflow:hidden; border:1px solid #d8d3ca; border-radius:20px; background:#fffdf9; }
+    .head { padding:24px 28px 18px; border-bottom:1px solid #e5e0d7; }
+    .brand { margin:0; color:#087766; font:700 23px Georgia,serif; }
+    .eyebrow { margin:6px 0 0; color:#6c665d; font-size:12px; }
+    .body { padding:30px 28px 34px; }
+    h1 { margin:0 0 17px; font:700 32px/1.08 Georgia,serif; color:#25231f; }
+    p { margin:0 0 16px; font-size:16px; line-height:1.6; }
+    .detail { margin:20px 0; padding:16px 18px; border-left:3px solid #e8b85a; border-radius:10px; background:#f6f2eb; }
+    .detail p { margin:4px 0; }
+    .button { display:inline-block; margin:7px 0 20px; padding:13px 20px; border-radius:10px; color:#fffdf9 !important; background:#087766; font-weight:700; text-decoration:none; }
+    .small { color:#6c665d; font-size:13px; line-height:1.5; }
+    @media (prefers-color-scheme:dark) {
+      body { background:#171916; color:#f4f0e8; }
+      .card { border-color:#41443d; background:#242620; }
+      .head { border-color:#41443d; }
+      .brand { color:#7ed8c4; }
+      .eyebrow,.small { color:#bbb7ad; }
+      h1 { color:#fffdf9; }
+      .detail { background:#303229; }
+      .button { background:#0b8c78; }
+    }
+    @media (max-width:520px) { .wrap{padding:12px 8px}.body{padding:24px 20px 28px}.head{padding:20px}h1{font-size:27px} }
+  </style>
+</head>
+<body><div class="wrap"><div class="card"><div class="head"><p class="brand">{% if business %}{{ business.commercial_name }}{% else %}AgendaSalon{% endif %}</p><p class="eyebrow">Gestión de citas con AgendaSalon</p></div><div class="body">{% block email_content %}{% endblock %}</div></div></div></body>
+</html>

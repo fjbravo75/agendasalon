@@ -92,5 +92,9 @@ jobs:
           fetch-depth: 0
       - name: Gitleaks sobre el historial completo
         uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: safe.directory
+          GIT_CONFIG_VALUE_0: /github/workspace
         with:
           args: detect --source=/github/workspace --no-banner --redact --exit-code=1

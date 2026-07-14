@@ -1,0 +1,6 @@
+Hola, {{ client.full_name }}.
+
+Confirma tu correo para terminar de crear tu cuenta en {{ business.commercial_name }} y continuar con tu reserva:
+{{ action_url }}
+
+El enlace caduca en 48 horas. No recibirás publicidad por crear la cuenta.

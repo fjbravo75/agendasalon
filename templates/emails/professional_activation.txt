@@ -1,0 +1,8 @@
+Hola, {{ user.full_name }}.
+
+Tu acceso profesional a {% if business %}{{ business.commercial_name }}{% else %}AgendaSalon{% endif %} ya está preparado.
+
+Crea tu contraseña personal desde este enlace:
+{{ action_url }}
+
+El enlace es de un solo uso. Si no esperabas este mensaje, puedes ignorarlo.

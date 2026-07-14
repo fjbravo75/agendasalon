@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}{{ signup_request.business_name }} - Solicitud de alta{% endblock %}
+
+{% block content %}
+  <section class="saas-dashboard">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Solicitud de alta #{{ signup_request.pk }}</span>
+        <h1 class="page-title page-title--compact">{{ signup_request.business_name }}</h1>
+        <p>Recibida el {{ signup_request.created_at|date:"d/m/Y" }} a las {{ signup_request.created_at|date:"H:i" }}.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'businesses:superadmin_signup_request_list' %}">Volver a solicitudes</a>
+        {% if not is_converted and signup_request.status != "dismissed" %}
+          <a class="button" href="{% url 'businesses:superadmin_business_create' %}?solicitud={{ signup_request.pk }}">Convertir en negocio</a>
+        {% elif signup_request.converted_business %}
+          <a class="button" href="{% url 'businesses:superadmin_business_detail' signup_request.converted_business.pk %}">Ver negocio creado</a>
+        {% endif %}
+      </div>
+    </header>
+
+    <div class="signup-request-detail-grid">
+      <section class="saas-side-panel signup-request-detail-card">
+        <div class="ops-section-head ops-section-head--compact">
+          <div><span>Datos recibidos</span><h2>Negocio y contacto</h2></div>
+          <span class="signup-status signup-status--{{ signup_request.status }}">{{ signup_request.get_status_display }}</span>
+        </div>
+        <dl class="signup-request-facts">
+          <div><dt>Tipo de negocio</dt><dd>{{ signup_request.get_business_type_display }}</dd></div>
+          <div><dt>Ubicación</dt><dd>{{ signup_request.city }}{% if signup_request.province %}, {{ signup_request.province }}{% endif %}</dd></div>
+          <div><dt>Persona de contacto</dt><dd>{{ signup_request.contact_name }}</dd></div>
+          <div><dt>Teléfono</dt><dd><a href="tel:{{ signup_request.normalized_phone }}">{{ signup_request.phone }}</a></dd></div>
+          <div><dt>Correo</dt><dd>{% if signup_request.email %}<a href="mailto:{{ signup_request.email }}">{{ signup_request.email }}</a>{% else %}No indicado{% endif %}</dd></div>
+          <div><dt>Canal preferido</dt><dd>{{ signup_request.get_preferred_channel_display }}</dd></div>
+          <div class="signup-request-facts__wide"><dt>Necesidad principal</dt><dd>{{ signup_request.need_text|default:"No se añadió información adicional." }}</dd></div>
+        </dl>
+      </section>
+
+      <aside class="saas-side-panel signup-request-detail-card">
+        <div class="ops-section-head ops-section-head--compact"><div><span>Trazabilidad</span><h2>Seguimiento</h2></div></div>
+        {% if is_converted %}
+          <div class="signup-converted-state">
+            <strong>Solicitud convertida</strong>
+            <p>El negocio se creó el {{ signup_request.converted_at|date:"d/m/Y H:i" }}{% if signup_request.handled_by %} por {{ signup_request.handled_by.full_name|default:signup_request.handled_by }}{% endif %}.</p>
+          </div>
+        {% else %}
+          <form method="post" class="saas-management-form signup-review-form">
+            {% csrf_token %}
+            {{ review_form.non_field_errors }}
+            {% for field in review_form %}
+              <div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>
+            {% endfor %}
+            <button class="button" type="submit">Guardar seguimiento</button>
+          </form>
+        {% endif %}
+
+        <div class="signup-privacy-proof">
+          <span>Información de privacidad</span>
+          <strong>Versión {{ signup_request.privacy_document_version }}</strong>
+          <small>Leída el {{ signup_request.privacy_acknowledged_at|date:"d/m/Y H:i" }} · Huella {{ signup_request.privacy_document_hash|slice:":12" }}…</small>
+        </div>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

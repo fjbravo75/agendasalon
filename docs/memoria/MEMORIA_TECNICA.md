@@ -133,6 +133,10 @@ El profesional puede gestionar servicios, duración, precio, color, horarios, ci
 
 El superadministrador consulta negocios operativos, configuración pendiente, reserva online, accesos y actividad registrada. Puede crear, editar, pausar o reactivar un negocio, pero no crea reservas en su nombre ni entra libremente en el panel profesional.
 
+### 6.6 Solicitar el alta de un nuevo negocio
+
+Un profesional sin cuenta accede desde el propio login a un formulario breve. La plataforma registra los datos mínimos, la información de privacidad leída y el canal de contacto, pero no crea una cuenta. El superadministrador revisa la solicitud y, cuando confirma el alta, reutiliza el formulario transaccional de negocio y primer profesional. El contacto privado no se publica por defecto.
+
 ## 7. Tecnologías utilizadas
 
 | Tecnología | Uso | Justificación |
@@ -227,6 +231,10 @@ Entre las entidades más relevantes se encuentran:
 
 **Figura 10.** Gestión del ciclo de vida de los negocios asociados.
 
+### 10.7 Solicitudes de alta profesional
+
+El dashboard incorpora el número de solicitudes pendientes. La bandeja protegida permite buscar, filtrar, registrar seguimiento y convertir cada solicitud en negocio. La conversión conserva el actor, la fecha y el negocio resultante, mientras que la privacidad conserva documento, versión y huella mostrados al solicitante.
+
 ## 11. Integración de React
 
 La agenda React recibe una configuración inicial desde Django y consulta dos endpoints: disponibilidad mensual y detalle del día. El dashboard del superadministrador consulta datos agregados y permite buscar, filtrar y ordenar negocios sin recargar la página.
@@ -245,6 +253,18 @@ La seguridad se ha tratado como una parte del diseño y no como una revisión po
 - Argon2id como hasher preferente.
 - Validación de longitud, similitud, contraseñas comunes y valores numéricos.
 - Limitación de intentos por identidad e IP con claves seudonimizadas.
+- Contraseña temporal obligatoria en accesos creados por superadministración.
+- Cambio personal desde `Mi cuenta`, con comprobación de la contraseña actual.
+- Conservación de la sesión presente e invalidación de las demás sesiones tras
+  el cambio.
+
+La contraseña pertenece a la cuenta profesional, no al negocio. El primer
+acceso queda bloqueado antes del onboarding legal hasta que la persona sustituye
+la credencial temporal conocida por el superadministrador. La misma superficie
+permite cambios voluntarios posteriores y está disponible también para la cuenta
+superadministradora. La recuperación autónoma por correo o SMS no se presenta
+como disponible mientras el proyecto no disponga de un canal obligatorio y
+verificado.
 
 ### 12.2 Autorización y aislamiento
 
@@ -332,7 +352,7 @@ Durante el desarrollo se han utilizado herramientas de inteligencia artificial c
 
 - Ejecutar y documentar el despliegue público.
 - Verificar concurrencia en la infraestructura PostgreSQL definitiva.
-- Conectar correo o mensajería real para recordatorios.
+- Desplegar y medir en uso real la cola de correo ya conectada a Brevo.
 - Definir política operativa de retención y borrado de imágenes de la galería.
 - Incorporar monitorización y alertas de disponibilidad.
 - Medir tiempos de reserva y reducción de interrupciones con usuarios reales.
@@ -360,7 +380,8 @@ gitleaks git --log-opts="--all"
 
 | Superficie | Ruta local |
 | --- | --- |
-| Acceso profesional | `/cuenta/entrar/` |
+| Acceso profesional | `/entrar/` |
+| Solicitud de alta profesional | `/solicitar-alta/` |
 | Resumen profesional | `/profesional/` |
 | Agenda React | `/profesional/agenda/` |
 | Nueva cita | `/profesional/citas/nueva/` |
@@ -368,6 +389,7 @@ gitleaks git --log-opts="--all"
 | Reserva de Peluquería Mari | `/reservar/peluqueria-mari/` |
 | Reserva de Barbería Norte | `/reservar/barberia-norte/` |
 | Dashboard de plataforma | `/superadmin/dashboard/` |
+| Solicitudes de alta | `/superadmin/negocios/solicitudes/` |
 | Django Admin técnico | `/admin/` |
 
 ## Anexo C. Fuentes del proyecto

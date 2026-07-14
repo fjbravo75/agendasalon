@@ -126,6 +126,12 @@ def confirm_appointment(draft: AppointmentDraft) -> Appointment:
             "starts_at": appointment.starts_at.isoformat(),
         },
     )
+    from apps.notifications.services import dispatch_outbound_email, queue_appointment_emails
+
+    queued_email_ids = [email.pk for email in queue_appointment_emails(appointment)]
+    transaction.on_commit(
+        lambda: [dispatch_outbound_email(email_id) for email_id in queued_email_ids]
+    )
     return appointment
 
 
@@ -153,6 +159,9 @@ def cancel_appointment(appointment: Appointment, *, cancelled_by, reason: str) -
             "updated_at",
         ]
     )
+    from apps.notifications.services import cancel_appointment_emails
+
+    cancel_appointment_emails(appointment)
     record_business_activity(
         business=appointment.business,
         category=BusinessActivityEvent.Category.APPOINTMENTS,

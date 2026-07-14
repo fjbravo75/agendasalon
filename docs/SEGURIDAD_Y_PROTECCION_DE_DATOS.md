@@ -68,6 +68,8 @@ La aplicación separa cuatro superficies:
 | Autenticación cliente | Cuenta ligada a una ficha y a un negocio; sesión separada, rotación al entrar y salir y caducidad tras una hora de inactividad | `apps/customers/services.py`, `apps/customers/tests.py` | Aplicado y verificado |
 | Hashing | Argon2id como algoritmo preferente; actualización transparente de hashes PBKDF2 después de un acceso correcto | `config/settings/base.py`, pruebas de `apps/customers/tests.py` | Aplicado y verificado |
 | Contraseñas | Mínimo de 12 caracteres y validadores de similitud, contraseñas comunes y valores exclusivamente numéricos | `config/settings/base.py`, formularios y pruebas de acceso | Aplicado y verificado |
+| Activación profesional | Los accesos nuevos permanecen inactivos y sin contraseña utilizable hasta que la persona abre un enlace de un solo uso, verifica su correo y crea su propia contraseña; la contraseña temporal queda limitada a compatibilidad heredada | `apps/accounts`, `apps/notifications`, middleware, formularios y pruebas | Aplicado y verificado |
+| Verificación de correo | Profesionales y clientes deben verificar una dirección normalizada y única antes de utilizar la operativa protegida o reservar; los enlaces tienen caducidad y no se almacenan en claro | `apps/accounts`, `apps/customers`, `apps/notifications` y pruebas | Aplicado y verificado |
 | Fuerza bruta | Limitación por identidad e IP; claves seudonimizadas con HMAC-SHA-256 y limpieza operativa de contadores inactivos | `apps/core/security_throttle.py`, `prune_security_throttles` | Aplicado y verificado |
 | Recuperación de acceso cliente | Invitación aleatoria de un solo uso, ligada a negocio y ficha, caducidad de 24 horas y token almacenado solo como resumen SHA-256 | `apps/customers/services.py`, `apps/customers/tests.py` | Aplicado y verificado |
 | Autorización | Decoradores de acceso, comprobación de negocio activo y filtrado de objetos por empresa | vistas, API y pruebas de aislamiento | Aplicado y verificado |
@@ -102,6 +104,15 @@ de una ficha existente conociendo únicamente su número.
 Las contraseñas nuevas se almacenan con Argon2id. Django conserva PBKDF2 como
 algoritmo compatible para poder verificar cuentas antiguas y actualizar su hash
 después de un acceso correcto. Nunca se guardan contraseñas en claro.
+
+La contraseña creada durante el alta superadministradora es temporal. Un
+indicador persistente y un middleware situado antes del onboarding legal impiden
+entrar en agenda, clientes o configuración hasta que la persona defina una clave
+propia. `Mi cuenta` permite cambios posteriores verificando la contraseña actual
+y rechazando una nueva contraseña idéntica. `update_session_auth_hash()` conserva
+la sesión presente; el cambio del hash de contraseña invalida las demás sesiones.
+Los parámetros de retorno se validan contra el host y esquema actuales para
+evitar redirecciones externas.
 
 Las sesiones usan cookies `HttpOnly` y `SameSite=Lax`. En producción se marcan
 además como `Secure`. La sesión cliente rota su identificador al entrar y salir,
@@ -232,6 +243,14 @@ Las reservas públicas registran el actor genérico `Cliente online` y omiten de
 detalle de cambios los nombres de quien solicita o recibe la cita. La migración
 `businesses.0009` aplica la misma minimización a los eventos públicos ya
 existentes, sin alterar la ficha de cita que necesita el profesional.
+
+La solicitud pública de alta profesional aplica minimización propia: no pide
+contraseña, NIF, razón social, dirección completa, horarios, servicios, clientes
+ni datos de pago. Conserva el documento de privacidad, su versión, huella y fecha
+de lectura. El teléfono se normaliza, los reenvíos equivalentes no duplican una
+solicitud abierta y los POST se limitan por teléfono e IP mediante claves
+resumidas. Los datos recibidos solo aparecen en la zona superadministradora y no
+se copian como contacto público del negocio sin una decisión expresa.
 
 Estas medidas técnicas no sustituyen las obligaciones jurídicas de una
 explotación comercial. La publicación académica no debe usarse con actividad

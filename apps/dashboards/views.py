@@ -279,6 +279,9 @@ def superadmin_home(request):
                 "dataEndpoint": reverse("dashboards:superadmin_dashboard_data"),
                 "businessListUrl": reverse("businesses:superadmin_business_list"),
                 "businessCreateUrl": reverse("businesses:superadmin_business_create"),
+                "signupRequestListUrl": reverse(
+                    "businesses:superadmin_signup_request_list"
+                ),
             }
         },
     )
