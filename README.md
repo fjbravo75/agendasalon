@@ -290,6 +290,14 @@ WSGI y ASGI arrancan con `config.settings.prod` y fallan si faltan secreto,
 hosts o `DJANGO_DATABASE_URL`. El desarrollo local continúa usando
 `config.settings.dev` y SQLite mediante `manage.py`.
 
+La identidad legal tiene dos modos excluyentes. En una demostración académica
+sin actividad comercial, `AGENDA_PLATFORM_LEGAL_DEMO=1` exige nombre visible,
+correo de contacto y web, obliga a dejar vacíos NIF y domicilio y evita
+mostrarlos en las páginas legales. En modo comercial, el valor debe ser `0` y
+producción sigue exigiendo la identidad legal completa y real. Esta distinción
+no modifica `DEBUG=False`, PostgreSQL, HTTPS, cookies seguras ni la gestión de
+secretos.
+
 Las respuestas incorporan una política CSP. Las rutas de producto solo permiten
 scripts del mismo origen; Django Admin conserva una excepción inline limitada a
 su propio prefijo. Las capacidades de navegador no utilizadas quedan

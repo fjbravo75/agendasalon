@@ -1,8 +1,4 @@
-"""Production settings.
-
-Deployment is not active yet. These settings force secrets and hosts to come
-from the environment when the deployment phase is explicitly opened.
-"""
+"""Production settings with explicit secrets, hosts and reverse-proxy trust."""
 
 import os
 
@@ -34,18 +30,50 @@ DATABASES = {
     "default": postgres_database_config(os.environ.get("DJANGO_DATABASE_URL", ""))
 }
 
-_required_legal_settings = {
-    "AGENDA_PLATFORM_LEGAL_NAME": "",
-    "AGENDA_PLATFORM_TAX_ID": "",
-    "AGENDA_PLATFORM_LEGAL_ADDRESS": "",
-    "AGENDA_PLATFORM_PRIVACY_EMAIL": "",
-    "AGENDA_PLATFORM_WEBSITE": "",
-}
-for variable in _required_legal_settings:
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_FALSE_VALUES = {"0", "false", "no", "off"}
+
+
+def _environment_flag(variable, *, default="0"):
+    value = os.environ.get(variable, default).strip().lower()
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise ImproperlyConfigured(
+        f"{variable} must be one of: 1, 0, true, false, yes, no, on or off."
+    )
+
+
+def _required_environment_value(variable):
     value = os.environ.get(variable, "").strip()
     if not value:
         raise ImproperlyConfigured(f"{variable} is required in production.")
-    _required_legal_settings[variable] = value
+    return value
+
+
+AGENDA_PLATFORM_LEGAL_DEMO = _environment_flag("AGENDA_PLATFORM_LEGAL_DEMO")
+
+_required_legal_settings = {
+    variable: _required_environment_value(variable)
+    for variable in (
+        "AGENDA_PLATFORM_LEGAL_NAME",
+        "AGENDA_PLATFORM_PRIVACY_EMAIL",
+        "AGENDA_PLATFORM_WEBSITE",
+    )
+}
+
+if AGENDA_PLATFORM_LEGAL_DEMO:
+    for variable in ("AGENDA_PLATFORM_TAX_ID", "AGENDA_PLATFORM_LEGAL_ADDRESS"):
+        if os.environ.get(variable, "").strip():
+            raise ImproperlyConfigured(
+                f"{variable} must be empty when AGENDA_PLATFORM_LEGAL_DEMO is enabled."
+            )
+    _required_legal_settings["AGENDA_PLATFORM_TAX_ID"] = ""
+    _required_legal_settings["AGENDA_PLATFORM_LEGAL_ADDRESS"] = ""
+else:
+    for variable in ("AGENDA_PLATFORM_TAX_ID", "AGENDA_PLATFORM_LEGAL_ADDRESS"):
+        _required_legal_settings[variable] = _required_environment_value(variable)
 
 AGENDA_PLATFORM_LEGAL_NAME = _required_legal_settings["AGENDA_PLATFORM_LEGAL_NAME"]
 AGENDA_PLATFORM_TAX_ID = _required_legal_settings["AGENDA_PLATFORM_TAX_ID"]
@@ -56,7 +84,6 @@ AGENDA_PLATFORM_PRIVACY_EMAIL = _required_legal_settings[
     "AGENDA_PLATFORM_PRIVACY_EMAIL"
 ]
 AGENDA_PLATFORM_WEBSITE = _required_legal_settings["AGENDA_PLATFORM_WEBSITE"]
-AGENDA_PLATFORM_LEGAL_DEMO = False
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
@@ -72,6 +99,7 @@ ADMIN_CONTENT_SECURITY_POLICY = (
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_SSL_REDIRECT = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_HSTS_SECONDS = 60
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = False

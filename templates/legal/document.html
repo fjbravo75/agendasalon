@@ -16,8 +16,12 @@
 
     <dl class="legal-identity">
       <div><dt>Titular</dt><dd>{{ legal_context.legal_name }}</dd></div>
-      <div><dt>Identificación fiscal</dt><dd>{{ legal_context.tax_identifier }}</dd></div>
-      <div><dt>Domicilio</dt><dd>{{ legal_context.registered_address }}</dd></div>
+      {% if legal_context.is_demo %}
+        <div><dt>Contexto</dt><dd>Demostración académica sin actividad comercial</dd></div>
+      {% else %}
+        <div><dt>Identificación fiscal</dt><dd>{{ legal_context.tax_identifier }}</dd></div>
+        <div><dt>Domicilio</dt><dd>{{ legal_context.registered_address }}</dd></div>
+      {% endif %}
       <div><dt>Privacidad</dt><dd><a class="legal-text-link" href="mailto:{{ legal_context.privacy_email }}">{{ legal_context.privacy_email }}</a></dd></div>
     </dl>
 

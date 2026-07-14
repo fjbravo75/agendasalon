@@ -166,6 +166,14 @@ El perfil `config.settings.prod` falla de forma explícita si no recibe:
 - `DJANGO_ALLOWED_HOSTS`;
 - `DJANGO_DATABASE_URL`.
 
+También exige declarar el contexto legal. Con
+`AGENDA_PLATFORM_LEGAL_DEMO=1`, la aplicación se identifica como demostración
+académica sin actividad comercial, exige nombre visible, correo y web, y obliga
+a mantener vacíos NIF y domicilio para no inventarlos ni exponer datos
+personales. Con `AGENDA_PLATFORM_LEGAL_DEMO=0`, el modo comercial continúa
+exigiendo la identidad completa y real. La elección no relaja ninguna medida
+técnica del perfil de producción.
+
 PostgreSQL es obligatorio en producción. La URL de conexión se obtiene del
 entorno y no se pasa a la herramienta de copias mediante argumentos visibles en
 la lista de procesos. `.env.example` contiene únicamente nombres y ejemplos sin
@@ -220,9 +228,11 @@ detalle de cambios los nombres de quien solicita o recibe la cita. La migración
 existentes, sin alterar la ficha de cita que necesita el profesional.
 
 Estas medidas técnicas no sustituyen las obligaciones jurídicas de una
-explotación comercial. Antes de producción deben cerrarse política de
-privacidad, base jurídica, información al usuario, contratos con encargados,
-plazos definitivos de conservación y procedimiento de ejercicio de derechos.
+explotación comercial. La publicación académica no debe usarse con actividad
+comercial ni datos de clientes reales. Antes de activar ese uso deben cerrarse
+identidad fiscal real, política de privacidad, base jurídica, información al
+usuario, contratos con encargados, plazos definitivos de conservación y
+procedimiento de ejercicio de derechos.
 
 ## Evidencias reproducibles
 
@@ -296,7 +306,7 @@ decimotercera solicitud, como corresponde al nuevo control.
 | Riesgo residual | Prioridad | Decisión o condición de cierre |
 | --- | --- | --- |
 | HTTPS todavía no comprobado en una URL pública | Bloqueante para producción | Validar certificado, redirecciones, cookies seguras, CSRF y cabeceras en el dominio definitivo |
-| Terminación TLS del proxy todavía no definida | Bloqueante para producción | Evitar acceso directo al proceso Django y decidir si se configura `SECURE_PROXY_SSL_HEADER`; el proxy debe eliminar cualquier cabecera de protocolo enviada por el cliente |
+| Terminación TLS del proxy pendiente de validación pública | Bloqueante para producción | Nginx debe sobrescribir `X-Forwarded-Proto`, acceder a Gunicorn solo por socket y validar que `SECURE_PROXY_SSL_HEADER` no permite falsear peticiones seguras |
 | Copias sin destino externo cifrado ni tarea programada | Bloqueante para producción | Elegir destino, automatizar, alertar fallos y repetir una restauración desde la copia externa |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
 | Sin segundo factor para cuentas técnicas | Alta para explotación comercial | Incorporar MFA o proteger el acceso mediante identidad del proveedor o VPN |
@@ -305,6 +315,7 @@ decimotercera solicitud, como corresponde al nuevo control.
 | `unsafe-inline` en scripts de Django Admin | Media y acotada | Mantener la excepción solo en `/admin/` y revisar nonce o hash si se personaliza la consola |
 | Estilos inline permitidos en el producto | Baja | Sustituir valores inline por clases o variables controladas y retirar progresivamente `unsafe-inline` de las directivas de estilo |
 | Política de privacidad y conservación definitiva no cerradas | Bloqueante para uso real con clientes | Completar la capa jurídica y operativa antes de recopilar datos reales |
+| Modo académico utilizado para una actividad comercial | Bloqueante para uso real | Mantener la demo sin actividad comercial ni clientes reales; pasar a modo comercial solo con identidad legal real y revisión jurídica |
 
 ## Veredicto
 

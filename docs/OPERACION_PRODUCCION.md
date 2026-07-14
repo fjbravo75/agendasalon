@@ -13,18 +13,32 @@ perfil por defecto y detienen el arranque cuando falta alguna de estas variables
 - `DJANGO_DATABASE_URL`;
 - `AGENDA_BACKUP_HMAC_KEY`, secreto aleatorio independiente del destino de copias.
 
+La configuración legal se elige de forma explícita:
+
+- demo académica sin actividad comercial: `AGENDA_PLATFORM_LEGAL_DEMO=1`, con
+  `AGENDA_PLATFORM_LEGAL_NAME`, `AGENDA_PLATFORM_PRIVACY_EMAIL` y
+  `AGENDA_PLATFORM_WEBSITE`; NIF y domicilio deben quedar ausentes o vacíos;
+- actividad comercial: `AGENDA_PLATFORM_LEGAL_DEMO=0`, con los cinco datos
+  legales completos y reales, incluidos `AGENDA_PLATFORM_TAX_ID` y
+  `AGENDA_PLATFORM_LEGAL_ADDRESS`.
+
+El arranque falla si el indicador tiene un valor ambiguo, si faltan datos
+obligatorios del modo elegido o si una demo intenta introducir NIF o domicilio.
+El modo académico solo cambia la identidad mostrada: conserva `DEBUG=False`,
+PostgreSQL, redirección HTTPS, cookies seguras, secretos y el resto del perfil de
+producción.
+
 Si existe un proxy inverso, sus direcciones deben declararse de forma explícita
 en `DJANGO_TRUSTED_PROXY_IPS`, separadas por comas. Solo entonces AgendaSalon
 consulta `X-Forwarded-For`; recorre la cadena desde el proxy más cercano y no
 confía en una cabecera enviada directamente por el cliente.
 
-La topología de despliegue debe impedir el acceso directo al proceso Django. Si
-el proxy termina TLS y comunica con Django mediante HTTP interno, antes de
-activar `SECURE_PROXY_SSL_HEADER` debe garantizarse que el proxy elimina toda
-cabecera `X-Forwarded-Proto` enviada por el cliente y escribe su propio valor.
-La aplicación no confía automáticamente en esa cabecera hasta decidir y probar
-la arquitectura definitiva; de este modo se evita convertir una configuración
-genérica en una vía para falsear el carácter seguro de una petición.
+La topología de despliegue debe impedir el acceso directo al proceso Django.
+Producción declara `SECURE_PROXY_SSL_HEADER` para reconocer HTTPS cuando Nginx
+termina TLS y comunica con Gunicorn mediante HTTP interno. Esta confianza solo
+es segura si Nginx sobrescribe siempre `X-Forwarded-Proto` con su propio
+`$scheme`, sin conservar un valor enviado por el cliente. El socket de Gunicorn
+no debe quedar expuesto a Internet.
 
 La base de datos de producción debe ser PostgreSQL. Formato esperado:
 
