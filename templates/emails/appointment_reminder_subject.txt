@@ -1,0 +1,1 @@
+Mañana tienes cita en {{ business.commercial_name }}

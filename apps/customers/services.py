@@ -79,6 +79,7 @@ def authenticate_client_access(*, business, phone: str, password: str):
             business=business,
             phone_normalized=phone_normalized,
             is_active=True,
+            email_verified_at__isnull=False,
             business_client__is_active=True,
         )
         .first()
@@ -258,7 +259,7 @@ def get_claimed_invitation(request, business, now=None, lock=False):
 
 
 @transaction.atomic
-def activate_claimed_invitation(*, request, business, password, now=None):
+def activate_claimed_invitation(*, request, business, email, password, now=None):
     now = now or timezone.now()
     invitation = get_claimed_invitation(request, business, now=now, lock=True)
     if invitation is None:
@@ -268,6 +269,7 @@ def activate_claimed_invitation(*, request, business, password, now=None):
         business=business,
         business_client=invitation.business_client,
         phone=invitation.business_client.phone,
+        email=email,
         is_active=True,
     )
     access.set_password(password)
@@ -292,7 +294,9 @@ def revoke_client_access_invitation(*, invitation, now=None):
 
 
 @transaction.atomic
-def register_client_access(*, business, full_name: str, phone: str, password: str):
+def register_client_access(
+    *, business, full_name: str, phone: str, email: str, password: str, email_verified=False
+):
     phone_normalized = normalize_phone(phone)
     if BusinessClientAccess.objects.filter(
         business=business,
@@ -306,10 +310,18 @@ def register_client_access(*, business, full_name: str, phone: str, password: st
     ).exists():
         raise ValidationError(PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE)
 
+    email_normalized = email.strip().lower()
+    if BusinessClientAccess.objects.filter(
+        business=business,
+        email_normalized=email_normalized,
+    ).exists():
+        raise ValidationError(PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE)
+
     client = BusinessClient(
         business=business,
         full_name=full_name,
         phone=phone,
+        email=email,
         source=BusinessClient.Source.OTHER,
         internal_notes="Ficha creada desde registro online de cliente.",
     )
@@ -320,6 +332,8 @@ def register_client_access(*, business, full_name: str, phone: str, password: st
         business=business,
         business_client=client,
         phone=phone,
+        email=email,
+        email_verified_at=timezone.now() if email_verified else None,
         is_active=True,
     )
     access.set_password(password)

@@ -50,6 +50,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.accounts.middleware.EmailVerificationRequiredMiddleware",
+    "apps.accounts.middleware.PasswordChangeRequiredMiddleware",
     "apps.legal.middleware.ProfessionalLegalOnboardingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -164,7 +166,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-LOGIN_URL = "/cuenta/entrar/"
+LOGIN_URL = "/entrar/"
 LOGIN_REDIRECT_URL = "/profesional/"
 LOGOUT_REDIRECT_URL = "/cuenta/desconectado/"
 
@@ -190,7 +192,13 @@ AGENDA_PLATFORM_PRIVACY_EMAIL = os.environ.get(
 )
 AGENDA_PLATFORM_WEBSITE = os.environ.get(
     "AGENDA_PLATFORM_WEBSITE",
-    "http://127.0.0.1:8012",
+    "http://127.0.0.1:8000",
+)
+AGENDA_TRANSACTIONAL_EMAIL_ENABLED = False
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL",
+    "AgendaSalon <agendasalon@localhost>",
 )
 AGENDA_PLATFORM_LEGAL_DEMO = os.environ.get(
     "AGENDA_PLATFORM_LEGAL_DEMO",

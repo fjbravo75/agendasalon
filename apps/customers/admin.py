@@ -48,12 +48,15 @@ class BusinessClientAccessInline(admin.StackedInline):
     fields = (
         "phone",
         "phone_normalized",
+        "email",
+        "email_normalized",
+        "email_verified_at",
         "is_active",
         "last_login_at",
         "created_at",
         "updated_at",
     )
-    readonly_fields = ("phone_normalized", "last_login_at", "created_at", "updated_at")
+    readonly_fields = ("phone_normalized", "email_normalized", "last_login_at", "created_at", "updated_at")
 
 
 @admin.register(BusinessClient)
@@ -101,16 +104,18 @@ class BusinessClientAuthorizedContactAdmin(admin.ModelAdmin):
 
 @admin.register(BusinessClientAccess)
 class BusinessClientAccessAdmin(admin.ModelAdmin):
-    list_display = ("business_client", "business", "phone", "is_active", "last_login_at")
+    list_display = ("business_client", "business", "phone", "email", "email_verified_at", "is_active", "last_login_at")
     list_filter = ("is_active", "business")
     search_fields = (
         "phone",
         "phone_normalized",
+        "email",
+        "email_normalized",
         "business_client__full_name",
         "business__commercial_name",
     )
     autocomplete_fields = ("business", "business_client")
-    readonly_fields = ("phone_normalized", "last_login_at", "created_at", "updated_at")
+    readonly_fields = ("phone_normalized", "email_normalized", "last_login_at", "created_at", "updated_at")
 
 
 @admin.register(BusinessClientAccessInvitation)

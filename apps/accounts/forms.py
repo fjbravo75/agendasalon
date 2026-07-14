@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth import authenticate
-from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm, SetPasswordForm
 
 from apps.core.phone import normalize_phone
 
@@ -63,3 +64,111 @@ class PhoneAuthenticationForm(AuthenticationForm):
             self.confirm_login_allowed(self.user_cache)
 
         return self.cleaned_data
+
+
+class AccountPasswordChangeForm(PasswordChangeForm):
+    """Change an authenticated internal account password without exposing it."""
+
+    error_messages = {
+        **PasswordChangeForm.error_messages,
+        "password_incorrect": "La contraseña actual no es correcta.",
+        "password_mismatch": "Las dos contraseñas nuevas no coinciden.",
+    }
+
+    def __init__(self, user, *args, forced=False, **kwargs):
+        super().__init__(user, *args, **kwargs)
+        self.forced = forced
+        self.fields["old_password"].label = (
+            "Contraseña temporal" if forced else "Contraseña actual"
+        )
+        self.fields["new_password1"].label = "Nueva contraseña"
+        self.fields["new_password2"].label = "Repite la nueva contraseña"
+        self.fields["old_password"].widget.attrs.update(
+            {
+                "autocomplete": "current-password",
+                "autofocus": True,
+                "placeholder": "Escribe tu contraseña actual",
+            }
+        )
+        for field_name in ("new_password1", "new_password2"):
+            self.fields[field_name].widget.attrs.update(
+                {
+                    "autocomplete": "new-password",
+                    "aria-describedby": "account-password-rules",
+                }
+            )
+        self.fields["new_password1"].widget.attrs["placeholder"] = (
+            "Mínimo 12 caracteres"
+        )
+        self.fields["new_password2"].widget.attrs["placeholder"] = (
+            "Escríbela de nuevo"
+        )
+        for field in self.fields.values():
+            field.help_text = ""
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password = cleaned_data.get("new_password2")
+        if password and self.user.check_password(password):
+            self.add_error(
+                "new_password2",
+                "La nueva contraseña debe ser diferente de la actual.",
+            )
+        return cleaned_data
+
+
+class ProfessionalActivationForm(SetPasswordForm):
+    """Let a new professional choose a private password from a one-time link."""
+
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(user, *args, **kwargs)
+        self.fields["new_password1"].label = "Crea tu contraseña"
+        self.fields["new_password2"].label = "Repite la contraseña"
+        self.fields["new_password1"].widget.attrs.update(
+            {"autocomplete": "new-password", "placeholder": "Mínimo 12 caracteres"}
+        )
+        self.fields["new_password2"].widget.attrs.update(
+            {"autocomplete": "new-password", "placeholder": "Escríbela de nuevo"}
+        )
+        for field in self.fields.values():
+            field.help_text = ""
+
+
+class AccountEmailForm(forms.Form):
+    email = forms.EmailField(
+        label="Correo electrónico",
+        max_length=254,
+        widget=forms.EmailInput(
+            attrs={
+                "autocomplete": "email",
+                "autofocus": True,
+                "placeholder": "tu@negocio.es",
+            }
+        ),
+    )
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        if get_user_model().objects.exclude(pk=self.user.pk).filter(
+            email_normalized=email
+        ).exists():
+            raise forms.ValidationError("Este correo ya pertenece a otra cuenta.")
+        return email
+
+    def save(self):
+        self.user.email = self.cleaned_data["email"]
+        self.user.email_verified_at = None
+        self.user.email_verification_required = True
+        self.user.save(
+            update_fields=[
+                "email",
+                "email_normalized",
+                "email_verified_at",
+                "email_verification_required",
+            ]
+        )
+        return self.user

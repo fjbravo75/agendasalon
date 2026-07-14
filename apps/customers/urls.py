@@ -4,6 +4,8 @@ from apps.customers.views import (
     client_access,
     client_invitation_activate,
     client_invitation_claim,
+    client_email_pending,
+    client_email_verify,
     client_logout,
     client_register,
     professional_client_access_toggle,
@@ -92,5 +94,15 @@ urlpatterns = [
         name="client_invitation_activate",
     ),
     path("<slug:slug>/registro/", client_register, name="client_register"),
+    path(
+        "<slug:slug>/verificar-correo/",
+        client_email_pending,
+        name="client_email_pending",
+    ),
+    path(
+        "<slug:slug>/verificar-correo/<str:token>/",
+        client_email_verify,
+        name="client_email_verify",
+    ),
     path("<slug:slug>/salir/", client_logout, name="client_logout"),
 ]

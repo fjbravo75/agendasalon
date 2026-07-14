@@ -56,6 +56,9 @@ AGENDA_PLATFORM_LEGAL_DEMO = _environment_flag("AGENDA_PLATFORM_LEGAL_DEMO")
 AGENDA_BACKUP_SCHEDULE_CONFIGURED = _environment_flag(
     "AGENDA_BACKUP_SCHEDULE_CONFIGURED"
 )
+AGENDA_TRANSACTIONAL_EMAIL_ENABLED = _environment_flag(
+    "AGENDA_TRANSACTIONAL_EMAIL_ENABLED"
+)
 
 _required_legal_settings = {
     variable: _required_environment_value(variable)
@@ -87,6 +90,18 @@ AGENDA_PLATFORM_PRIVACY_EMAIL = _required_legal_settings[
     "AGENDA_PLATFORM_PRIVACY_EMAIL"
 ]
 AGENDA_PLATFORM_WEBSITE = _required_legal_settings["AGENDA_PLATFORM_WEBSITE"]
+
+if AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = _required_environment_value("EMAIL_HOST")
+    EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+    EMAIL_HOST_USER = _required_environment_value("EMAIL_HOST_USER")
+    EMAIL_HOST_PASSWORD = _required_environment_value("EMAIL_HOST_PASSWORD")
+    DEFAULT_FROM_EMAIL = _required_environment_value("DEFAULT_FROM_EMAIL")
+    EMAIL_USE_TLS = _environment_flag("EMAIL_USE_TLS", default="1")
+    EMAIL_USE_SSL = _environment_flag("EMAIL_USE_SSL", default="0")
+    if EMAIL_USE_TLS and EMAIL_USE_SSL:
+        raise ImproperlyConfigured("EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be enabled.")
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()

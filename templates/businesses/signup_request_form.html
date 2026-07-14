@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Solicitar alta profesional - AgendaSalon{% endblock %}
+{% block body_class %}login-body business-signup-body{% endblock %}
+
+{% block content %}
+  <div class="login-page login-page--internal business-signup-page" style="--internal-login-bg: url('{{ internal_login_image_url }}');">
+    <section class="login-shell business-signup-shell">
+      <div class="login-topbar" aria-label="Cabecera">
+        <a class="login-brand" href="{% url 'accounts:login' %}">
+          <strong>AgendaSalon</strong>
+          <span>Agenda profesional para belleza y estética</span>
+        </a>
+      </div>
+
+      <div class="business-signup-intro">
+        <span class="business-signup-eyebrow">Solicitud de acceso profesional</span>
+        <h1>Cuéntanos lo esencial de tu negocio.</h1>
+        <p>
+          Revisaremos la solicitud personalmente para comprobar que AgendaSalon encaja
+          con tu forma de trabajar. En este paso todavía no se crea ninguna cuenta.
+        </p>
+        <ol class="business-signup-steps" aria-label="Proceso de alta">
+          <li><strong>1</strong><span>Envías los datos básicos.</span></li>
+          <li><strong>2</strong><span>Contactamos por el canal que elijas.</span></li>
+          <li><strong>3</strong><span>Preparamos el acceso contigo.</span></li>
+        </ol>
+      </div>
+
+      <aside class="login-panel business-signup-panel" aria-labelledby="signup-form-title">
+        <div class="login-panel__inner">
+          <div class="business-signup-panel__head">
+            <span>Sin compromiso</span>
+            <h2 id="signup-form-title">Solicita el alta</h2>
+            <p>Los campos marcados con * son necesarios para poder responderte.</p>
+          </div>
+
+          <form method="post" class="business-signup-form" novalidate>
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+              <div class="login-form-error" role="alert">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="business-signup-grid">
+              {% for field in form %}
+                {% if field.name != "privacy_acknowledged" %}
+                  <div class="business-signup-field{% if field.name == 'need_text' or field.name == 'preferred_channel' %} business-signup-field--wide{% endif %}{% if field.errors %} is-error{% endif %}">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+                    {{ field }}
+                    {% if field.name == "need_text" %}<small>Máximo 300 caracteres.</small>{% endif %}
+                    {% if field.errors %}<div class="business-signup-field__error" role="alert">{{ field.errors }}</div>{% endif %}
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+
+            <div class="business-signup-privacy{% if form.privacy_acknowledged.errors %} is-error{% endif %}">
+              {{ form.privacy_acknowledged }}
+              <label for="{{ form.privacy_acknowledged.id_for_label }}">
+                He leído la
+                <a href="{% url 'legal:platform_document' 'privacidad-plataforma' %}" target="_blank" rel="noopener">información sobre el tratamiento de mis datos</a>.
+              </label>
+              {% if form.privacy_acknowledged.errors %}<div class="business-signup-field__error" role="alert">{{ form.privacy_acknowledged.errors }}</div>{% endif %}
+            </div>
+
+            <div class="business-signup-actions">
+              <a href="{% url 'accounts:login' %}">Volver al acceso profesional</a>
+              <button class="login-button" type="submit">Enviar solicitud</button>
+            </div>
+          </form>
+        </div>
+      </aside>
+    </section>
+  </div>
+{% endblock %}

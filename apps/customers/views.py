@@ -39,6 +39,7 @@ from apps.legal.services import (
 )
 from apps.customers.models import (
     BusinessClient,
+    BusinessClientAccess,
     BusinessClientAccessInvitation,
     BusinessClientAccessGrant,
     BusinessClientAuthorizedContact,
@@ -69,6 +70,14 @@ from apps.core.security_throttle import (
     settle_successful_throttle,
 )
 from apps.core.text import normalize_search_text
+from apps.notifications.services import (
+    queue_and_dispatch,
+    queue_client_email_verification,
+    verified_client_from_token,
+)
+
+
+CLIENT_EMAIL_PENDING_SESSION_KEY = "client_email_verification_pending"
 
 
 @login_required
@@ -787,11 +796,11 @@ def client_invitation_activate(request, slug):
             access, used_invitation = activate_claimed_invitation(
                 request=request,
                 business=business,
+                email=activation_form.cleaned_data["email"],
                 password=activation_form.cleaned_data["password"],
             )
         except ValidationError:
             return _invitation_unavailable_response(request, business)
-        login_client_access(request, access)
         if business.legal_compliance_enabled:
             acknowledge_customer_privacy(
                 client_access=access,
@@ -809,8 +818,15 @@ def client_invitation_activate(request, slug):
             entity_type="business_client",
             changes={"invitation_id": str(used_invitation.id)},
         )
-        messages.success(request, "Cuenta activada. Ya puedes reservar tu cita.")
-        return redirect("public_booking", slug=business.slug)
+        _store_pending_email_verification(
+            request,
+            access,
+            reverse("public_booking", args=[business.slug]),
+        )
+        delivery = queue_and_dispatch(queue_client_email_verification(access))
+        if delivery.status != delivery.Status.SENT:
+            messages.warning(request, "El correo está pendiente de envío. Puedes reenviarlo desde esta pantalla.")
+        return redirect("customers:client_email_pending", slug=business.slug)
 
     response = render(
         request,
@@ -877,14 +893,16 @@ def client_register(request, slug):
             except FormValidationError as exc:
                 registration_form.add_error(None, exc)
             else:
-                login_client_access(request, access)
                 if business.legal_compliance_enabled:
                     acknowledge_customer_privacy(
                         client_access=access,
                         context=LegalAcceptance.Context.CLIENT_REGISTRATION,
                     )
-                messages.success(request, "Cuenta creada. Ya puedes reservar tu cita.")
-                return redirect(next_url)
+                _store_pending_email_verification(request, access, next_url)
+                delivery = queue_and_dispatch(queue_client_email_verification(access))
+                if delivery.status != delivery.Status.SENT:
+                    messages.warning(request, "El correo está pendiente de envío. Puedes reenviarlo desde esta pantalla.")
+                return redirect("customers:client_email_pending", slug=business.slug)
 
     return render(
         request,
@@ -898,6 +916,66 @@ def client_register(request, slug):
             "has_pending_booking": has_pending_booking,
         },
     )
+
+
+def _store_pending_email_verification(request, access, next_url):
+    request.session[CLIENT_EMAIL_PENDING_SESSION_KEY] = {
+        "access_id": access.pk,
+        "business_id": access.business_id,
+        "next": next_url,
+    }
+
+
+def client_email_pending(request, slug):
+    business = get_object_or_404(Business, slug=slug, is_active=True)
+    pending = request.session.get(CLIENT_EMAIL_PENDING_SESSION_KEY, {})
+    access = BusinessClientAccess.objects.filter(
+        pk=pending.get("access_id"),
+        business=business,
+        is_active=True,
+        email_verified_at__isnull=True,
+    ).first()
+    if access is None:
+        return redirect("customers:client_access", slug=business.slug)
+    if request.method == "POST":
+        delivery = queue_and_dispatch(queue_client_email_verification(access))
+        if delivery.status == delivery.Status.SENT:
+            messages.success(request, "Te hemos enviado un enlace nuevo.")
+        else:
+            messages.warning(request, "El correo sigue pendiente. No hace falta crear otra cuenta.")
+        return redirect("customers:client_email_pending", slug=business.slug)
+    return render(
+        request,
+        "customers/client_email_pending.html",
+        {
+            "business": business,
+            "access": access,
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+        },
+    )
+
+
+def client_email_verify(request, slug, token):
+    business = get_object_or_404(Business, slug=slug, is_active=True)
+    access = verified_client_from_token(token, business=business)
+    if access is None:
+        return render(
+            request,
+            "customers/client_email_verified.html",
+            {
+                "business": business,
+                "verification_valid": False,
+                "client_auth_theme": get_business_visual_theme(business),
+                "client_auth_image_url": get_business_public_image_url(business),
+            },
+            status=410,
+        )
+    login_client_access(request, access)
+    pending = request.session.pop(CLIENT_EMAIL_PENDING_SESSION_KEY, {})
+    next_url = pending.get("next") if pending.get("business_id") == business.pk else ""
+    messages.success(request, "Correo confirmado. Ya puedes continuar con tu reserva.")
+    return redirect(next_url or reverse("public_booking", args=[business.slug]))
 
 
 @require_POST

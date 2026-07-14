@@ -76,6 +76,13 @@ class ClientRegistrationForm(forms.Form):
         max_length=32,
         widget=forms.TextInput(attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}),
     )
+    email = forms.EmailField(
+        label="Correo electrónico",
+        max_length=254,
+        widget=forms.EmailInput(
+            attrs={"autocomplete": "email", "placeholder": "tu@correo.es"}
+        ),
+    )
     password = forms.CharField(
         label="Contraseña",
         widget=forms.PasswordInput(
@@ -140,6 +147,7 @@ class ClientRegistrationForm(forms.Form):
                 business=self.business,
                 full_name=self.cleaned_data["full_name"],
                 phone=self.cleaned_data["phone"],
+                email=self.cleaned_data["email"],
                 password=self.cleaned_data["password"],
             )
         except DjangoValidationError as exc:
@@ -148,6 +156,13 @@ class ClientRegistrationForm(forms.Form):
 
 
 class ClientInvitationActivationForm(forms.Form):
+    email = forms.EmailField(
+        label="Correo electrónico",
+        max_length=254,
+        widget=forms.EmailInput(
+            attrs={"autocomplete": "email", "placeholder": "tu@correo.es"}
+        ),
+    )
     password = forms.CharField(
         label="Contraseña",
         widget=forms.PasswordInput(

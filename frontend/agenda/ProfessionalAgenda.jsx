@@ -54,7 +54,7 @@ async function fetchJson(url, signal) {
     headers: { Accept: "application/json" },
     signal,
   });
-  if (response.redirected && response.url.includes("/cuenta/entrar/")) {
+  if (response.redirected && response.url.includes("/entrar/")) {
     throw new Error("Tu sesión ha caducado. Vuelve a entrar para continuar.");
   }
   const contentType = response.headers.get("content-type") || "";

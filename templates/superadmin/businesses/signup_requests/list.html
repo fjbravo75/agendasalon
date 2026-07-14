@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Solicitudes de alta - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="saas-dashboard" aria-label="Solicitudes de alta profesional">
+    <header class="professional-dashboard__hero saas-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Administración de la plataforma</span>
+        <h1 class="page-title page-title--compact">Solicitudes de alta</h1>
+        <p>Revisa el interés recibido, registra el seguimiento y convierte cada solicitud cuando el alta esté confirmada.</p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'dashboards:superadmin_home' %}">Dashboard</a>
+        <a class="button button--secondary" href="{% url 'businesses:superadmin_business_list' %}">Negocios</a>
+        <a class="button" href="{% url 'businesses:superadmin_business_create' %}">Nuevo negocio</a>
+      </div>
+    </header>
+
+    <section class="saas-business-panel">
+      <form class="saas-filter-bar" method="get">
+        <div class="field">
+          <label for="signup-search">Buscar</label>
+          <input id="signup-search" type="search" name="q" value="{{ query }}" placeholder="Negocio, contacto, localidad o teléfono">
+        </div>
+        <div class="field">
+          <label for="signup-status">Estado</label>
+          <select id="signup-status" name="status">
+            <option value="all"{% if status == "all" %} selected{% endif %}>Todas</option>
+            {% for value, label in status_choices %}
+              <option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="button" type="submit">Filtrar</button>
+      </form>
+
+      <div class="ops-section-head">
+        <div>
+          <span>{{ new_count }} nueva{% if new_count != 1 %}s{% endif %}</span>
+          <h2>{{ result_count }} solicitud{% if result_count != 1 %}es{% endif %}</h2>
+        </div>
+      </div>
+
+      <div class="signup-request-list">
+        {% for item in signup_requests %}
+          <article class="signup-request-row">
+            <div class="signup-request-row__identity">
+              <span>#{{ item.pk }}</span>
+              <div>
+                <h3>{{ item.business_name }}</h3>
+                <p>{{ item.get_business_type_display }} · {{ item.city }}{% if item.province %}, {{ item.province }}{% endif %}</p>
+              </div>
+            </div>
+            <div class="signup-request-row__contact">
+              <strong>{{ item.contact_name }}</strong>
+              <span>{{ item.phone }} · {{ item.get_preferred_channel_display }}</span>
+              <small>Recibida {{ item.created_at|date:"d/m/Y H:i" }}</small>
+            </div>
+            <div class="signup-request-row__state">
+              <span class="signup-status signup-status--{{ item.status }}">{{ item.get_status_display }}</span>
+              {% if item.handled_by %}<small>Gestionada por {{ item.handled_by.full_name|default:item.handled_by }}</small>{% endif %}
+            </div>
+            <a class="button button--secondary" href="{% url 'businesses:superadmin_signup_request_detail' item.pk %}">Revisar</a>
+          </article>
+        {% empty %}
+          <div class="empty">No hay solicitudes que coincidan con estos filtros.</div>
+        {% endfor %}
+      </div>
+
+      {% if page.paginator.num_pages > 1 %}
+        <nav class="pagination" aria-label="Páginas de solicitudes">
+          {% if page.has_previous %}<a href="?q={{ query|urlencode }}&status={{ status }}&page={{ page.previous_page_number }}">Anterior</a>{% endif %}
+          <span>Página {{ page.number }} de {{ page.paginator.num_pages }}</span>
+          {% if page.has_next %}<a href="?q={{ query|urlencode }}&status={{ status }}&page={{ page.next_page_number }}">Siguiente</a>{% endif %}
+        </nav>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}

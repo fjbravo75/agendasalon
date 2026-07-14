@@ -56,6 +56,28 @@ class User(AbstractBaseUser, PermissionsMixin):
         help_text="Teléfono en formato E.164 usado para iniciar sesión.",
     )
     email = models.EmailField("email", blank=True)
+    email_normalized = models.EmailField(
+        "email normalizado",
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
+    email_verified_at = models.DateTimeField(
+        "email verificado el",
+        null=True,
+        blank=True,
+    )
+    email_verification_required = models.BooleanField(
+        "verificacion de email obligatoria",
+        default=False,
+        help_text="Impide usar la operativa hasta verificar un correo personal.",
+    )
+    password_change_required = models.BooleanField(
+        "cambio de contraseña obligatorio",
+        default=False,
+        help_text="Obliga a sustituir una contraseña temporal antes de usar AgendaSalon.",
+    )
     is_staff = models.BooleanField("staff", default=False)
     is_active = models.BooleanField("activo", default=True)
     date_joined = models.DateTimeField("fecha de alta", default=timezone.now)
@@ -75,6 +97,8 @@ class User(AbstractBaseUser, PermissionsMixin):
             self.normalized_phone = normalize_phone(self.phone)
         if self.normalized_phone:
             self.normalized_phone = normalize_phone(self.normalized_phone)
+        self.email = (self.email or "").strip()
+        self.email_normalized = self.email.lower() or None
         super().save(*args, **kwargs)
 
     def __str__(self):

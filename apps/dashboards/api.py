@@ -11,13 +11,13 @@ from django.views.decorators.http import require_GET
 from django.views.decorators.vary import vary_on_cookie
 
 from apps.booking.models import Appointment, AvailabilityRule, Service, WorkLine
-from apps.businesses.models import Business, BusinessActivityEvent
+from apps.businesses.models import Business, BusinessActivityEvent, BusinessSignupRequest
 from apps.customers.models import BusinessClient
 from apps.dashboards.continuity import continuity_snapshot
 from apps.legal.models import BusinessLegalProfile, LegalAcceptance, LegalDocument
 
 
-SUPERADMIN_DASHBOARD_API_VERSION = "1.1"
+SUPERADMIN_DASHBOARD_API_VERSION = "1.2"
 ACTIVITY_DAYS = 14
 
 
@@ -84,6 +84,9 @@ def superadmin_dashboard_data(request):
                 "appointments_total": sum(
                     business.appointments_total for business in businesses
                 ),
+                "signup_requests_pending": BusinessSignupRequest.objects.filter(
+                    status__in=BusinessSignupRequest.open_statuses()
+                ).count(),
             },
             "businesses": business_payloads,
             "continuity": continuity_snapshot(now=now),

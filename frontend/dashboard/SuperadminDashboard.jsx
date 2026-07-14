@@ -25,7 +25,7 @@ async function fetchJson(url, signal) {
     headers: { Accept: "application/json" },
     signal,
   });
-  if (response.redirected && response.url.includes("/cuenta/entrar/")) {
+  if (response.redirected && response.url.includes("/entrar/")) {
     throw new Error("Tu sesión ha caducado. Vuelve a entrar para continuar.");
   }
   const contentType = response.headers.get("content-type") || "";
@@ -70,6 +70,20 @@ function MetricCard({ label, value, detail, tone = "default" }) {
       <strong>{value}</strong>
       <p>{detail}</p>
     </article>
+  );
+}
+
+
+function SignupRequestSummary({ count, url }) {
+  return (
+    <section className={`superadmin-signup-summary${count ? " superadmin-signup-summary--pending" : ""}`} aria-label="Solicitudes de alta profesional">
+      <div>
+        <span>Entrada de nuevos negocios</span>
+        <strong>{pluralize(count, "solicitud pendiente", "solicitudes pendientes")}</strong>
+        <p>{count ? "Hay solicitudes que conviene revisar y contactar." : "No hay solicitudes pendientes de revisión."}</p>
+      </div>
+      <a href={url}>{count ? "Revisar solicitudes" : "Ver historial de solicitudes"}</a>
+    </section>
   );
 }
 
@@ -339,6 +353,8 @@ export default function SuperadminDashboard({ config }) {
         <MetricCard label="Equipos con citas por cerrar" value={summary.businesses_with_pending_closure} detail={`${summary.pending_closure_appointments} citas cuyo resultado debe registrar el profesional.`} tone={summary.businesses_with_pending_closure ? "warning" : "default"} />
         <MetricCard label="Reserva online activa" value={summary.businesses_public_booking} detail={`De ${summary.businesses_active} negocios activos que aceptan reservas online.`} />
       </section>
+
+      <SignupRequestSummary count={summary.signup_requests_pending} url={config.signupRequestListUrl} />
 
       <AttentionSummary summary={summary} />
 

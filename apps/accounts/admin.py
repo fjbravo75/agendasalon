@@ -11,14 +11,35 @@ class UserAdmin(DjangoUserAdmin):
         "normalized_phone",
         "full_name",
         "email",
+        "email_verified_at",
+        "password_change_required",
         "is_staff",
         "is_active",
     )
-    list_filter = ("is_staff", "is_active", "is_superuser", "groups")
+    list_filter = (
+        "password_change_required",
+        "is_staff",
+        "is_active",
+        "is_superuser",
+        "groups",
+    )
     search_fields = ("full_name", "phone", "normalized_phone", "email")
     fieldsets = (
         (None, {"fields": ("normalized_phone", "password")}),
-        ("Datos personales", {"fields": ("full_name", "phone", "email")}),
+        (
+            "Datos personales",
+            {
+                "fields": (
+                    "full_name",
+                    "phone",
+                    "email",
+                    "email_normalized",
+                    "email_verified_at",
+                    "email_verification_required",
+                    "password_change_required",
+                )
+            },
+        ),
         (
             "Permisos",
             {
@@ -43,8 +64,10 @@ class UserAdmin(DjangoUserAdmin):
                     "full_name",
                     "phone",
                     "email",
+                    "email_verification_required",
                     "password1",
                     "password2",
+                    "password_change_required",
                     "is_staff",
                     "is_superuser",
                     "is_active",
