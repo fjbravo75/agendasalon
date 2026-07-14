@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import hmac
@@ -23,10 +24,23 @@ from config.settings.database import postgres_database_config
 MANIFEST_NAME = "manifest.json"
 DATABASE_DUMP_NAME = "database.dump"
 MEDIA_ARCHIVE_NAME = "media.tar.gz"
+BACKUP_DIRECTORY_PREFIX = "agendasalon-"
 
 
 class BackupError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class BackupCandidate:
+    path: Path
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class BackupRetentionPlan:
+    keep: tuple[BackupCandidate, ...]
+    remove: tuple[BackupCandidate, ...]
 
 
 def create_backup(
@@ -207,6 +221,101 @@ def restore_backup(
     return rollback_dir
 
 
+def build_retention_plan(
+    *,
+    backup_root: Path,
+    integrity_key: str,
+    daily: int = 7,
+    weekly: int = 4,
+    monthly: int = 6,
+) -> BackupRetentionPlan:
+    """Select verified backups to keep without deleting anything."""
+    if min(daily, weekly, monthly) < 1:
+        raise BackupError("La retención diaria, semanal y mensual debe ser al menos 1.")
+
+    candidates = _verified_backup_candidates(
+        backup_root=backup_root,
+        integrity_key=integrity_key,
+    )
+    keep_paths: set[Path] = set()
+    keep_paths.update(
+        candidate.path
+        for candidate in _latest_per_period(
+            candidates,
+            limit=daily,
+            period=lambda value: value.date(),
+        )
+    )
+    keep_paths.update(
+        candidate.path
+        for candidate in _latest_per_period(
+            candidates,
+            limit=weekly,
+            period=lambda value: value.isocalendar()[:2],
+        )
+    )
+    keep_paths.update(
+        candidate.path
+        for candidate in _latest_per_period(
+            candidates,
+            limit=monthly,
+            period=lambda value: (value.year, value.month),
+        )
+    )
+    return BackupRetentionPlan(
+        keep=tuple(candidate for candidate in candidates if candidate.path in keep_paths),
+        remove=tuple(candidate for candidate in candidates if candidate.path not in keep_paths),
+    )
+
+
+def apply_retention_plan(
+    plan: BackupRetentionPlan,
+    *,
+    backup_root: Path,
+    integrity_key: str,
+) -> None:
+    """Delete only candidates that still pass the authenticated verification."""
+    root = backup_root.resolve()
+    for candidate in plan.remove:
+        _validate_managed_backup_path(candidate.path, root=root)
+        verify_backup(
+            candidate.path,
+            integrity_key=integrity_key,
+            require_authenticity=True,
+        )
+    for candidate in plan.remove:
+        shutil.rmtree(candidate.path)
+
+
+def check_backup_freshness(
+    *,
+    backup_root: Path,
+    integrity_key: str,
+    max_age_hours: int = 36,
+    now: datetime | None = None,
+) -> BackupCandidate:
+    """Return the newest verified backup or fail if it is missing or stale."""
+    if max_age_hours < 1:
+        raise BackupError("La antigüedad máxima debe ser al menos una hora.")
+    candidates = _verified_backup_candidates(
+        backup_root=backup_root,
+        integrity_key=integrity_key,
+    )
+    if not candidates:
+        raise BackupError("No existe ninguna copia autenticada y verificable.")
+
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        raise BackupError("La fecha de comprobación debe incluir zona horaria.")
+    latest = candidates[0]
+    age = current_time.astimezone(timezone.utc) - latest.created_at
+    if age.total_seconds() < -300:
+        raise BackupError("La copia más reciente tiene una fecha futura no válida.")
+    if age.total_seconds() > max_age_hours * 60 * 60:
+        raise BackupError("La copia más reciente supera la antigüedad permitida.")
+    return latest
+
+
 def _archive_media(media_root: Path, destination: Path) -> None:
     with tarfile.open(destination, "w:gz") as archive:
         if not media_root.exists():
@@ -216,6 +325,67 @@ def _archive_media(media_root: Path, destination: Path) -> None:
                 raise BackupError("El directorio de media contiene un enlace simbólico no permitido.")
             if path.is_file():
                 archive.add(path, arcname=path.relative_to(media_root), recursive=False)
+
+
+def _verified_backup_candidates(
+    *,
+    backup_root: Path,
+    integrity_key: str,
+) -> tuple[BackupCandidate, ...]:
+    if not integrity_key:
+        raise BackupError("La retención requiere una clave de autenticidad válida.")
+    if not backup_root.is_dir():
+        raise BackupError("El directorio raíz de copias no existe.")
+
+    root = backup_root.resolve()
+    candidates = []
+    for backup_dir in sorted(backup_root.iterdir()):
+        if not backup_dir.name.startswith(BACKUP_DIRECTORY_PREFIX):
+            continue
+        _validate_managed_backup_path(backup_dir, root=root)
+        manifest = verify_backup(
+            backup_dir,
+            integrity_key=integrity_key,
+            require_authenticity=True,
+        )
+        candidates.append(
+            BackupCandidate(
+                path=backup_dir,
+                created_at=_manifest_created_at(manifest),
+            )
+        )
+    return tuple(sorted(candidates, key=lambda item: item.created_at, reverse=True))
+
+
+def _validate_managed_backup_path(path: Path, *, root: Path) -> None:
+    if path.is_symlink() or not path.is_dir():
+        raise BackupError("La retención encontró una ruta de copia no permitida.")
+    if path.resolve().parent != root or not path.name.startswith(BACKUP_DIRECTORY_PREFIX):
+        raise BackupError("La retención se ha limitado a una ruta no gestionada.")
+
+
+def _manifest_created_at(manifest: dict) -> datetime:
+    try:
+        created_at = datetime.fromisoformat(manifest["created_at"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BackupError("La copia no contiene una fecha de creación válida.") from exc
+    if created_at.tzinfo is None:
+        raise BackupError("La fecha de la copia debe incluir zona horaria.")
+    return created_at.astimezone(timezone.utc)
+
+
+def _latest_per_period(candidates, *, limit, period):
+    selected = []
+    periods = set()
+    for candidate in candidates:
+        key = period(candidate.created_at)
+        if key in periods:
+            continue
+        selected.append(candidate)
+        periods.add(key)
+        if len(selected) == limit:
+            break
+    return selected
 
 
 def _postgres_environment(database: dict) -> dict:
@@ -271,6 +441,23 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("--pg-restore", default="pg_restore")
     restore.add_argument("--confirm-restore", action="store_true")
     restore.add_argument("--replace-media", action="store_true")
+
+    retention = subparsers.add_parser(
+        "retention",
+        help="Calcular o aplicar la retención de copias autenticadas.",
+    )
+    retention.add_argument("--backup-root", type=Path, required=True)
+    retention.add_argument("--daily", type=int, default=7)
+    retention.add_argument("--weekly", type=int, default=4)
+    retention.add_argument("--monthly", type=int, default=6)
+    retention.add_argument("--apply", action="store_true")
+
+    health = subparsers.add_parser(
+        "health",
+        help="Comprobar que existe una copia autenticada y reciente.",
+    )
+    health.add_argument("--backup-root", type=Path, required=True)
+    health.add_argument("--max-age-hours", type=int, default=36)
     return parser
 
 
@@ -297,7 +484,7 @@ def main() -> int:
                 require_authenticity=True,
             )
             print("Copia verificada.")
-        else:
+        elif args.command == "restore":
             rollback_dir = restore_backup(
                 database_url=database_url,
                 backup_dir=args.backup_dir,
@@ -311,6 +498,29 @@ def main() -> int:
             print("Restauración completada.")
             if rollback_dir:
                 print(f"Media anterior conservada en: {rollback_dir}")
+        elif args.command == "retention":
+            plan = build_retention_plan(
+                backup_root=args.backup_root,
+                integrity_key=integrity_key,
+                daily=args.daily,
+                weekly=args.weekly,
+                monthly=args.monthly,
+            )
+            if args.apply:
+                apply_retention_plan(
+                    plan,
+                    backup_root=args.backup_root,
+                    integrity_key=integrity_key,
+                )
+            action = "eliminadas" if args.apply else "eliminables"
+            print(f"Copias conservadas: {len(plan.keep)}. Copias {action}: {len(plan.remove)}.")
+        else:
+            check_backup_freshness(
+                backup_root=args.backup_root,
+                integrity_key=integrity_key,
+                max_age_hours=args.max_age_hours,
+            )
+            print("Copia reciente, autenticada y verificada.")
     except (
         BackupError,
         ImproperlyConfigured,

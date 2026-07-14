@@ -7,7 +7,15 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 
-from ops.backup_restore import BackupError, create_backup, restore_backup, verify_backup
+from ops.backup_restore import (
+    BackupError,
+    apply_retention_plan,
+    build_retention_plan,
+    check_backup_freshness,
+    create_backup,
+    restore_backup,
+    verify_backup,
+)
 
 
 DATABASE_URL = "postgresql://agenda:secret@db.example.test:5432/agendasalon?sslmode=require"
@@ -126,3 +134,143 @@ class BackupRestoreTests(TestCase):
                 integrity_key="clave-operativa-separada",
                 require_authenticity=True,
             )
+
+
+class BackupRetentionTests(TestCase):
+    integrity_key = "clave-retencion-separada"
+
+    def setUp(self):
+        self.temporary_directory = TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.media = self.root / "media"
+        self.media.mkdir()
+        (self.media / "imagen.webp").write_bytes(b"media-test")
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    def _create_backups(self, run, dates):
+        def create_fake_dump(command, **kwargs):
+            dump_argument = next(item for item in command if item.startswith("--file="))
+            Path(dump_argument.removeprefix("--file=")).write_bytes(b"postgres-dump")
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = create_fake_dump
+        return [
+            create_backup(
+                database_url=DATABASE_URL,
+                media_root=self.media,
+                backup_root=self.root / "backups",
+                now=value,
+                integrity_key=self.integrity_key,
+            )
+            for value in dates
+        ]
+
+    @patch("ops.backup_restore.subprocess.run")
+    def test_retention_keeps_daily_weekly_and_monthly_representatives(self, run):
+        paths = self._create_backups(
+            run,
+            (
+                datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+                datetime(2026, 7, 14, 9, tzinfo=timezone.utc),
+                datetime(2026, 7, 13, 10, tzinfo=timezone.utc),
+                datetime(2026, 7, 7, 10, tzinfo=timezone.utc),
+                datetime(2026, 6, 30, 10, tzinfo=timezone.utc),
+                datetime(2026, 5, 31, 10, tzinfo=timezone.utc),
+            ),
+        )
+
+        plan = build_retention_plan(
+            backup_root=self.root / "backups",
+            integrity_key=self.integrity_key,
+            daily=2,
+            weekly=2,
+            monthly=2,
+        )
+
+        self.assertEqual(
+            {item.path for item in plan.keep},
+            {paths[0], paths[2], paths[3], paths[4]},
+        )
+        self.assertEqual({item.path for item in plan.remove}, {paths[1], paths[5]})
+        self.assertTrue(all(path.exists() for path in paths))
+
+    @patch("ops.backup_restore.subprocess.run")
+    def test_apply_retention_deletes_only_verified_candidates(self, run):
+        paths = self._create_backups(
+            run,
+            (
+                datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+                datetime(2026, 7, 14, 9, tzinfo=timezone.utc),
+            ),
+        )
+        plan = build_retention_plan(
+            backup_root=self.root / "backups",
+            integrity_key=self.integrity_key,
+            daily=1,
+            weekly=1,
+            monthly=1,
+        )
+
+        apply_retention_plan(
+            plan,
+            backup_root=self.root / "backups",
+            integrity_key=self.integrity_key,
+        )
+
+        self.assertTrue(paths[0].exists())
+        self.assertFalse(paths[1].exists())
+
+    @patch("ops.backup_restore.subprocess.run")
+    def test_invalid_candidate_stops_retention_before_deleting(self, run):
+        paths = self._create_backups(
+            run,
+            (
+                datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+                datetime(2026, 7, 14, 9, tzinfo=timezone.utc),
+            ),
+        )
+        (paths[1] / "database.dump").write_bytes(b"corrupto")
+
+        with self.assertRaisesRegex(BackupError, "suma de comprobación"):
+            build_retention_plan(
+                backup_root=self.root / "backups",
+                integrity_key=self.integrity_key,
+                daily=1,
+                weekly=1,
+                monthly=1,
+            )
+
+        self.assertTrue(all(path.exists() for path in paths))
+
+    @patch("ops.backup_restore.subprocess.run")
+    def test_health_rejects_a_stale_backup(self, run):
+        self._create_backups(
+            run,
+            (datetime(2026, 7, 10, 10, tzinfo=timezone.utc),),
+        )
+
+        with self.assertRaisesRegex(BackupError, "antigüedad permitida"):
+            check_backup_freshness(
+                backup_root=self.root / "backups",
+                integrity_key=self.integrity_key,
+                max_age_hours=36,
+                now=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+            )
+
+    @patch("ops.backup_restore.subprocess.run")
+    def test_health_accepts_a_recent_verified_backup(self, run):
+        paths = self._create_backups(
+            run,
+            (datetime(2026, 7, 14, 9, tzinfo=timezone.utc),),
+        )
+
+        latest = check_backup_freshness(
+            backup_root=self.root / "backups",
+            integrity_key=self.integrity_key,
+            max_age_hours=36,
+            now=datetime(2026, 7, 14, 10, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(latest.path, paths[0])
