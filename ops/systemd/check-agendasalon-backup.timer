@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily AgendaSalon backup freshness check
+
+[Timer]
+OnCalendar=*-*-* 08:15:00
+Persistent=true
+RandomizedDelaySec=10m
+Unit=check-agendasalon-backup.service
+
+[Install]
+WantedBy=timers.target
