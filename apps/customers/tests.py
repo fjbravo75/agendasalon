@@ -1,3 +1,4 @@
+import importlib
 from datetime import timedelta
 from io import StringIO
 from urllib.parse import urlparse
@@ -30,6 +31,38 @@ from apps.customers.services import (
     set_authorized_contact_active,
 )
 from apps.legal.models import CustomerPrivacyEvidence
+
+
+class DemoClientMigrationTests(TestCase):
+    def test_existing_demo_access_receives_a_verified_technical_email(self):
+        business = Business.objects.create(
+            commercial_name="Peluquería Mari",
+            slug="peluqueria-mari",
+        )
+        client = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente demo migrada",
+            phone="600555444",
+        )
+        access = BusinessClientAccess.objects.create(
+            business=business,
+            business_client=client,
+            phone=client.phone,
+            is_active=True,
+        )
+        migration = importlib.import_module(
+            "apps.customers.migrations.0010_preserve_demo_client_access"
+        )
+
+        migration.preserve_demo_client_access(importlib.import_module("django.apps").apps, None)
+
+        access.refresh_from_db()
+        client.refresh_from_db()
+        expected_email = f"cliente{client.pk}@agendasalon.local"
+        self.assertEqual(access.email, expected_email)
+        self.assertEqual(access.email_normalized, expected_email)
+        self.assertIsNotNone(access.email_verified_at)
+        self.assertEqual(client.email, expected_email)
 
 
 class CustomerModelTests(TestCase):
