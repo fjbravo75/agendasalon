@@ -1,5 +1,6 @@
 from datetime import date, datetime, time, timedelta
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -14,6 +15,10 @@ from apps.booking.models import Appointment, Service
 from apps.booking.public_booking_drafts import (
     PUBLIC_BOOKING_DRAFTS_SESSION_KEY,
     PUBLIC_BOOKING_RECEIPTS_SESSION_KEY,
+    clear_public_booking_draft,
+    clear_public_booking_receipt,
+    get_public_booking_draft,
+    get_public_booking_receipt_appointment_id,
 )
 from apps.booking.slot_engine import CHANNEL_PUBLIC, get_booking_options, get_day_availability
 from apps.businesses.models import Business, BusinessActivityEvent
@@ -512,6 +517,123 @@ class AppointmentAssistantTests(TestCase):
             response_without_receipt["Location"],
             reverse("public_booking", args=[self.business.slug]),
         )
+
+    def test_booking_session_helpers_discard_invalid_and_expired_entries(self):
+        business_key = str(self.business.pk)
+        now = timezone.now()
+
+        request = SimpleNamespace(
+            session={PUBLIC_BOOKING_DRAFTS_SESSION_KEY: {business_key: {"saved_at": "invalid"}}}
+        )
+        self.assertIsNone(get_public_booking_draft(request, self.business))
+        self.assertNotIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, request.session)
+
+        request.session = {
+            PUBLIC_BOOKING_DRAFTS_SESSION_KEY: {
+                business_key: {"saved_at": now.replace(tzinfo=None).isoformat()}
+            }
+        }
+        self.assertIsNone(get_public_booking_draft(request, self.business))
+
+        expired_draft = {
+            "service_ids": [1],
+            "target_date": now.date().isoformat(),
+            "selected_work_line_id": 1,
+            "selected_starts_at": now.isoformat(),
+            "saved_at": (now - timedelta(hours=1)).isoformat(),
+        }
+        request.session = {
+            PUBLIC_BOOKING_DRAFTS_SESSION_KEY: {business_key: expired_draft}
+        }
+        self.assertIsNone(get_public_booking_draft(request, self.business))
+
+        request.session = {}
+        clear_public_booking_draft(request, self.business)
+        request.session = {
+            PUBLIC_BOOKING_DRAFTS_SESSION_KEY: {
+                business_key: expired_draft,
+                "other": expired_draft,
+            }
+        }
+        clear_public_booking_draft(request, self.business)
+        self.assertEqual(
+            tuple(request.session[PUBLIC_BOOKING_DRAFTS_SESSION_KEY]),
+            ("other",),
+        )
+
+        request.session = {
+            PUBLIC_BOOKING_RECEIPTS_SESSION_KEY: {
+                business_key: {"saved_at": "invalid", "appointment_id": 1}
+            }
+        }
+        self.assertIsNone(
+            get_public_booking_receipt_appointment_id(request, self.business)
+        )
+
+        request.session = {
+            PUBLIC_BOOKING_RECEIPTS_SESSION_KEY: {
+                business_key: {
+                    "saved_at": (now - timedelta(hours=2)).isoformat(),
+                    "appointment_id": 1,
+                }
+            }
+        }
+        self.assertIsNone(
+            get_public_booking_receipt_appointment_id(request, self.business)
+        )
+
+        request.session = {
+            PUBLIC_BOOKING_RECEIPTS_SESSION_KEY: {
+                business_key: {
+                    "saved_at": now.replace(tzinfo=None).isoformat(),
+                    "appointment_id": "1",
+                }
+            }
+        }
+        self.assertIsNone(
+            get_public_booking_receipt_appointment_id(request, self.business)
+        )
+
+        request.session = {}
+        clear_public_booking_receipt(request, self.business)
+        request.session = {
+            PUBLIC_BOOKING_RECEIPTS_SESSION_KEY: {
+                business_key: {"saved_at": now.isoformat(), "appointment_id": 1},
+                "other": {"saved_at": now.isoformat(), "appointment_id": 2},
+            }
+        }
+        clear_public_booking_receipt(request, self.business)
+        self.assertEqual(
+            tuple(request.session[PUBLIC_BOOKING_RECEIPTS_SESSION_KEY]),
+            ("other",),
+        )
+
+    def test_public_receipt_rejects_an_appointment_not_owned_by_the_active_account(self):
+        self._login_demo_client()
+        unrelated_appointment = Appointment.objects.filter(
+            business=self.business,
+            requested_by_client_access__isnull=True,
+        ).first()
+        self.assertIsNotNone(unrelated_appointment)
+        session = self.client.session
+        session[PUBLIC_BOOKING_RECEIPTS_SESSION_KEY] = {
+            str(self.business.pk): {
+                "appointment_id": unrelated_appointment.pk,
+                "saved_at": timezone.now().isoformat(),
+            }
+        }
+        session.save()
+
+        response = self.client.get(
+            reverse("public_booking_receipt", args=[self.business.slug])
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("public_booking", args=[self.business.slug]),
+            fetch_redirect_response=False,
+        )
+        self.assertNotIn(PUBLIC_BOOKING_RECEIPTS_SESSION_KEY, self.client.session)
 
     def test_online_account_can_book_for_an_authorized_family_profile(self):
         access = BusinessClientAccess.objects.get(
