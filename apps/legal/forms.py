@@ -1,5 +1,6 @@
 from django import forms
 
+from apps.core.email import normalize_and_validate_routable_email
 from apps.legal.models import CustomerPrivacyEvidence, DataRightsRequest
 
 
@@ -45,6 +46,16 @@ class BusinessLegalOnboardingForm(forms.Form):
     authority_declared = forms.BooleanField(
         label="Declaro que tengo autorización para actuar en nombre del negocio.",
     )
+
+    def clean_privacy_email(self):
+        email = self.cleaned_data["privacy_email"]
+        try:
+            return normalize_and_validate_routable_email(email)
+        except forms.ValidationError:
+            existing_email = (self.initial.get("privacy_email") or "").strip().lower()
+            if email.strip().lower() == existing_email:
+                return existing_email
+            raise
 
     def profile_data(self):
         return {

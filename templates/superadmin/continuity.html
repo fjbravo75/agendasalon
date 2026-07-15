@@ -60,7 +60,8 @@
           <article class="continuity-run continuity-run--{{ execution.status }}">
             <div class="continuity-run__identity">
               <span>{{ execution.get_status_display }}</span>
-              <strong>{{ execution.started_at|date:"d/m/Y · H:i" }}</strong>
+              <strong>{{ execution.started_at|date:"d/m/Y · H:i:s" }}</strong>
+              <small>Ejecución #{{ execution.pk }}</small>
             </div>
             <dl>
               <div><dt>Destino</dt><dd>{{ execution.get_destination_display }}</dd></div>

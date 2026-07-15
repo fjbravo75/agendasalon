@@ -293,7 +293,7 @@ class ProfessionalSettingsTests(TestCase):
         self.assertFalse(self.business.public_images.filter(is_selected=True).exists())
         public_response = self.client.get(reverse("public_booking", args=[self.business.slug]))
         self.assertNotContains(public_response, "/media/businesses/")
-        self.assertContains(public_response, "customer-login-barberia-norte-bg-v2.png")
+        self.assertContains(public_response, "customer-login-barberia-norte-bg-v2.webp")
 
     def test_uploaded_images_remain_available_in_the_business_gallery(self):
         self.client.force_login(self.professional)

@@ -3,6 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 
+from apps.core.email import normalize_and_validate_routable_email
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
 from apps.customers.services import (
@@ -121,6 +122,9 @@ class ClientRegistrationForm(forms.Form):
             raise forms.ValidationError("Revisa el teléfono.") from exc
         return phone
 
+    def clean_email(self):
+        return normalize_and_validate_routable_email(self.cleaned_data["email"])
+
     def clean(self):
         cleaned_data = super().clean()
         password = cleaned_data.get("password")
@@ -190,6 +194,9 @@ class ClientInvitationActivationForm(forms.Form):
     def __init__(self, *args, business=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.business = business
+
+    def clean_email(self):
+        return normalize_and_validate_routable_email(self.cleaned_data["email"])
 
     def clean(self):
         cleaned_data = super().clean()
@@ -331,6 +338,12 @@ class ProfessionalClientQuickForm(forms.Form):
         except DjangoValidationError as exc:
             raise forms.ValidationError("Revisa el teléfono.") from exc
         return phone
+
+    def clean_email(self):
+        email = self.cleaned_data.get("email")
+        if not email:
+            return ""
+        return normalize_and_validate_routable_email(email)
 
     def clean_internal_notes(self):
         return (self.cleaned_data.get("internal_notes") or "").strip()
@@ -482,6 +495,18 @@ class ProfessionalClientEditForm(forms.Form):
         except DjangoValidationError as exc:
             raise forms.ValidationError("Revisa el teléfono.") from exc
         return phone
+
+    def clean_email(self):
+        email = self.cleaned_data.get("email")
+        if not email:
+            return ""
+        try:
+            return normalize_and_validate_routable_email(email)
+        except DjangoValidationError:
+            existing_email = (self.instance.email or "").strip().lower()
+            if email.strip().lower() == existing_email:
+                return existing_email
+            raise
 
     def clean_internal_notes(self):
         return (self.cleaned_data.get("internal_notes") or "").strip()

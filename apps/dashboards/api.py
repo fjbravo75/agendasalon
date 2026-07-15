@@ -336,7 +336,7 @@ def _business_payload(business):
 def _recent_activity_payload():
     events = (
         BusinessActivityEvent.objects.select_related("business")
-        .order_by("-id")[:8]
+        .order_by("-created_at", "-id")[:8]
     )
     return [
         {

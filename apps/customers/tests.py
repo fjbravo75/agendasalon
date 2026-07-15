@@ -354,7 +354,7 @@ class ClientAccessViewTests(TestCase):
                 "next": reverse("public_booking", args=[self.business.slug]),
                 "full_name": "Cliente Web",
                 "phone": "600999001",
-                "email": "cliente.web@example.test",
+                "email": "cliente.web@example.com",
                 "password": "ClienteDemo2026!",
                 "password_confirm": "ClienteDemo2026!",
             },
@@ -471,7 +471,7 @@ class ClientAccessViewTests(TestCase):
             {
                 "full_name": "Otra persona",
                 "phone": "600999002",
-                "email": "otra@example.test",
+                "email": "otra@example.com",
                 "password": "ClienteDemo2026!",
                 "password_confirm": "ClienteDemo2026!",
             },
@@ -619,7 +619,7 @@ class ClientAccessInvitationTests(TestCase):
         activation_response = customer_browser.post(
             reverse("customers:client_invitation_activate", args=[self.business.slug]),
             {
-                "email": "invitada@example.test",
+                "email": "invitada@example.com",
                 "password": "ClienteInvitado2026!",
                 "password_confirm": "ClienteInvitado2026!",
             },
@@ -664,7 +664,7 @@ class ClientAccessInvitationTests(TestCase):
             activation_url,
             {
                 "csrfmiddlewaretoken": csrf_token,
-                "email": "csrf@example.test",
+                "email": "csrf@example.com",
                 "password": "ClienteInvitado2026!",
                 "password_confirm": "ClienteInvitado2026!",
             },
@@ -782,7 +782,7 @@ class ProfessionalClientViewTests(TestCase):
             {
                 "full_name": "Paula Vega",
                 "phone": "600333111",
-                "email": "paula@example.local",
+                "email": "paula@example.com",
                 "internal_notes": "Prefiere primera hora.",
                 "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
                 "privacy_information_provided": "on",
@@ -978,7 +978,7 @@ class ProfessionalClientViewTests(TestCase):
             {
                 "full_name": "María López Romero",
                 "phone": "600 333 444",
-                "email": "maria@example.local",
+                "email": "maria@example.com",
                 "internal_notes": "Prefiere las primeras horas.",
             },
         )

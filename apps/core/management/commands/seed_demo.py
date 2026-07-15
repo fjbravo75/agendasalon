@@ -89,6 +89,7 @@ class DemoSeeder:
         self.base_date = base_date
         self.no_capacity_date = base_date + timedelta(days=2)
         self.past_date = min(base_date - timedelta(days=14), timezone.localdate() - timedelta(days=1))
+        self.activity_anchor = timezone.now()
 
     def run(self):
         self.superadmin = self._upsert_user(
@@ -150,27 +151,29 @@ class DemoSeeder:
         ).delete()
 
     def _create_activity_events(self):
+        appointment_date = self.base_date.strftime("%d/%m/%Y")
+        public_appointment_date = (self.base_date + timedelta(days=3)).strftime("%d/%m/%Y")
         events = (
             {
                 "business": self.business,
                 "category": BusinessActivityEvent.Category.APPOINTMENTS,
                 "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
                 "origin": BusinessActivityEvent.Origin.PHONE,
-                "summary": "Cita creada por el equipo para el 06/07/2026 a las 10:00.",
+                "summary": f"Cita creada por el equipo para el {appointment_date} a las 10:00.",
                 "actor": self.professional,
                 "entity_type": "appointment",
-                "event_at": _at(self.base_date, time(9, 45)),
+                "event_at": self.activity_anchor - timedelta(hours=1),
             },
             {
                 "business": self.business,
                 "category": BusinessActivityEvent.Category.APPOINTMENTS,
                 "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
                 "origin": BusinessActivityEvent.Origin.PUBLIC_WEB,
-                "summary": "Reserva online creada para el 09/07/2026 a las 12:00.",
+                "summary": f"Reserva online creada para el {public_appointment_date} a las 12:00.",
                 "actor_type": BusinessActivityEvent.ActorType.CUSTOMER,
                 "actor_label": "Cliente online",
                 "entity_type": "appointment",
-                "event_at": _at(self.base_date + timedelta(days=3), time(11, 56)),
+                "event_at": self.activity_anchor - timedelta(hours=4),
             },
             {
                 "business": self.business,
@@ -180,17 +183,20 @@ class DemoSeeder:
                 "summary": 'Servicio "Tinte" actualizado.',
                 "actor": self.professional,
                 "entity_type": "service",
-                "event_at": _at(self.base_date + timedelta(days=1), time(18, 15)),
+                "event_at": self.activity_anchor - timedelta(days=1, hours=2),
             },
             {
                 "business": self.secondary_business,
                 "category": BusinessActivityEvent.Category.APPOINTMENTS,
                 "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
                 "origin": BusinessActivityEvent.Origin.FRONT_DESK,
-                "summary": "Cita creada por el equipo para el 07/07/2026 a las 17:00.",
+                "summary": (
+                    "Cita creada por el equipo para el "
+                    f"{(self.base_date + timedelta(days=1)).strftime('%d/%m/%Y')} a las 17:00."
+                ),
                 "actor": self.secondary_professional,
                 "entity_type": "appointment",
-                "event_at": _at(self.base_date + timedelta(days=1), time(16, 42)),
+                "event_at": self.activity_anchor - timedelta(hours=2),
             },
             {
                 "business": self.secondary_business,
@@ -200,7 +206,7 @@ class DemoSeeder:
                 "summary": "Horario actualizado para Viernes de 10:00 a 19:00.",
                 "actor": self.secondary_professional,
                 "entity_type": "availability_rule",
-                "event_at": _at(self.base_date + timedelta(days=2), time(19, 10)),
+                "event_at": self.activity_anchor - timedelta(days=1, hours=4),
             },
         )
 
@@ -208,14 +214,23 @@ class DemoSeeder:
             existing_event = BusinessActivityEvent.objects.filter(
                 business=event_data["business"],
                 event_type=event_data["event_type"],
-                summary=event_data["summary"],
+                origin=event_data["origin"],
             ).first()
             if existing_event is None:
                 record_business_activity(**event_data)
             else:
                 BusinessActivityEvent.objects.filter(pk=existing_event.pk).update(
-                    created_at=event_data["event_at"]
+                    summary=event_data["summary"],
+                    created_at=event_data["event_at"],
                 )
+
+        for business in (self.business, self.secondary_business):
+            latest_activity = (
+                business.activity_events.order_by("-created_at", "-id")
+                .values_list("created_at", flat=True)
+                .first()
+            )
+            Business.objects.filter(pk=business.pk).update(last_activity_at=latest_activity)
 
     def _upsert_user(self, *, phone, full_name, email, is_staff, is_superuser):
         User = get_user_model()

@@ -101,6 +101,10 @@ compactan la agenda.
 
 La confirmación de citas pasa por `apps/booking/services.py`, que revalida el
 hueco justo antes de crear `Appointment` y `AppointmentService`.
+La creación profesional continúa en la ficha de la cita recién creada. La
+confirmación pública termina en un justificante ligado a la sesión, el negocio y
+la cuenta cliente, recuperable durante una hora sin convertir el MVP en un panel
+cliente completo.
 
 La primera capa JSON para la agenda React profesional está disponible mediante
 dos endpoints de solo lectura. Ambos exigen sesión profesional, resuelven el
@@ -115,6 +119,9 @@ la duración, navegar por meses, seleccionar días, leer la jornada por líneas,
 ver citas con altura proporcional, distinguir cierres y festivos, elegir un
 hueco real y continuar en `Nueva cita` conservando la línea y la hora. En móvil
 las líneas se consultan por segmentos para evitar una parrilla comprimida.
+La navegación móvil mantiene visibles `Resumen`, `Agenda` y `Nueva cita`; los
+destinos secundarios quedan bajo `Más`, con soporte de teclado y sin scroll
+horizontal.
 
 La segunda isla React está integrada en `/superadmin/dashboard/` sobre un
 endpoint global de solo lectura reservado al superadministrador. Resume salud y
@@ -135,8 +142,9 @@ puede superar 5 MB ni 16 millones de píxeles y la compresión utiliza un perfil
 WebP equilibrado para no ocupar de forma desproporcionada los procesos web. Si
 se retira, AgendaSalon recupera automáticamente la imagen estándar de salón o
 barbería. El fondo estándar de salón se sirve como WebP optimizado para reducir
-peso y mantener estable la revisión visual. El acceso interno de profesionales
-mantiene su imagen propia.
+peso y mantener estable la revisión visual. Los fondos estándar activos del
+acceso interno y Barbería Norte también se sirven como WebP: conservan 1672 ×
+941 px y pesan aproximadamente 70 y 97 KB.
 
 El superadministrador dispone de `/superadmin/ajustes/`. Su tema claro u oscuro
 se aplica al dashboard, la gestión de negocios y la propia configuración, sin
@@ -197,6 +205,10 @@ remitente están autenticados y una prueba directa desde Django fue entregada;
 desde el 14 de julio de 2026 el código de outbox, sus migraciones y el
 temporizador de cinco minutos están desplegados y verificados en la aplicación
 pública.
+Los formularios que crean o cambian direcciones de envío rechazan dominios
+locales y reservados. En la interfaz, `sent` se presenta como `Aceptado por el
+servicio de correo`: la aceptación SMTP no se confunde con entrega o lectura en
+la bandeja del destinatario.
 
 AgendaSalon incorpora una capa de privacidad operativa, no solo informativa.
 Los documentos legales se publican por versión y huella; cada negocio completa
@@ -282,6 +294,8 @@ caducados o acumulados. Para una fecha reproducible puede usarse
 - `/superadmin/ajustes/`: tema de administración e imagen del acceso interno.
 - `/superadmin/negocios/<id>/actividad/`: historial filtrable de un negocio.
 - `/reservar/<slug>/`: reserva online híbrida.
+- `/reservar/<slug>/confirmada/`: justificante autenticado de la reserva recién
+  confirmada.
 - `/clientes/<slug>/entrar/`: acceso cliente por negocio.
 - `/clientes/<slug>/registro/`: alta cliente por negocio.
 - `/clientes/<slug>/activar/`: activación limpia tras validar una invitación.
@@ -307,9 +321,9 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La última verificación completa deja la batería en 276 pruebas Django y
-operativas, además de 21 pruebas frontend: 17 unitarias y 4 de componentes
-React. La cobertura con ramas es del 82 % y el umbral automatizado impide bajar
+La última verificación local deja la batería en 324 pruebas Django, con cinco
+omisiones exclusivas de PostgreSQL, además de 21 pruebas frontend: 17 unitarias
+y 4 de componentes React. La cobertura con ramas es del 82 % y el umbral automatizado impide bajar
 de ese valor. La matriz de CI ejecuta la batería sobre SQLite y PostgreSQL 17,
 incluida la concurrencia real. Ruff, el build de producción, `pip-audit`,
 `npm audit` y `pip check` finalizaron sin incidencias. GitHub Actions reproduce lint,

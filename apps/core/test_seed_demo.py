@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import identify_hasher
 from django.core.management import call_command
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.booking.models import (
     Appointment,
@@ -89,6 +90,10 @@ class SeedDemoCommandTests(TestCase):
                 origin=BusinessActivityEvent.Origin.PUBLIC_WEB,
             ).exists()
         )
+        activity_events = BusinessActivityEvent.objects.all()
+        self.assertTrue(all(event.created_at <= timezone.now() for event in activity_events))
+        self.assertTrue(activity_events.filter(summary__contains="06/07/2026").exists())
+        self.assertTrue(activity_events.filter(summary__contains="09/07/2026").exists())
 
         self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.CONFIRMED).exists())
         self.assertTrue(Appointment.objects.filter(business=business, status=Appointment.Status.CANCELLED).exists())
@@ -198,6 +203,13 @@ class SeedDemoCommandTests(TestCase):
                 business__slug="peluqueria-mari",
                 starts_at__date=date(2026, 7, 13),
             ).exists()
+        )
+        self.assertEqual(BusinessActivityEvent.objects.count(), 5)
+        self.assertFalse(
+            BusinessActivityEvent.objects.filter(summary__contains="06/07/2026").exists()
+        )
+        self.assertTrue(
+            BusinessActivityEvent.objects.filter(summary__contains="13/07/2026").exists()
         )
 
     def _counts(self):

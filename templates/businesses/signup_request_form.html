@@ -38,8 +38,16 @@
 
           <form method="post" class="business-signup-form" novalidate>
             {% csrf_token %}
-            {% if form.non_field_errors %}
-              <div class="login-form-error" role="alert">{{ form.non_field_errors }}</div>
+            {% if form.errors %}
+              <div class="business-signup-error-summary" role="alert" tabindex="-1" data-error-summary>
+                <strong>Revisa los campos indicados</strong>
+                <ul>
+                  {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+                  {% for field in form %}
+                    {% for error in field.errors %}<li><a href="#{{ field.id_for_label }}">{{ field.label }}: {{ error }}</a></li>{% endfor %}
+                  {% endfor %}
+                </ul>
+              </div>
             {% endif %}
 
             <div class="business-signup-grid">
@@ -49,7 +57,11 @@
                     <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
                     {{ field }}
                     {% if field.name == "need_text" %}<small>Máximo 300 caracteres.</small>{% endif %}
-                    {% if field.errors %}<div class="business-signup-field__error" role="alert">{{ field.errors }}</div>{% endif %}
+                    {% if field.errors %}
+                      <div class="business-signup-field__error" id="{{ field.id_for_label }}-error">
+                        {% for error in field.errors %}<span>{{ error }}</span>{% endfor %}
+                      </div>
+                    {% endif %}
                   </div>
                 {% endif %}
               {% endfor %}
@@ -61,7 +73,11 @@
                 He leído la
                 <a href="{% url 'legal:platform_document' 'privacidad-plataforma' %}" target="_blank" rel="noopener">información sobre el tratamiento de mis datos</a>.
               </label>
-              {% if form.privacy_acknowledged.errors %}<div class="business-signup-field__error" role="alert">{{ form.privacy_acknowledged.errors }}</div>{% endif %}
+              {% if form.privacy_acknowledged.errors %}
+                <div class="business-signup-field__error" id="{{ form.privacy_acknowledged.id_for_label }}-error">
+                  {% for error in form.privacy_acknowledged.errors %}<span>{{ error }}</span>{% endfor %}
+                </div>
+              {% endif %}
             </div>
 
             <div class="business-signup-actions">

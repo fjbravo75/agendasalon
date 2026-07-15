@@ -33,9 +33,12 @@ from apps.booking.models import (
     WorkLine,
 )
 from apps.booking.public_booking_drafts import (
+    clear_public_booking_receipt,
     clear_public_booking_draft,
+    get_public_booking_receipt_appointment_id,
     get_public_booking_draft,
     public_booking_draft_form_data,
+    save_public_booking_receipt,
     save_public_booking_draft,
 )
 from apps.booking.schedule_context import (
@@ -162,7 +165,10 @@ def appointment_assistant(request):
                     request,
                     f"Cita confirmada para {appointment.business_client.full_name}.",
                 )
-                return redirect("booking:appointment_assistant")
+                return redirect(
+                    "booking:professional_appointment_detail",
+                    appointment_id=appointment.id,
+                )
     else:
         form = None
 
@@ -953,6 +959,72 @@ def public_booking(request, slug):
     return render(request, "public/booking.html", context)
 
 
+def public_booking_receipt(request, slug):
+    business = get_object_or_404(
+        Business,
+        slug=slug,
+        is_active=True,
+        public_booking_enabled=True,
+    )
+    client_access = get_session_client_access(request, business)
+    receipt_url = reverse("public_booking_receipt", args=[business.slug])
+    if client_access is None:
+        login_url = reverse("customers:client_access", args=[business.slug])
+        return redirect(f"{login_url}?{urlencode({'next': receipt_url})}")
+
+    appointment_id = get_public_booking_receipt_appointment_id(request, business)
+    if appointment_id is None:
+        messages.info(request, "No hay una confirmación reciente para mostrar.")
+        return redirect("public_booking", slug=business.slug)
+
+    appointment = (
+        Appointment.objects.filter(
+            pk=appointment_id,
+            business=business,
+            requested_by_client_access=client_access,
+        )
+        .select_related("business_client")
+        .prefetch_related("appointment_services", "outbound_emails")
+        .first()
+    )
+    if appointment is None:
+        clear_public_booking_receipt(request, business)
+        messages.error(request, "No podemos mostrar esa confirmación desde esta cuenta.")
+        return redirect("public_booking", slug=business.slug)
+
+    appointment_services = tuple(appointment.appointment_services.all())
+    priced_services = [
+        item for item in appointment_services if item.price_amount_snapshot is not None
+    ]
+    confirmation_email = next(
+        (
+            email
+            for email in appointment.outbound_emails.all()
+            if email.kind == "appointment_confirmation"
+        ),
+        None,
+    )
+    return render(
+        request,
+        "public/booking_receipt.html",
+        {
+            "business": business,
+            "client_access": client_access,
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+            "appointment": appointment,
+            "appointment_services": appointment_services,
+            "confirmation_email": confirmation_email,
+            "total_price": sum(
+                (item.price_amount_snapshot for item in priced_services),
+                Decimal("0.00"),
+            ),
+            "has_priced_services": bool(priced_services),
+            "has_unpriced_services": len(priced_services) != len(appointment_services),
+        },
+    )
+
+
 def _confirm_public_booking_draft(request, business, client_access):
     draft = get_public_booking_draft(request, business)
     if draft is None:
@@ -988,11 +1060,12 @@ def _confirm_public_booking_draft(request, business, client_access):
         return redirect(_public_booking_search_url(business, draft))
 
     clear_public_booking_draft(request, business)
+    save_public_booking_receipt(request, business, appointment)
     messages.success(
         request,
         f"Cita confirmada para {appointment.business_client.full_name}.",
     )
-    return redirect("public_booking", slug=business.slug)
+    return redirect("public_booking_receipt", slug=business.slug)
 
 
 def _render_public_booking_confirmation(request, business, client_access):

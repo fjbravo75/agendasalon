@@ -70,6 +70,9 @@ def business_signup_request(request):
                     signup_request.save()
                 return redirect("business_signup_request_success")
 
+    if request.method == "POST" and form.errors:
+        form.apply_error_accessibility()
+
     return render(
         request,
         "businesses/signup_request_form.html",

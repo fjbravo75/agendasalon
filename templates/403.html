@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Acceso no permitido - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="page-grid" aria-labelledby="permission-denied-title">
+    <div>
+      <span class="assistant-kicker">Acceso protegido</span>
+      <h1 class="page-title page-title--compact" id="permission-denied-title">Esta zona no pertenece a tu cuenta.</h1>
+      <p class="lede">AgendaSalon ha bloqueado el acceso sin mostrar información del panel solicitado.</p>
+    </div>
+    <div class="panel">
+      <div class="panel__body">
+        <h2 class="panel__title">Vuelve a tu espacio de trabajo</h2>
+        <div class="empty">Tu sesión sigue activa y puedes continuar trabajando desde el panel que corresponde a tu cuenta.</div>
+        <div class="form-actions">
+          {% if user.is_superuser %}
+            <a class="button" href="{% url 'dashboards:superadmin_home' %}">Ir al dashboard</a>
+          {% elif user.is_authenticated %}
+            <a class="button" href="{% url 'dashboards:professional_home' %}">Ir al resumen profesional</a>
+          {% else %}
+            <a class="button" href="{% url 'accounts:login' %}">Volver al acceso</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}

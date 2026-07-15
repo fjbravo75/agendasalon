@@ -10,6 +10,41 @@ document.addEventListener("submit", (event) => {
   }
 });
 
+const siteNav = document.querySelector("[data-site-nav]");
+const siteNavToggle = siteNav?.querySelector("[data-site-nav-toggle]");
+
+if (siteNav && siteNavToggle) {
+  const closeSiteNav = () => {
+    siteNav.classList.remove("is-open");
+    siteNavToggle.setAttribute("aria-expanded", "false");
+  };
+
+  siteNavToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const shouldOpen = !siteNav.classList.contains("is-open");
+    siteNav.classList.toggle("is-open", shouldOpen);
+    siteNavToggle.setAttribute("aria-expanded", String(shouldOpen));
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!siteNav.contains(event.target)) {
+      closeSiteNav();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && siteNav.classList.contains("is-open")) {
+      closeSiteNav();
+      siteNavToggle.focus();
+    }
+  });
+}
+
+const formErrorSummary = document.querySelector("[data-error-summary]");
+if (formErrorSummary) {
+  formErrorSummary.focus();
+}
+
 const appointmentClient = document.querySelector('[name="business_client"]');
 const appointmentRequester = document.querySelector('[name="requested_by_contact"]');
 if (appointmentClient && appointmentRequester) {

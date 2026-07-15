@@ -306,3 +306,18 @@ class SuperadminContinuityViewTests(TestCase):
         self.assertContains(response, "Página 1 de 2")
         self.assertNotContains(response, "database.dump")
         self.assertNotContains(response, "media.tar.gz")
+
+    def test_same_minute_executions_show_seconds_and_distinct_references(self):
+        started_at = timezone.now().replace(microsecond=0)
+        first = BackupExecution.objects.create(started_at=started_at)
+        second = BackupExecution.objects.create(started_at=started_at)
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(self.url)
+
+        rendered_started_at = timezone.localtime(started_at).strftime(
+            "%d/%m/%Y · %H:%M:%S"
+        )
+        self.assertContains(response, rendered_started_at, count=2)
+        self.assertContains(response, f"Ejecución #{first.pk}")
+        self.assertContains(response, f"Ejecución #{second.pk}")

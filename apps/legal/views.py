@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponseForbidden
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -99,7 +99,7 @@ def business_privacy(request, slug):
 @login_required
 def professional_onboarding(request):
     if request.user.is_superuser:
-        return HttpResponseForbidden("El alta legal corresponde al representante del negocio.")
+        raise PermissionDenied
     business = get_primary_business_for_user(request.user)
     if business is None:
         return redirect("accounts:no_business")
@@ -176,7 +176,7 @@ def professional_onboarding(request):
 @login_required
 def professional_center(request):
     if request.user.is_superuser:
-        return HttpResponseForbidden("La privacidad de clientes pertenece a cada negocio.")
+        raise PermissionDenied
     business = get_primary_business_for_user(request.user)
     if business is None:
         return redirect("accounts:no_business")
@@ -223,7 +223,7 @@ def professional_center(request):
 @require_POST
 def professional_rights_request_update(request, request_id):
     if request.user.is_superuser:
-        return HttpResponseForbidden("La solicitud pertenece al negocio responsable.")
+        raise PermissionDenied
     business = get_primary_business_for_user(request.user)
     if business is None:
         return redirect("accounts:no_business")

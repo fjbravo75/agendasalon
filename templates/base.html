@@ -6,9 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}AgendaSalon{% endblock %}</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2308927f'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-family='Georgia,serif' font-size='36' font-weight='700' fill='%23fffdf9'%3EA%3C/text%3E%3C/svg%3E">
-    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260714-verified-email-v4">
+    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260715-qa-fixes-v1">
     {% block extra_css %}{% endblock %}
-    <script src="{% static 'js/app.js' %}?v=20260712-service-catalog-scroll-v1" defer></script>
+    <script src="{% static 'js/app.js' %}?v=20260715-qa-fixes-v1" defer></script>
   </head>
   <body class="{% block body_class %}{% endblock %}{% if user.is_authenticated and user.is_superuser %} superadmin-shell{% endif %}{% if professional_theme == 'dark' %} theme-dark{% endif %}" style="{% block body_style %}{% endblock %}">
     <div class="app-shell">
@@ -19,29 +19,44 @@
               <span class="brand__mark">AgendaSalon</span>
               <span class="brand__tag">Agenda para salones</span>
             </a>
-            <nav class="nav" aria-label="Navegación principal">
+            <nav class="nav" aria-label="Navegación principal" data-site-nav>
               {% if user.is_authenticated %}
-                {% if not user.password_change_required %}
-                  {% if user.is_superuser %}
-                    <a href="{% url 'dashboards:superadmin_home' %}"{% if request.resolver_match.url_name == 'superadmin_home' or request.resolver_match.url_name == 'superadmin_continuity' %} class="is-active" aria-current="page"{% endif %}>Dashboard</a>
-                    <a href="{% url 'businesses:superadmin_business_list' %}"{% if request.resolver_match.namespace == 'businesses' %} class="is-active" aria-current="page"{% endif %}>Negocios</a>
-                    <a href="{% url 'platform_settings:superadmin_platform_settings' %}"{% if request.resolver_match.namespace == 'platform_settings' %} class="is-active" aria-current="page"{% endif %}>Ajustes</a>
-                  {% else %}
-                    <a href="{% url 'dashboards:professional_home' %}"{% if request.resolver_match.url_name == 'professional_home' or request.resolver_match.url_name == 'professional_pending_appointments' or request.resolver_match.url_name == 'professional_appointment_detail' %} class="is-active" aria-current="page"{% endif %}>Resumen</a>
-                    <a href="{% url 'booking:professional_agenda' %}"{% if request.resolver_match.url_name == 'professional_agenda' %} class="is-active" aria-current="page"{% endif %}>Agenda</a>
-                    <a href="{% url 'customers:professional_client_list' %}"{% if request.resolver_match.namespace == 'customers' %} class="is-active" aria-current="page"{% endif %}>Clientes</a>
-                    <a href="{% url 'booking:professional_service_list' %}"{% if request.resolver_match.url_name == 'professional_service_list' or request.resolver_match.url_name == 'professional_service_edit' %} class="is-active" aria-current="page"{% endif %}>Servicios</a>
-                    <a href="{% url 'booking:professional_schedule' %}"{% if request.resolver_match.url_name == 'professional_schedule' or request.resolver_match.url_name == 'professional_availability_edit' or request.resolver_match.url_name == 'professional_work_line_edit' or request.resolver_match.url_name == 'professional_closure_edit' %} class="is-active" aria-current="page"{% endif %}>Horarios</a>
-                    <a href="{% url 'booking:appointment_assistant' %}"{% if request.resolver_match.url_name == 'appointment_assistant' %} class="is-active" aria-current="page"{% endif %}>Nueva cita</a>
-                    <a href="{% url 'business_settings:professional_settings' %}"{% if request.resolver_match.namespace == 'business_settings' %} class="is-active" aria-current="page"{% endif %}>Ajustes</a>
-                    <a href="{% url 'legal:professional_center' %}"{% if request.resolver_match.namespace == 'legal' and request.resolver_match.url_name == 'professional_center' %} class="is-active" aria-current="page"{% endif %}>Privacidad</a>
+                <div class="nav__primary">
+                  {% if not user.password_change_required %}
+                    {% if user.is_superuser %}
+                      <a href="{% url 'dashboards:superadmin_home' %}"{% if request.resolver_match.url_name == 'superadmin_home' or request.resolver_match.url_name == 'superadmin_continuity' %} class="is-active" aria-current="page"{% endif %}>Dashboard</a>
+                      <a href="{% url 'businesses:superadmin_business_list' %}"{% if request.resolver_match.namespace == 'businesses' %} class="is-active" aria-current="page"{% endif %}>Negocios</a>
+                    {% else %}
+                      <a href="{% url 'dashboards:professional_home' %}"{% if request.resolver_match.url_name == 'professional_home' or request.resolver_match.url_name == 'professional_pending_appointments' or request.resolver_match.url_name == 'professional_appointment_detail' %} class="is-active" aria-current="page"{% endif %}>Resumen</a>
+                      <a href="{% url 'booking:professional_agenda' %}"{% if request.resolver_match.url_name == 'professional_agenda' %} class="is-active" aria-current="page"{% endif %}>Agenda</a>
+                      <a href="{% url 'booking:appointment_assistant' %}"{% if request.resolver_match.url_name == 'appointment_assistant' %} class="is-active" aria-current="page"{% endif %}>Nueva cita</a>
+                    {% endif %}
                   {% endif %}
-                  <a href="{% url 'accounts:security' %}"{% if request.resolver_match.url_name == 'security' %} class="is-active" aria-current="page"{% endif %}>Mi cuenta</a>
+                </div>
+                {% if not user.password_change_required %}
+                  <button class="nav__more" type="button" aria-expanded="false" aria-controls="site-nav-secondary" data-site-nav-toggle>Más</button>
+                  <div class="nav__secondary" id="site-nav-secondary" data-site-nav-secondary>
+                    {% if user.is_superuser %}
+                      <a href="{% url 'platform_settings:superadmin_platform_settings' %}"{% if request.resolver_match.namespace == 'platform_settings' %} class="is-active" aria-current="page"{% endif %}>Ajustes</a>
+                    {% else %}
+                      <a href="{% url 'customers:professional_client_list' %}"{% if request.resolver_match.namespace == 'customers' %} class="is-active" aria-current="page"{% endif %}>Clientes</a>
+                      <a href="{% url 'booking:professional_service_list' %}"{% if request.resolver_match.url_name == 'professional_service_list' or request.resolver_match.url_name == 'professional_service_edit' %} class="is-active" aria-current="page"{% endif %}>Servicios</a>
+                      <a href="{% url 'booking:professional_schedule' %}"{% if request.resolver_match.url_name == 'professional_schedule' or request.resolver_match.url_name == 'professional_availability_edit' or request.resolver_match.url_name == 'professional_work_line_edit' or request.resolver_match.url_name == 'professional_closure_edit' %} class="is-active" aria-current="page"{% endif %}>Horarios</a>
+                      <a href="{% url 'business_settings:professional_settings' %}"{% if request.resolver_match.namespace == 'business_settings' %} class="is-active" aria-current="page"{% endif %}>Ajustes</a>
+                      <a href="{% url 'legal:professional_center' %}"{% if request.resolver_match.namespace == 'legal' and request.resolver_match.url_name == 'professional_center' %} class="is-active" aria-current="page"{% endif %}>Privacidad</a>
+                    {% endif %}
+                    <a href="{% url 'accounts:security' %}"{% if request.resolver_match.url_name == 'security' %} class="is-active" aria-current="page"{% endif %}>Mi cuenta</a>
+                    <form method="post" action="{% url 'accounts:logout' %}">
+                      {% csrf_token %}
+                      <button type="submit">Salir</button>
+                    </form>
+                  </div>
+                {% else %}
+                  <form method="post" action="{% url 'accounts:logout' %}">
+                    {% csrf_token %}
+                    <button type="submit">Salir</button>
+                  </form>
                 {% endif %}
-                <form method="post" action="{% url 'accounts:logout' %}">
-                  {% csrf_token %}
-                  <button type="submit">Salir</button>
-                </form>
               {% else %}
                 <a href="{% url 'accounts:login' %}">Entrar</a>
               {% endif %}

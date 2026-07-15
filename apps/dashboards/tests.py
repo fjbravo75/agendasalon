@@ -284,6 +284,9 @@ class DashboardAccessTests(TestCase):
         response = self.client.get(reverse("dashboards:superadmin_home"))
 
         self.assertEqual(response.status_code, 403)
+        self.assertContains(response, "Esta zona no pertenece a tu cuenta", status_code=403)
+        self.assertContains(response, "Ir al resumen profesional", status_code=403)
+        self.assertNotContains(response, "Preparando el control de AgendaSalon", status_code=403)
 
     def test_superadmin_home_loads_for_superuser(self):
         user = get_user_model().objects.create_superuser(

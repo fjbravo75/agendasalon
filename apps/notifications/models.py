@@ -163,4 +163,10 @@ class OutboundEmail(models.Model):
     def __str__(self):
         return f"{self.get_kind_display()} -> {self.recipient_email}"
 
+    @property
+    def operational_status_label(self):
+        if self.status == self.Status.SENT:
+            return "Aceptado por el servicio de correo"
+        return self.get_status_display()
+
 # Create your models here.

@@ -58,6 +58,15 @@ class BusinessSignupRequestPublicTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Este campo es obligatorio")
+        self.assertContains(response, "Revisa los campos indicados")
+        self.assertContains(response, 'data-error-summary')
+        self.assertContains(response, 'tabindex="-1"')
+        self.assertContains(response, 'aria-invalid="true"')
+        self.assertContains(
+            response,
+            'aria-describedby="id_privacy_acknowledged-error"',
+        )
+        self.assertContains(response, 'href="#id_privacy_acknowledged"')
         self.assertFalse(BusinessSignupRequest.objects.exists())
 
     def test_email_is_required_for_every_signup_request(self):
@@ -70,6 +79,17 @@ class BusinessSignupRequestPublicTests(TestCase):
         response = self.client.post(self.url, data)
 
         self.assertContains(response, "Indica un correo para recibir la respuesta y activar el acceso")
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+
+    def test_non_routable_email_is_rejected_before_creating_the_request(self):
+        response = self.client.post(
+            self.url,
+            {**self.valid_data, "email": "maria@agenda.invalid"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Usa un correo real que pueda recibir mensajes")
+        self.assertNotContains(response, "Indica un correo para poder contactar por este canal")
         self.assertFalse(BusinessSignupRequest.objects.exists())
 
     def test_repeated_identical_request_is_idempotent_for_the_professional(self):

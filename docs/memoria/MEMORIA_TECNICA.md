@@ -221,6 +221,11 @@ Entre las entidades más relevantes se encuentran:
 
 **Figura 8.** Consulta de servicios antes de exigir identificación al cliente.
 
+Tras confirmar, el cliente llega a un justificante con negocio, fecha, hora,
+servicios, duración, precio y estado del correo. El justificante exige la misma
+cuenta cliente, queda aislado por negocio y puede recargarse durante una hora.
+No expone un historial completo ni citas de otras personas.
+
 ### 10.6 Administración de la plataforma
 
 ![Dashboard del superadministrador](capturas/06_superadmin_dashboard.png)
@@ -301,8 +306,9 @@ Producción exige secreto, hosts, orígenes CSRF y PostgreSQL mediante variables
 
 La verificación actual incluye:
 
-- 201 pruebas Django, con una prueba de concurrencia PostgreSQL omitida cuando ese motor no está disponible localmente.
-- 17 pruebas frontend.
+- 324 pruebas Django, con cinco pruebas exclusivas de PostgreSQL omitidas cuando
+  ese motor no está disponible localmente.
+- 21 pruebas frontend: 17 unitarias y 4 de componentes React.
 - Compilación Vite de producción.
 - Comprobación de migraciones pendientes.
 - Auditorías de dependencias Python y Node sin vulnerabilidades conocidas en la fecha de revisión.
@@ -316,9 +322,12 @@ La auditoría móvil se realizó con un viewport de 390 × 844 píxeles. No se d
 
 ### 14.1 Estado actual
 
-El despliegue público todavía no se ha ejecutado. Esta afirmación es deliberada: no se presenta como validado un entorno que aún no existe.
+La demostración académica está publicada desde el 14 de julio de 2026 en
+`https://agendasalon.brvsoftwarestudio.com`. Usa PostgreSQL, Gunicorn por socket,
+Nginx, HTTPS de Let's Encrypt, correo transaccional mediante Brevo y tareas
+systemd para outbox y copias.
 
-### 14.2 Preparación disponible
+### 14.2 Infraestructura verificada
 
 - Configuración de producción separada.
 - PostgreSQL obligatorio.
@@ -328,15 +337,18 @@ El despliegue público todavía no se ha ejecutado. Esta afirmación es delibera
 - Scripts de copia, verificación y restauración.
 - Comprobaciones de salud de base de datos.
 
-### 14.3 Evidencias que deben incorporarse antes de la entrega final
+### 14.3 Evidencias de despliegue incorporadas
 
 1. URL pública operativa.
 2. Certificado HTTPS válido.
 3. `manage.py check --deploy` contra la configuración real.
 4. Migraciones y `collectstatic` en el servidor.
 5. Prueba de humo de accesos, reserva y paneles.
-6. Copia externa cifrada y restauración verificada.
-7. Actualización de este capítulo con proveedor, arquitectura y fecha.
+6. Copia local autenticada, retención 7/4/6 y vigilancia de frescura activas.
+7. Proveedor, arquitectura y fecha documentados.
+
+Permanece como riesgo de continuidad la copia externa cifrada y el ensayo de
+restauración desde ese destino distinto del droplet.
 
 ## 15. Git, GitHub y evolución
 
@@ -350,9 +362,9 @@ Durante el desarrollo se han utilizado herramientas de inteligencia artificial c
 
 ## 17. Limitaciones y trabajo futuro
 
-- Ejecutar y documentar el despliegue público.
-- Verificar concurrencia en la infraestructura PostgreSQL definitiva.
-- Desplegar y medir en uso real la cola de correo ya conectada a Brevo.
+- Mantener la demo pública y repetir la prueba de humo tras cada despliegue.
+- Ampliar las mediciones de concurrencia y rendimiento con carga representativa.
+- Medir en uso real la cola de correo ya conectada a Brevo.
 - Definir política operativa de retención y borrado de imágenes de la galería.
 - Incorporar monitorización y alertas de disponibilidad.
 - Medir tiempos de reserva y reducción de interrupciones con usuarios reales.
@@ -362,7 +374,7 @@ Durante el desarrollo se han utilizado herramientas de inteligencia artificial c
 
 AgendaSalon demuestra una solución full stack completa, con backend dominante, integración React justificada, modelo multiempresa, interfaz cuidada y seguridad documentada. El producto traduce reglas complejas de agenda en decisiones comprensibles para profesionales y clientes.
 
-La principal fortaleza del proyecto es la coherencia entre dominio, experiencia y seguridad: el mismo motor calcula disponibilidad para todos los canales; el servidor revalida antes de guardar; los roles no se mezclan; y el historial permite reconstruir acciones relevantes. El trabajo restante no consiste en inventar funcionalidad, sino en cerrar el despliegue real y sus evidencias operativas.
+La principal fortaleza del proyecto es la coherencia entre dominio, experiencia y seguridad: el mismo motor calcula disponibilidad para todos los canales; el servidor revalida antes de guardar; los roles no se mezclan; y el historial permite reconstruir acciones relevantes. El trabajo restante no consiste en inventar funcionalidad, sino en preparar la defensa, medir con más participantes y cerrar la continuidad externa.
 
 ## Anexo A. Comandos de evidencia
 

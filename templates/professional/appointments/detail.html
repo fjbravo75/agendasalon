@@ -15,7 +15,7 @@
         </p>
       </div>
       <div class="professional-dashboard__actions">
-        <a class="button button--secondary" href="{% url 'dashboards:professional_home' %}">Agenda</a>
+        <a class="button button--secondary" href="{% url 'booking:professional_agenda' %}">Agenda</a>
         <a class="button button--secondary" href="{% url 'customers:professional_client_detail' appointment.business_client.id %}">Ficha cliente</a>
         <a class="button" href="{% url 'booking:appointment_assistant' %}?business_client={{ appointment.business_client.id }}">Nueva cita</a>
       </div>
@@ -123,7 +123,7 @@
           <div class="ops-section-head ops-section-head--compact"><div><span>Avisos al cliente</span><h2>Correo de la cita</h2></div></div>
           <div class="appointment-audit-list">
             {% for email in appointment_emails %}
-              <article><span>{{ email.get_kind_display }}</span><strong>{{ email.get_status_display }}</strong><small>{{ email.recipient_email }} · {% if email.sent_at %}{{ email.sent_at|date:"j M Y H:i" }}{% else %}previsto para {{ email.scheduled_for|date:"j M Y H:i" }}{% endif %}</small>{% if email.last_error %}<small>{{ email.last_error }}</small>{% endif %}</article>
+              <article><span>{{ email.get_kind_display }}</span><strong>{{ email.operational_status_label }}</strong><small>{{ email.recipient_email }} · {% if email.sent_at %}{{ email.sent_at|date:"j M Y H:i" }}{% else %}previsto para {{ email.scheduled_for|date:"j M Y H:i" }}{% endif %}</small>{% if email.last_error %}<small>{{ email.last_error }}</small>{% endif %}</article>
             {% empty %}
               <div class="soft-note"><strong>No hay avisos por correo.</strong><p>La cita sigue confirmada. Los avisos solo se envían cuando la cuenta cliente tiene un correo verificado.</p></div>
             {% endfor %}

@@ -3,11 +3,10 @@ from functools import wraps
 import requests
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Q
-from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -57,7 +56,7 @@ def superadmin_required(view_func):
     @login_required
     def wrapped(request, *args, **kwargs):
         if not request.user.is_superuser:
-            return HttpResponseForbidden("No tienes permiso para gestionar negocios.")
+            raise PermissionDenied
         return view_func(request, *args, **kwargs)
 
     return wrapped
@@ -207,7 +206,7 @@ def superadmin_business_create(request):
             if delivery.status == delivery.Status.SENT:
                 messages.success(
                     request,
-                    f"{business.commercial_name} queda dado de alta. Hemos enviado el enlace de activación a {professional.email}.",
+                    f"{business.commercial_name} queda dado de alta. El servicio de correo ha aceptado el enlace de activación para {professional.email}.",
                 )
             else:
                 messages.warning(
@@ -509,7 +508,7 @@ def superadmin_professional_create(request, business_id):
         if delivery.status == delivery.Status.SENT:
             messages.success(
                 request,
-                f"Acceso preparado. Hemos enviado a {professional.email} el enlace para activarlo.",
+                f"Acceso preparado. El servicio de correo ha aceptado el enlace de activación para {professional.email}.",
             )
         else:
             messages.warning(
@@ -681,7 +680,7 @@ def superadmin_holiday_sync(request):
 @login_required
 def professional_settings(request):
     if request.user.is_superuser:
-        return HttpResponseForbidden("Los ajustes pertenecen al negocio profesional.")
+        raise PermissionDenied
     business = get_primary_business_for_user(request.user)
     if business is None:
         return redirect("accounts:no_business")
@@ -766,7 +765,10 @@ def _activity_category(value):
 
 
 def _business_activity_queryset(business, activity_category):
-    queryset = business.activity_events.select_related("actor_user").order_by("-id")
+    queryset = business.activity_events.select_related("actor_user").order_by(
+        "-created_at",
+        "-id",
+    )
     if activity_category != "all":
         queryset = queryset.filter(category=activity_category)
     return queryset

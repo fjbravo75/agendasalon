@@ -22,6 +22,7 @@ from apps.businesses.models import (
     PlatformLoginImage,
     PlatformSettings,
 )
+from apps.core.email import normalize_and_validate_routable_email
 from apps.core.phone import normalize_phone
 
 
@@ -129,6 +130,18 @@ class BusinessForm(forms.ModelForm):
             raise ValidationError("Ya existe un negocio con este identificador público.")
         return slug
 
+    def clean_public_email(self):
+        email = self.cleaned_data.get("public_email")
+        if not email:
+            return ""
+        try:
+            return normalize_and_validate_routable_email(email)
+        except ValidationError:
+            existing_email = (self.instance.public_email or "").strip().lower()
+            if self.instance.pk and email.strip().lower() == existing_email:
+                return existing_email
+            raise
+
     def clean(self):
         cleaned_data = super().clean()
         if cleaned_data.get("public_booking_enabled") and not cleaned_data.get("is_active"):
@@ -196,7 +209,7 @@ class ProfessionalCreateForm(forms.Form):
         return phone
 
     def clean_email(self):
-        email = self.cleaned_data["email"].strip().lower()
+        email = normalize_and_validate_routable_email(self.cleaned_data["email"])
         if get_user_model().objects.filter(email_normalized=email).exists():
             raise forms.ValidationError("Ya existe una cuenta interna con este correo.")
         return email
@@ -309,7 +322,9 @@ class BusinessSignupRequestForm(forms.ModelForm):
         return phone
 
     def clean_email(self):
-        email = self.cleaned_data.get("email", "").strip().lower()
+        email = normalize_and_validate_routable_email(
+            self.cleaned_data.get("email", "")
+        )
         if not email:
             raise forms.ValidationError(
                 "Indica un correo para recibir la respuesta y activar el acceso."
@@ -322,9 +337,22 @@ class BusinessSignupRequestForm(forms.ModelForm):
             cleaned_data.get("preferred_channel")
             == BusinessSignupRequest.PreferredChannel.EMAIL
             and not cleaned_data.get("email")
+            and "email" not in self.errors
         ):
             self.add_error("email", "Indica un correo para poder contactar por este canal.")
         return cleaned_data
+
+    def apply_error_accessibility(self):
+        for field_name in self.errors:
+            if field_name not in self.fields:
+                continue
+            field = self.fields[field_name]
+            error_id = f"{self[field_name].id_for_label}-error"
+            described_by = field.widget.attrs.get("aria-describedby", "").split()
+            if error_id not in described_by:
+                described_by.append(error_id)
+            field.widget.attrs["aria-describedby"] = " ".join(described_by)
+            field.widget.attrs["aria-invalid"] = "true"
 
 
 class BusinessSignupRequestReviewForm(forms.ModelForm):
@@ -429,7 +457,7 @@ class BusinessVisualSettingsForm(forms.ModelForm):
                 "value": "preset:barberia",
                 "label": "Barbería contemporánea",
                 "description": "Ambiente oscuro y sobrio para barbería o cuidado masculino.",
-                "url": static("img/customer-login-barberia-norte-bg-v2.png"),
+                "url": static("img/customer-login-barberia-norte-bg-v2.webp"),
                 "theme": "barberia",
                 "is_selected": selected_value == "preset:barberia",
             },
@@ -595,7 +623,7 @@ class PlatformVisualSettingsForm(forms.ModelForm):
                 "value": "preset:agendasalon",
                 "label": "AgendaSalon",
                 "description": "Imagen editorial propia del acceso interno de la plataforma.",
-                "url": static("img/agendasalon-internal-login-bg.png"),
+                "url": static("img/agendasalon-internal-login-bg.webp"),
                 "theme": "agendasalon",
                 "is_selected": selected_value == "preset:agendasalon",
             },
@@ -611,7 +639,7 @@ class PlatformVisualSettingsForm(forms.ModelForm):
                 "value": "preset:barberia",
                 "label": "Barbería contemporánea",
                 "description": "Ambiente oscuro y sobrio de barbería y cuidado masculino.",
-                "url": static("img/customer-login-barberia-norte-bg-v2.png"),
+                "url": static("img/customer-login-barberia-norte-bg-v2.webp"),
                 "theme": "barberia",
                 "is_selected": selected_value == "preset:barberia",
             },
