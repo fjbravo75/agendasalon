@@ -321,7 +321,7 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La última verificación local deja la batería en 324 pruebas Django, con cinco
+La última verificación local deja la batería en 326 pruebas Django, con cinco
 omisiones exclusivas de PostgreSQL, además de 21 pruebas frontend: 17 unitarias
 y 4 de componentes React. La cobertura con ramas es del 82 % y el umbral automatizado impide bajar
 de ese valor. La matriz de CI ejecuta la batería sobre SQLite y PostgreSQL 17,

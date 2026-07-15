@@ -306,7 +306,7 @@ Producción exige secreto, hosts, orígenes CSRF y PostgreSQL mediante variables
 
 La verificación actual incluye:
 
-- 324 pruebas Django, con cinco pruebas exclusivas de PostgreSQL omitidas cuando
+- 326 pruebas Django, con cinco pruebas exclusivas de PostgreSQL omitidas cuando
   ese motor no está disponible localmente.
 - 21 pruebas frontend: 17 unitarias y 4 de componentes React.
 - Compilación Vite de producción.
