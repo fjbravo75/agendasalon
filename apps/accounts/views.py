@@ -214,7 +214,10 @@ def account_email(request):
             queue_professional_email_verification(user, business=business)
         )
         if delivery.status == delivery.Status.SENT:
-            messages.success(request, "Te hemos enviado el enlace de verificación.")
+            messages.success(
+                request,
+                "El servicio de correo ha aceptado el enlace de verificación.",
+            )
         else:
             messages.warning(
                 request,

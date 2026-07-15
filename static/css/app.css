@@ -296,7 +296,7 @@ body.theme-dark {
 }
 
 .public-booking-body--barberia {
-  --public-booking-bg: url("../img/customer-login-barberia-norte-bg-v2.png");
+  --public-booking-bg: url("../img/customer-login-barberia-norte-bg-v2.webp");
 }
 
 a {
@@ -399,6 +399,15 @@ a {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.nav__primary,
+.nav__secondary {
+  display: contents;
+}
+
+.nav__more {
+  display: none !important;
 }
 
 .nav a,
@@ -3956,17 +3965,59 @@ a {
     padding: 12px 0;
   }
 
-  .nav {
+  .nav[data-site-nav] {
     width: 100%;
-    flex-wrap: nowrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
     justify-content: flex-start;
-    overflow-x: auto;
-    padding-bottom: 3px;
-    scrollbar-width: thin;
+    overflow: visible;
   }
 
-  .nav > * {
-    flex: 0 0 auto;
+  .nav__primary {
+    min-width: 0;
+    display: flex;
+    gap: 4px;
+  }
+
+  .nav__primary a {
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
+  .nav .nav__more {
+    display: inline-flex !important;
+    justify-content: center;
+    border-color: var(--color-line);
+    background: var(--color-surface-soft);
+  }
+
+  .nav__secondary {
+    grid-column: 1 / -1;
+    display: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    padding: 8px;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .nav.is-open .nav__secondary {
+    display: grid;
+  }
+
+  .nav__secondary a,
+  .nav__secondary form,
+  .nav__secondary button {
+    width: 100%;
+  }
+
+  .nav__secondary a,
+  .nav__secondary button {
+    justify-content: flex-start;
   }
 
   .page-grid,
@@ -4304,7 +4355,7 @@ a {
   border-top: 4px solid var(--color-accent);
   border-radius: var(--radius-lg);
   padding: clamp(22px, 4vw, 42px);
-  background: rgba(255, 253, 249, 0.96);
+  background: var(--color-surface);
   box-shadow: 0 18px 48px rgba(41, 29, 20, 0.08);
 }
 
@@ -4453,6 +4504,51 @@ a {
   text-align: right;
 }
 
+.public-booking-receipt {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding-top: 28px;
+}
+
+.booking-confirmation--complete {
+  margin-bottom: 24px;
+}
+
+.booking-confirmation--complete .booking-confirmation__intro h1 {
+  margin: 5px 0 8px;
+  font-family: var(--font-display);
+  font-size: clamp(32px, 6vw, 52px);
+  line-height: 1.02;
+}
+
+.booking-receipt-email {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 18px;
+  align-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  background: var(--color-surface-soft);
+}
+
+.booking-receipt-email span,
+.booking-receipt-email small {
+  color: var(--color-text-muted);
+}
+
+.booking-receipt-email span {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.booking-receipt-email strong {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  color: var(--color-accent-strong);
+}
+
 @media (max-width: 780px) {
   .app-header--public-booking .brand__tag {
     display: none;
@@ -4528,6 +4624,15 @@ a {
     border-bottom: 0;
   }
 
+  .booking-receipt-email {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-receipt-email strong {
+    grid-row: auto;
+    grid-column: auto;
+  }
+
   .booking-confirmation__actions {
     display: grid;
   }
@@ -4599,7 +4704,7 @@ a {
   background-image:
     linear-gradient(90deg, rgba(12, 10, 9, 0.91) 0%, rgba(19, 15, 13, 0.8) 36%, rgba(26, 20, 18, 0.44) 66%, rgba(17, 14, 12, 0.27) 100%),
     linear-gradient(180deg, rgba(13, 12, 11, 0.2) 0%, rgba(13, 12, 11, 0.14) 44%, rgba(13, 12, 11, 0.52) 100%),
-    var(--internal-login-bg, url("../img/agendasalon-internal-login-bg.png"));
+    var(--internal-login-bg, url("../img/agendasalon-internal-login-bg.webp"));
   background-position: center center;
   background-size: cover;
 }
@@ -5083,6 +5188,34 @@ a {
   margin: 10px 0 20px;
 }
 
+.business-signup-error-summary {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(196, 87, 73, 0.5);
+  border-radius: 12px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  color: #fff4f1;
+  background: rgba(119, 42, 34, 0.3);
+}
+
+.business-signup-error-summary:focus {
+  outline: 3px solid rgba(255, 216, 210, 0.5);
+  outline-offset: 3px;
+}
+
+.business-signup-error-summary ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.business-signup-error-summary a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .business-signup-form {
   display: grid;
   gap: 18px;
@@ -5182,6 +5315,13 @@ a {
   margin: 0;
   color: #ffd8d2;
   font-size: 11px;
+}
+
+.business-signup-field__error span {
+  display: block;
+  color: #ffd8d2;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .business-signup-privacy {
@@ -5332,7 +5472,7 @@ a {
 }
 
 .client-auth-page--barberia {
-  --client-auth-bg: url("../img/customer-login-barberia-norte-bg-v2.png");
+  --client-auth-bg: url("../img/customer-login-barberia-norte-bg-v2.webp");
 }
 
 .client-auth-shell {
@@ -7013,7 +7153,7 @@ a {
 }
 
 .settings-public-preview--barberia {
-  --settings-public-bg: url("../img/customer-login-barberia-norte-bg-v2.png");
+  --settings-public-bg: url("../img/customer-login-barberia-norte-bg-v2.webp");
 }
 
 .settings-public-preview > div {

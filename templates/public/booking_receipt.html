@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}Cita confirmada en {{ business.commercial_name }} - AgendaSalon{% endblock %}
+{% block body_class %}public-booking-body public-booking-body--{{ client_auth_theme }} theme-auto{% endblock %}
+{% block body_style %}{% if client_auth_image_url %}--public-booking-bg: url('{{ client_auth_image_url }}');{% endif %}{% endblock %}
+
+{% block app_header %}
+  <header class="app-header app-header--public-booking">
+    <div class="app-header__inner">
+      <a class="brand" href="{% url 'public_booking' business.slug %}">
+        <span class="brand__mark">AgendaSalon</span>
+        <span class="brand__tag">Reserva tu cita en este salón</span>
+      </a>
+      <nav class="nav" aria-label="Accesos">
+        <span class="public-nav-client">Hola, {{ client_access.business_client.full_name }}</span>
+      </nav>
+    </div>
+  </header>
+{% endblock %}
+
+{% block content %}
+  <section class="public-booking public-booking-receipt" aria-labelledby="booking-receipt-title">
+    <ol class="booking-progress" aria-label="Progreso de la reserva">
+      <li class="is-complete"><span>1</span><strong>Servicios</strong></li>
+      <li class="is-complete"><span>2</span><strong>Hora</strong></li>
+      <li class="is-complete"><span>3</span><strong>Confirmada</strong></li>
+    </ol>
+
+    <section class="booking-confirmation booking-confirmation--complete">
+      <div class="booking-confirmation__intro">
+        <span class="assistant-kicker">Reserva completada</span>
+        <h1 id="booking-receipt-title">Tu cita está confirmada</h1>
+        <p>Ya hemos reservado esta hora en {{ business.commercial_name }}.</p>
+      </div>
+
+      <div class="booking-confirmation__summary">
+        <div>
+          <span>Fecha y hora</span>
+          <strong>{{ appointment.starts_at|date:"l j \d\e F, H:i" }}</strong>
+          <small>Hasta las {{ appointment.ends_at|date:"H:i" }}</small>
+        </div>
+        <div>
+          <span>La cita es para</span>
+          <strong>{{ appointment.business_client.full_name }}</strong>
+          <small>{{ business.commercial_name }}</small>
+        </div>
+        <div>
+          <span>Servicios</span>
+          <strong>
+            {% for item in appointment_services %}
+              {{ item.service_name_snapshot }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+          </strong>
+          <small>{{ appointment.total_duration_minutes }} min en total</small>
+        </div>
+        <div>
+          <span>Precio orientativo</span>
+          <strong>
+            {% if has_priced_services %}{% if has_unpriced_services %}Desde {% endif %}{{ total_price }} €{% else %}A consultar{% endif %}
+          </strong>
+          {% if has_unpriced_services and has_priced_services %}<small>Hay servicios sin precio publicado.</small>{% endif %}
+        </div>
+      </div>
+
+      <div class="booking-receipt-email" aria-live="polite">
+        <span>Confirmación por correo</span>
+        {% if confirmation_email %}
+          <strong>{{ confirmation_email.operational_status_label }}</strong>
+          <small>{{ confirmation_email.recipient_email }}</small>
+        {% else %}
+          <strong>No disponible</strong>
+          <small>La cita está confirmada aunque esta cuenta no tenga avisos por correo.</small>
+        {% endif %}
+      </div>
+
+      <div class="booking-confirmation__actions">
+        <a class="button button--secondary" href="{% url 'public_booking' business.slug %}">Reservar otra cita</a>
+        <form method="post" action="{% url 'customers:client_logout' business.slug %}">
+          {% csrf_token %}
+          <button class="button" type="submit">Salir de esta cuenta</button>
+        </form>
+      </div>
+      <p class="booking-confirmation__expiry">Puedes recargar esta página durante la próxima hora sin perder el justificante.</p>
+    </section>
+  </section>
+{% endblock %}

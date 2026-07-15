@@ -107,14 +107,14 @@ class SuperadminBusinessManagementTests(TestCase):
                 "slug": "",
                 "public_description": "Peluquería de barrio.",
                 "public_phone": "600333001",
-                "public_email": "hola@saloncentro.local",
+                "public_email": "hola@saloncentro.com",
                 "address": "Calle Centro 8",
                 "city": "Madrid",
                 "province": "Madrid",
                 "is_active": "on",
                 "full_name": "Laura Profesional",
                 "phone": "600333002",
-                "email": "laura@saloncentro.local",
+                "email": "laura@saloncentro.com",
             },
         )
 
@@ -165,7 +165,7 @@ class SuperadminBusinessManagementTests(TestCase):
                 "commercial_name": "Peluquería Mari Centro",
                 "slug": self.business.slug,
                 "public_phone": "600111001",
-                "public_email": "hola@mari.local",
+                "public_email": "hola@mari.com",
                 "address": "Calle Mayor 12",
                 "city": "Madrid",
                 "province": "Madrid",
@@ -195,13 +195,32 @@ class SuperadminBusinessManagementTests(TestCase):
                 "is_active": "on",
                 "full_name": "Otra profesional",
                 "phone": self.professional.normalized_phone,
-                "email": "otra.profesional@example.test",
+                "email": "otra.profesional@example.com",
             },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Ya existe una cuenta interna con este teléfono")
         self.assertFalse(Business.objects.filter(slug="salon-duplicado").exists())
+
+    def test_non_routable_professional_email_does_not_create_a_partial_business(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.post(
+            reverse("businesses:superadmin_business_create"),
+            {
+                "commercial_name": "Salón Sin Correo",
+                "slug": "salon-sin-correo",
+                "is_active": "on",
+                "full_name": "Laura Profesional",
+                "phone": "600333099",
+                "email": "laura@salon.local",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Usa un correo real que pueda recibir mensajes")
+        self.assertFalse(Business.objects.filter(slug="salon-sin-correo").exists())
 
     def test_superadmin_can_pause_business_without_deleting_history(self):
         self.client.force_login(self.superadmin)

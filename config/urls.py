@@ -19,7 +19,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import include, path
 
-from apps.booking.views import public_booking
+from apps.booking.views import public_booking, public_booking_receipt
 from apps.core.views import home
 
 urlpatterns = [
@@ -33,6 +33,11 @@ urlpatterns = [
     path("superadmin/", include("apps.businesses.platform_urls")),
     path("superadmin/negocios/", include("apps.businesses.urls")),
     path("reservar/<slug:slug>/", public_booking, name="public_booking"),
+    path(
+        "reservar/<slug:slug>/confirmada/",
+        public_booking_receipt,
+        name="public_booking_receipt",
+    ),
     path("", include("apps.dashboards.urls")),
     path("admin/", admin.site.urls),
 ]

@@ -38,6 +38,14 @@ class TransactionalEmailTests(TestCase):
             public_booking_enabled=True,
         )
 
+    def test_sent_status_describes_provider_acceptance_without_claiming_delivery(self):
+        delivery = OutboundEmail(status=OutboundEmail.Status.SENT)
+
+        self.assertEqual(
+            delivery.operational_status_label,
+            "Aceptado por el servicio de correo",
+        )
+
     def test_professional_activation_sets_a_private_password_and_verifies_email(self):
         user = get_user_model().objects.create_user(
             normalized_phone="+34600999001",

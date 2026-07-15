@@ -160,7 +160,7 @@ class PlatformSettingsTests(TestCase):
 
         self.client.logout()
         login_response = self.client.get(reverse("accounts:login"))
-        self.assertContains(login_response, "customer-login-barberia-norte-bg-v2.png")
+        self.assertContains(login_response, "customer-login-barberia-norte-bg-v2.webp")
 
     def test_dark_theme_reaches_the_whole_superadmin_shell(self):
         PlatformSettings.objects.create(

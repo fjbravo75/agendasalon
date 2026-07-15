@@ -11,7 +11,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.booking.models import Appointment, Service
-from apps.booking.public_booking_drafts import PUBLIC_BOOKING_DRAFTS_SESSION_KEY
+from apps.booking.public_booking_drafts import (
+    PUBLIC_BOOKING_DRAFTS_SESSION_KEY,
+    PUBLIC_BOOKING_RECEIPTS_SESSION_KEY,
+)
 from apps.booking.slot_engine import CHANNEL_PUBLIC, get_booking_options, get_day_availability
 from apps.businesses.models import Business, BusinessActivityEvent
 from apps.customers.models import BusinessClientAccess, BusinessClientAccessGrant
@@ -56,6 +59,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotContains(response, "MVP")
         self.assertContains(response, "Selecciona un cliente")
         self.assertContains(response, "Campos obligatorios")
+        self.assertContains(response, 'href="/profesional/agenda/">Volver a la agenda</a>')
         self.assertContains(response, 'class="required-mark"', count=5)
         self.assertContains(response, "service-choice-list--scrollable")
         self.assertContains(response, 'data-service-count="6"')
@@ -263,6 +267,13 @@ class AppointmentAssistantTests(TestCase):
         )
         self.assertEqual(appointment.requested_by_name_snapshot, "Ana Gómez")
         self.assertEqual(appointment.requested_by_relationship_snapshot, "Madre")
+        self.assertEqual(
+            response["Location"],
+            reverse(
+                "booking:professional_appointment_detail",
+                args=[appointment.id],
+            ),
+        )
         self.assertTrue(
             BusinessActivityEvent.objects.filter(
                 business=self.business,
@@ -467,6 +478,40 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotIn("requested_by", public_event.changes)
         self.assertNotIn("María López", str(public_event.changes))
         self.assertNotIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
+        self.assertEqual(
+            response["Location"],
+            reverse("public_booking_receipt", args=[self.business.slug]),
+        )
+        self.assertIn(PUBLIC_BOOKING_RECEIPTS_SESSION_KEY, self.client.session)
+
+        receipt_response = self.client.get(response["Location"])
+        self.assertEqual(receipt_response.status_code, 200)
+        self.assertContains(receipt_response, "Tu cita está confirmada")
+        self.assertContains(receipt_response, "María López")
+        self.assertContains(receipt_response, "100,00 €")
+        self.assertContains(receipt_response, "Confirmación por correo")
+
+        refreshed_response = self.client.get(response["Location"])
+        self.assertEqual(refreshed_response.status_code, 200)
+        self.assertContains(refreshed_response, "Tu cita está confirmada")
+
+    def test_public_receipt_requires_a_recent_booking_from_the_active_account(self):
+        receipt_url = reverse("public_booking_receipt", args=[self.business.slug])
+
+        anonymous_response = self.client.get(receipt_url)
+        self.assertEqual(anonymous_response.status_code, 302)
+        self.assertIn(
+            reverse("customers:client_access", args=[self.business.slug]),
+            anonymous_response["Location"],
+        )
+
+        self._login_demo_client()
+        response_without_receipt = self.client.get(receipt_url)
+        self.assertEqual(response_without_receipt.status_code, 302)
+        self.assertEqual(
+            response_without_receipt["Location"],
+            reverse("public_booking", args=[self.business.slug]),
+        )
 
     def test_online_account_can_book_for_an_authorized_family_profile(self):
         access = BusinessClientAccess.objects.get(

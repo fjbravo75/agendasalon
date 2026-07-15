@@ -58,7 +58,7 @@ def get_business_public_image_url(business):
 
     preset_images = {
         business.PublicImagePreset.SALON: "img/customer-login-peluqueria-mari-bg.webp",
-        business.PublicImagePreset.BARBERSHOP: "img/customer-login-barberia-norte-bg-v2.png",
+        business.PublicImagePreset.BARBERSHOP: "img/customer-login-barberia-norte-bg-v2.webp",
     }
     return static(preset_images[business.public_image_preset])
 
@@ -82,10 +82,10 @@ def get_platform_login_image_url(platform_settings=None):
             pass
 
     preset_images = {
-        PlatformSettings.LoginImagePreset.AGENDASALON: "img/agendasalon-internal-login-bg.png",
+        PlatformSettings.LoginImagePreset.AGENDASALON: "img/agendasalon-internal-login-bg.webp",
         PlatformSettings.LoginImagePreset.SALON: "img/customer-login-peluqueria-mari-bg.webp",
         PlatformSettings.LoginImagePreset.BARBERSHOP: (
-            "img/customer-login-barberia-norte-bg-v2.png"
+            "img/customer-login-barberia-norte-bg-v2.webp"
         ),
     }
     return static(preset_images[platform_settings.login_image_preset])

@@ -3,6 +3,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm, SetPasswordForm
 
+from apps.core.email import normalize_and_validate_routable_email
 from apps.core.phone import normalize_phone
 
 
@@ -152,7 +153,7 @@ class AccountEmailForm(forms.Form):
         self.user = user
 
     def clean_email(self):
-        email = self.cleaned_data["email"].strip().lower()
+        email = normalize_and_validate_routable_email(self.cleaned_data["email"])
         if get_user_model().objects.exclude(pk=self.user.pk).filter(
             email_normalized=email
         ).exists():

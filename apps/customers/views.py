@@ -940,7 +940,10 @@ def client_email_pending(request, slug):
     if request.method == "POST":
         delivery = queue_and_dispatch(queue_client_email_verification(access))
         if delivery.status == delivery.Status.SENT:
-            messages.success(request, "Te hemos enviado un enlace nuevo.")
+            messages.success(
+                request,
+                "El servicio de correo ha aceptado un enlace nuevo para su envío.",
+            )
         else:
             messages.warning(request, "El correo sigue pendiente. No hace falta crear otra cuenta.")
         return redirect("customers:client_email_pending", slug=business.slug)

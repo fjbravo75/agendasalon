@@ -87,7 +87,7 @@ class LoginPageTemplateTests(TestCase):
         self.assertNotContains(response, "¿Has olvidado")
         self.assertNotContains(response, "MVP")
         self.assertNotContains(response, "Reservas online")
-        self.assertContains(response, "agendasalon-internal-login-bg.png")
+        self.assertContains(response, "agendasalon-internal-login-bg.webp")
 
     def test_login_page_uses_platform_selected_image(self):
         PlatformSettings.objects.create(
@@ -96,7 +96,7 @@ class LoginPageTemplateTests(TestCase):
 
         response = self.client.get(reverse("accounts:login"))
 
-        self.assertContains(response, "customer-login-barberia-norte-bg-v2.png")
+        self.assertContains(response, "customer-login-barberia-norte-bg-v2.webp")
         self.assertNotContains(response, "--internal-login-bg: url('/static/img/agendasalon")
 
     def test_invalid_login_keeps_private_editorial_context(self):

@@ -2,11 +2,13 @@ from datetime import timedelta
 from io import StringIO
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.core.email import normalize_and_validate_routable_email
 from apps.core.models import SecurityThrottle
 from apps.core.security_throttle import (
     ThrottleLimit,
@@ -70,6 +72,26 @@ class RootRoutingTests(TestCase):
         self.assertIn("'unsafe-inline'", directives["script-src"])
         self.assertEqual(directives["script-src-attr"], "script-src-attr 'none'")
         self.assertEqual(directives["object-src"], "object-src 'none'")
+
+
+class EmailDomainValidationTests(TestCase):
+    def test_normalizes_a_routable_email(self):
+        self.assertEqual(
+            normalize_and_validate_routable_email(" Persona@Example.COM "),
+            "persona@example.com",
+        )
+
+    def test_rejects_local_and_reserved_domains(self):
+        for domain in (
+            "localhost",
+            "agenda.local",
+            "agenda.test",
+            "agenda.example",
+            "agenda.invalid",
+            "agenda.localhost",
+        ):
+            with self.subTest(domain=domain), self.assertRaises(ValidationError):
+                normalize_and_validate_routable_email(f"persona@{domain}")
 
 
 class DjangoAdminAccessTests(TestCase):
