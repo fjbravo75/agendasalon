@@ -164,6 +164,33 @@ class ProfessionalServiceManagementTests(TestCase):
             ).exists()
         )
 
+    def test_service_form_uses_the_configured_calendar_interval(self):
+        self.business.calendar_settings.slot_interval_minutes = 30
+        self.business.calendar_settings.save(update_fields=["slot_interval_minutes"])
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("booking:professional_service_list"),
+            {
+                "name": "Servicio de 45 minutos",
+                "duration_minutes": "45",
+                "price_amount": "12.00",
+                "color_hex": "#08927F",
+                "display_order": "9",
+                "description": "",
+                "is_active": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "intervalo de agenda de 30 minutos")
+        self.assertFalse(
+            Service.objects.filter(
+                business=self.business,
+                name="Servicio de 45 minutos",
+            ).exists()
+        )
+
     def test_professional_can_edit_service(self):
         self.client.force_login(self.professional)
         service = self.business.services.get(name="Corte")
@@ -227,3 +254,32 @@ class ProfessionalServiceManagementTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "Lavado - 15 min")
+
+    def test_incompatible_legacy_service_cannot_be_reactivated(self):
+        self.business.calendar_settings.slot_interval_minutes = 30
+        self.business.calendar_settings.save(update_fields=["slot_interval_minutes"])
+        service = Service.objects.create(
+            business=self.business,
+            name="Servicio heredado de 45 minutos",
+            duration_minutes=45,
+            color_hex="#5079BD",
+            is_active=False,
+        )
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("booking:professional_service_toggle", args=[service.id]),
+            follow=True,
+        )
+        service.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(service.is_active)
+        self.assertContains(response, "intervalo de agenda de 30 minutos")
+        self.assertFalse(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                entity_id=service.id,
+                event_type=BusinessActivityEvent.EventType.SERVICE_REACTIVATED,
+            ).exists()
+        )

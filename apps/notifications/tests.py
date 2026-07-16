@@ -14,10 +14,12 @@ from apps.customers.services import register_client_access
 from apps.notifications.models import OutboundEmail
 from apps.notifications.services import (
     cancel_appointment_emails,
+    client_password_reset_url,
     client_verification_url,
     queue_and_dispatch,
     queue_appointment_emails,
     queue_client_email_verification,
+    queue_client_password_reset,
     queue_professional_activation,
     queue_professional_email_verification,
 )
@@ -94,13 +96,69 @@ class TransactionalEmailTests(TestCase):
 
         self.assertEqual(delivery.status, OutboundEmail.Status.SENT)
         response = self.client.get(verify_path)
+        self.assertEqual(response.status_code, 200)
+        access.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+        self.assertNotIn("business_client_access_id", self.client.session)
+
+        response = self.client.post(
+            verify_path,
+            {
+                "password": "ClaveElegidaTrasCorreo2026!",
+                "password_confirm": "ClaveElegidaTrasCorreo2026!",
+            },
+        )
         self.assertEqual(response.status_code, 302)
         access.refresh_from_db()
         self.assertIsNotNone(access.email_verified_at)
+        self.assertFalse(access.check_password("ClienteDemo2026!"))
+        self.assertTrue(access.check_password("ClaveElegidaTrasCorreo2026!"))
         self.assertEqual(self.client.session["business_client_access_id"], access.pk)
 
         replay = self.client_class().get(verify_path)
         self.assertEqual(replay.status_code, 410)
+
+    def test_client_password_reset_email_contains_a_scoped_one_hour_link(self):
+        access = register_client_access(
+            business=self.business,
+            full_name="Cliente Recuperación",
+            phone="600999104",
+            email="recuperacion@example.test",
+            password="ClienteDemo2026!",
+            email_verified=True,
+        )
+
+        delivery = queue_and_dispatch(queue_client_password_reset(access))
+
+        self.assertEqual(delivery.status, OutboundEmail.Status.SENT)
+        self.assertEqual(delivery.kind, OutboundEmail.Kind.CLIENT_PASSWORD_RESET)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("60 minutos", mail.outbox[0].body)
+        self.assertIn("solo puede usarse una vez", mail.outbox[0].body)
+        reset_path = urlparse(client_password_reset_url(access)).path
+        self.assertIn(reset_path, mail.outbox[0].body)
+        response = self.client.get(reset_path)
+        self.assertEqual(response.status_code, 200)
+        access.refresh_from_db()
+        self.assertTrue(access.check_password("ClienteDemo2026!"))
+
+    def test_queued_password_reset_is_cancelled_if_password_changes_before_delivery(self):
+        access = register_client_access(
+            business=self.business,
+            full_name="Cliente con cambio previo",
+            phone="600999105",
+            email="cambio@example.test",
+            password="ClienteDemo2026!",
+            email_verified=True,
+        )
+        queued = queue_client_password_reset(access)
+        access.set_password("CambioPrevioCliente2026!")
+        access.save(update_fields=["password_hash", "updated_at"])
+
+        delivery = queue_and_dispatch(queued)
+
+        self.assertEqual(delivery.status, OutboundEmail.Status.CANCELLED)
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_confirmation_and_reminder_are_idempotent_and_cancel_safely(self):
         access = register_client_access(

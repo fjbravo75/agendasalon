@@ -7,7 +7,8 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.booking.models import Appointment, AppointmentService, Service, WorkLine
+from apps.booking.calendar_locking import lock_business_calendar
+from apps.booking.models import Appointment, AppointmentService, Service
 from apps.booking.slot_engine import get_day_availability
 from apps.businesses.activity import record_business_activity
 from apps.businesses.models import BusinessActivityEvent
@@ -31,54 +32,125 @@ class AppointmentDraft:
 
 
 @transaction.atomic
-def confirm_appointment(draft: AppointmentDraft) -> Appointment:
+def confirm_appointment(
+    draft: AppointmentDraft,
+    *,
+    locked_calendar=None,
+    allow_line_reassignment=False,
+) -> Appointment:
     services = tuple(draft.services)
     if not services:
         raise ValidationError("Selecciona al menos un servicio.")
 
+    if locked_calendar is None:
+        locked_calendar = lock_business_calendar(draft.business)
+    elif locked_calendar.business.pk != draft.business.pk:
+        raise ValidationError("No se ha podido validar la agenda de este negocio.")
+    business = locked_calendar.business
+    slot_interval = locked_calendar.settings.slot_interval_minutes
+    duration_minutes = draft.duration_minutes
+    if (
+        isinstance(duration_minutes, bool)
+        or not isinstance(duration_minutes, int)
+        or duration_minutes <= 0
+    ):
+        raise ValidationError("La duración de la cita debe ser un número positivo de minutos.")
+    if duration_minutes % slot_interval != 0:
+        raise ValidationError(
+            "La duración de la cita debe ser compatible con el intervalo de agenda "
+            f"de {slot_interval} minutos."
+        )
+    if not isinstance(draft.starts_at, datetime) or timezone.is_naive(draft.starts_at):
+        raise ValidationError("La hora seleccionada no es válida.")
+
+    requested_work_line = locked_calendar.work_lines_by_id.get(draft.work_line_id)
+    if (
+        not allow_line_reassignment
+        and (requested_work_line is None or not requested_work_line.is_active)
+    ):
+        raise ValidationError(
+            "Ese hueco ya no está disponible. Elige otra línea u otro horario."
+        )
+
     service_ids = [service.id for service in services]
+    if None in service_ids or len(service_ids) != len(set(service_ids)):
+        raise ValidationError("La selección de servicios no es válida.")
     active_services = tuple(
         Service.objects.filter(
-            business=draft.business,
+            business=business,
             is_active=True,
             id__in=service_ids,
         ).order_by("display_order", "name", "pk")
     )
     if {service.id for service in active_services} != set(service_ids):
         raise ValidationError("Alguno de los servicios ya no está disponible.")
-
-    work_line = WorkLine.objects.select_for_update().get(
-        business=draft.business,
-        is_active=True,
-        id=draft.work_line_id,
+    incompatible_service = next(
+        (
+            service
+            for service in active_services
+            if service.duration_minutes % slot_interval != 0
+        ),
+        None,
     )
+    if incompatible_service is not None:
+        raise ValidationError(
+            f'El servicio "{incompatible_service.name}" ya no es compatible con el '
+            f"intervalo de agenda de {slot_interval} minutos."
+        )
+
+    services_duration = sum(service.duration_minutes for service in active_services)
+    adjustment_reason = (draft.duration_adjustment_reason or "").strip()
+    if duration_minutes != services_duration and not adjustment_reason:
+        raise ValidationError(
+            "Indica el motivo del ajuste cuando la duración de la cita no coincide "
+            "con la suma de los servicios."
+        )
+
     starts_at = timezone.localtime(draft.starts_at)
-    ends_at = starts_at + timedelta(minutes=draft.duration_minutes)
+    ends_at = starts_at + timedelta(minutes=duration_minutes)
 
-    availability = get_day_availability(
-        business=draft.business,
-        target_date=starts_at.date(),
-        duration_minutes=draft.duration_minutes,
-    )
+    try:
+        availability = get_day_availability(
+            business=business,
+            target_date=starts_at.date(),
+            duration_minutes=duration_minutes,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(
+            "No se ha podido calcular ese hueco con la duración indicada."
+        ) from exc
     matching_slot = next(
         (
             slot
             for slot in availability.slots
-            if slot.work_line_id == work_line.id and slot.starts_at == starts_at
+            if slot.work_line_id == draft.work_line_id and slot.starts_at == starts_at
         ),
         None,
     )
+    if matching_slot is None and allow_line_reassignment:
+        matching_slot = next(
+            (slot for slot in availability.slots if slot.starts_at == starts_at),
+            None,
+        )
     if matching_slot is None:
+        if allow_line_reassignment:
+            raise ValidationError(
+                "Esa hora acaba de ocuparse. Te mostramos las siguientes opciones disponibles."
+            )
+        raise ValidationError("Ese hueco ya no está disponible. Elige otro horario.")
+
+    work_line = locked_calendar.work_lines_by_id.get(matching_slot.work_line_id)
+    if work_line is None or not work_line.is_active:
         raise ValidationError("Ese hueco ya no está disponible. Elige otro horario.")
 
     appointment = Appointment(
-        business=draft.business,
+        business=business,
         business_client=draft.business_client,
         work_line=work_line,
         starts_at=starts_at,
         ends_at=ends_at,
-        total_duration_minutes=draft.duration_minutes,
-        duration_adjustment_reason=draft.duration_adjustment_reason,
+        total_duration_minutes=duration_minutes,
+        duration_adjustment_reason=adjustment_reason,
         status=Appointment.Status.CONFIRMED,
         manual_channel=draft.channel,
         created_by=draft.created_by,
@@ -106,7 +178,7 @@ def confirm_appointment(draft: AppointmentDraft) -> Appointment:
     appointment.full_clean()
     is_public_booking = draft.channel == Appointment.ManualChannel.PUBLIC_WEB
     record_business_activity(
-        business=draft.business,
+        business=business,
         category=BusinessActivityEvent.Category.APPOINTMENTS,
         event_type=BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
         origin=draft.channel,
@@ -184,6 +256,8 @@ def complete_appointment(appointment: Appointment, *, completed_by, at=None) -> 
         raise ValidationError("Solo se puede completar una cita confirmada.")
     if appointment.starts_at > at:
         raise ValidationError("No se puede completar una cita que todavía no ha empezado.")
+    if appointment.ends_at > at:
+        raise ValidationError("No se puede completar una cita que todavía no ha terminado.")
 
     appointment.status = Appointment.Status.COMPLETED
     appointment.completed_by = completed_by
@@ -219,6 +293,8 @@ def mark_appointment_no_show(appointment: Appointment, *, marked_by, at=None) ->
         raise ValidationError("Solo se puede registrar la ausencia de una cita confirmada.")
     if appointment.starts_at > at:
         raise ValidationError("No se puede registrar la ausencia antes de que empiece la cita.")
+    if appointment.ends_at > at:
+        raise ValidationError("No se puede registrar la ausencia porque la cita todavía no ha terminado.")
 
     appointment.status = Appointment.Status.NO_SHOW
     appointment.no_show_marked_by = marked_by

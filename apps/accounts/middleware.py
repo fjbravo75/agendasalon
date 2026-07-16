@@ -38,6 +38,7 @@ class EmailVerificationRequiredMiddleware:
         user = getattr(request, "user", None)
         allowed_paths = {
             reverse("accounts:email"),
+            reverse("accounts:security"),
             reverse("accounts:logout"),
             reverse("accounts:logged_out"),
         }

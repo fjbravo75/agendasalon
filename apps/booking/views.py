@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import transaction
 from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -15,6 +16,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_POST
 
+from apps.booking.calendar_locking import lock_business_calendar
 from apps.booking.forms import (
     AppointmentCancelForm,
     AppointmentSearchForm,
@@ -27,7 +29,6 @@ from apps.booking.forms import (
 from apps.booking.models import (
     Appointment,
     AvailabilityRule,
-    BusinessCalendarSettings,
     BusinessClosure,
     Service,
     WorkLine,
@@ -73,6 +74,12 @@ from apps.customers.services import (
     get_bookable_client,
     get_bookable_clients,
     get_session_client_access,
+)
+from apps.holidays.models import OfficialHoliday
+from apps.legal.models import LegalAcceptance
+from apps.legal.services import (
+    acknowledge_customer_privacy,
+    customer_privacy_status,
 )
 
 
@@ -207,6 +214,17 @@ def appointment_assistant(request):
         "search_is_valid": False,
         "line_boards": _line_boards(active_lines, {}, {}),
         "quick_client_form": quick_client_form,
+        "requester_choices_by_client": form.requester_choices_by_client,
+        "selected_work_line_id": (
+            request.POST.get("selected_work_line_id")
+            or request.GET.get("selected_work_line_id")
+            or ""
+        ),
+        "selected_starts_at": (
+            request.POST.get("selected_starts_at")
+            or request.GET.get("selected_starts_at")
+            or ""
+        ),
     }
 
     if search_data and form.is_valid():
@@ -505,25 +523,32 @@ def professional_service_toggle(request, service_id):
     service = get_object_or_404(Service, pk=service_id, business=business)
     if request.method == "POST":
         service.is_active = not service.is_active
-        service.full_clean()
-        service.save(update_fields=["is_active", "updated_at"])
-        _record_configuration_activity(
-            request,
-            business,
-            (
-                BusinessActivityEvent.EventType.SERVICE_REACTIVATED
-                if service.is_active
-                else BusinessActivityEvent.EventType.SERVICE_PAUSED
-            ),
-            f'Servicio "{service.name}" {"reactivado" if service.is_active else "pausado"}.',
-            service,
-            "service",
-            {"is_active": service.is_active},
-        )
-        if service.is_active:
-            messages.success(request, f"{service.name} vuelve a estar disponible para reservar.")
+        try:
+            service.full_clean()
+        except ValidationError as exc:
+            messages.error(request, _validation_message(exc))
         else:
-            messages.success(request, f"{service.name} queda pausado para nuevas citas.")
+            service.save(update_fields=["is_active", "updated_at"])
+            _record_configuration_activity(
+                request,
+                business,
+                (
+                    BusinessActivityEvent.EventType.SERVICE_REACTIVATED
+                    if service.is_active
+                    else BusinessActivityEvent.EventType.SERVICE_PAUSED
+                ),
+                f'Servicio "{service.name}" {"reactivado" if service.is_active else "pausado"}.',
+                service,
+                "service",
+                {"is_active": service.is_active},
+            )
+            if service.is_active:
+                messages.success(
+                    request,
+                    f"{service.name} vuelve a estar disponible para reservar.",
+                )
+            else:
+                messages.success(request, f"{service.name} queda pausado para nuevas citas.")
     return redirect("booking:professional_service_list")
 
 
@@ -540,58 +565,81 @@ def professional_schedule(request):
     if request.method == "POST":
         form_kind = request.POST.get("form_kind")
         if form_kind == "availability":
-            availability_form = AvailabilityRuleForm(request.POST, business=business, prefix="availability")
-            if availability_form.is_valid():
-                rule = availability_form.save()
-                _record_configuration_activity(
-                    request,
-                    business,
-                    BusinessActivityEvent.EventType.AVAILABILITY_CREATED,
-                    f"Horario creado para {_weekday_label(rule.weekday)} de {rule.start_time:%H:%M} a {rule.end_time:%H:%M}.",
-                    rule,
-                    "availability_rule",
-                    {"is_active": rule.is_active},
+            with transaction.atomic():
+                lock_business_calendar(business)
+                availability_form = AvailabilityRuleForm(
+                    request.POST,
+                    business=business,
+                    prefix="availability",
                 )
-                messages.success(
-                    request,
-                    f"Horario guardado para {_weekday_label(rule.weekday)}.",
-                )
-                return redirect("booking:professional_schedule")
+                if availability_form.is_valid():
+                    rule = availability_form.save()
+                    _record_configuration_activity(
+                        request,
+                        business,
+                        BusinessActivityEvent.EventType.AVAILABILITY_CREATED,
+                        f"Horario creado para {_weekday_label(rule.weekday)} de {rule.start_time:%H:%M} a {rule.end_time:%H:%M}.",
+                        rule,
+                        "availability_rule",
+                        {"is_active": rule.is_active},
+                    )
+                    messages.success(
+                        request,
+                        f"Horario guardado para {_weekday_label(rule.weekday)}.",
+                    )
+                    return redirect("booking:professional_schedule")
         elif form_kind == "closure":
-            closure_form = BusinessClosureForm(
-                request.POST,
-                business=business,
-                created_by=request.user,
-                prefix="closure",
-            )
-            if closure_form.is_valid():
-                closure = closure_form.save()
-                _record_configuration_activity(
-                    request,
-                    business,
-                    BusinessActivityEvent.EventType.CLOSURE_CREATED,
-                    f"{_closure_type_label(closure.closure_type)} añadido al calendario.",
-                    closure,
-                    "business_closure",
-                    {"is_active": closure.is_active},
+            with transaction.atomic():
+                lock_business_calendar(business)
+                closure_form = BusinessClosureForm(
+                    request.POST,
+                    business=business,
+                    created_by=request.user,
+                    prefix="closure",
                 )
-                messages.success(request, f"{_closure_type_label(closure.closure_type)} añadido al calendario.")
-                return redirect("booking:professional_schedule")
+                if closure_form.is_valid():
+                    closure = closure_form.save(commit=False)
+                    try:
+                        _validate_closure_keeps_confirmed_appointments(closure)
+                    except ValidationError as exc:
+                        closure_form.add_error(None, _validation_message(exc))
+                    else:
+                        closure.full_clean()
+                        closure.save()
+                        _record_configuration_activity(
+                            request,
+                            business,
+                            BusinessActivityEvent.EventType.CLOSURE_CREATED,
+                            f"{_closure_type_label(closure.closure_type)} añadido al calendario.",
+                            closure,
+                            "business_closure",
+                            {"is_active": closure.is_active},
+                        )
+                        messages.success(
+                            request,
+                            f"{_closure_type_label(closure.closure_type)} añadido al calendario.",
+                        )
+                        return redirect("booking:professional_schedule")
         elif form_kind == "work_line":
-            work_line_form = WorkLineForm(request.POST, business=business)
-            if work_line_form.is_valid():
-                line = work_line_form.save()
-                _record_configuration_activity(
-                    request,
-                    business,
-                    BusinessActivityEvent.EventType.WORK_LINE_CREATED,
-                    f'{line} creada en la capacidad del negocio.',
-                    line,
-                    "work_line",
-                    {"is_active": line.is_active},
-                )
-                messages.success(request, f"{line} queda disponible en la capacidad del salón.")
-                return redirect("booking:professional_schedule")
+            with transaction.atomic():
+                lock_business_calendar(business)
+                work_line_form = WorkLineForm(request.POST, business=business)
+                if work_line_form.is_valid():
+                    line = work_line_form.save()
+                    _record_configuration_activity(
+                        request,
+                        business,
+                        BusinessActivityEvent.EventType.WORK_LINE_CREATED,
+                        f"{line} creada en la capacidad del negocio.",
+                        line,
+                        "work_line",
+                        {"is_active": line.is_active},
+                    )
+                    messages.success(
+                        request,
+                        f"{line} queda disponible en la capacidad del salón.",
+                    )
+                    return redirect("booking:professional_schedule")
         else:
             messages.error(request, "No se ha podido reconocer el ajuste que quieres guardar.")
 
@@ -619,40 +667,48 @@ def professional_national_holidays_update(request):
         messages.error(request, "No se ha podido reconocer el ajuste de festivos nacionales.")
         return redirect("booking:professional_schedule")
 
-    calendar_settings, _created = BusinessCalendarSettings.objects.get_or_create(
-        business=business
-    )
     should_apply = requested_value == "true"
-    if calendar_settings.apply_national_holidays == should_apply:
-        messages.info(request, "La aplicación de festivos nacionales no tenía cambios pendientes.")
-    else:
-        calendar_settings.apply_national_holidays = should_apply
-        calendar_settings.save(update_fields=["apply_national_holidays"])
-        _record_configuration_activity(
-            request,
-            business,
-            (
-                BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_ENABLED
-                if should_apply
-                else BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_DISABLED
-            ),
-            (
-                "Los festivos nacionales pasan a cerrar la agenda."
-                if should_apply
-                else "Los festivos nacionales dejan de cerrar la agenda."
-            ),
-            calendar_settings,
-            "business_calendar_settings",
-            {"apply_national_holidays": should_apply},
-        )
-        messages.success(
-            request,
-            (
-                "La agenda respetará los festivos nacionales sincronizados."
-                if should_apply
-                else "La agenda permanecerá abierta en festivos nacionales salvo cierre manual."
-            ),
-        )
+    with transaction.atomic():
+        calendar_settings = lock_business_calendar(business).settings
+        if calendar_settings.apply_national_holidays == should_apply:
+            messages.info(
+                request,
+                "La aplicación de festivos nacionales no tenía cambios pendientes.",
+            )
+        else:
+            try:
+                if should_apply:
+                    _validate_national_holidays_keep_confirmed_appointments(business)
+            except ValidationError as exc:
+                messages.error(request, _validation_message(exc))
+            else:
+                calendar_settings.apply_national_holidays = should_apply
+                calendar_settings.save(update_fields=["apply_national_holidays"])
+                _record_configuration_activity(
+                    request,
+                    business,
+                    (
+                        BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_ENABLED
+                        if should_apply
+                        else BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_DISABLED
+                    ),
+                    (
+                        "Los festivos nacionales pasan a cerrar la agenda."
+                        if should_apply
+                        else "Los festivos nacionales dejan de cerrar la agenda."
+                    ),
+                    calendar_settings,
+                    "business_calendar_settings",
+                    {"apply_national_holidays": should_apply},
+                )
+                messages.success(
+                    request,
+                    (
+                        "La agenda respetará los festivos nacionales sincronizados."
+                        if should_apply
+                        else "La agenda permanecerá abierta en festivos nacionales salvo cierre manual."
+                    ),
+                )
     return redirect(f"{reverse('booking:professional_schedule')}#festivos-nacionales")
 
 
@@ -664,25 +720,44 @@ def professional_availability_edit(request, rule_id):
 
     rule = get_object_or_404(AvailabilityRule, pk=rule_id, business=business)
     if request.method == "POST":
-        availability_form = AvailabilityRuleForm(
-            request.POST,
-            business=business,
-            instance=rule,
-            prefix="availability",
-        )
-        if availability_form.is_valid():
-            rule = availability_form.save()
-            _record_configuration_activity(
-                request,
-                business,
-                BusinessActivityEvent.EventType.AVAILABILITY_UPDATED,
-                f"Horario actualizado para {_weekday_label(rule.weekday)} de {rule.start_time:%H:%M} a {rule.end_time:%H:%M}.",
-                rule,
-                "availability_rule",
-                {"fields": tuple(availability_form.changed_data)},
+        with transaction.atomic():
+            lock_business_calendar(business)
+            rule = get_object_or_404(
+                AvailabilityRule.objects.select_for_update(),
+                pk=rule_id,
+                business=business,
             )
-            messages.success(request, f"Horario actualizado para {_weekday_label(rule.weekday)}.")
-            return redirect("booking:professional_schedule")
+            was_active = rule.is_active
+            availability_form = AvailabilityRuleForm(
+                request.POST,
+                business=business,
+                instance=rule,
+                prefix="availability",
+            )
+            if availability_form.is_valid():
+                rule = availability_form.save(commit=False)
+                try:
+                    if was_active:
+                        _validate_availability_keeps_confirmed_appointments(rule)
+                except ValidationError as exc:
+                    availability_form.add_error(None, _validation_message(exc))
+                else:
+                    rule.full_clean()
+                    rule.save()
+                    _record_configuration_activity(
+                        request,
+                        business,
+                        BusinessActivityEvent.EventType.AVAILABILITY_UPDATED,
+                        f"Horario actualizado para {_weekday_label(rule.weekday)} de {rule.start_time:%H:%M} a {rule.end_time:%H:%M}.",
+                        rule,
+                        "availability_rule",
+                        {"fields": tuple(availability_form.changed_data)},
+                    )
+                    messages.success(
+                        request,
+                        f"Horario actualizado para {_weekday_label(rule.weekday)}.",
+                    )
+                    return redirect("booking:professional_schedule")
     else:
         availability_form = AvailabilityRuleForm(business=business, instance=rule, prefix="availability")
 
@@ -706,30 +781,42 @@ def professional_availability_toggle(request, rule_id):
 
     rule = get_object_or_404(AvailabilityRule, pk=rule_id, business=business)
     if request.method == "POST":
-        rule.is_active = not rule.is_active
-        try:
-            rule.full_clean()
-        except ValidationError as exc:
-            messages.error(request, _validation_message(exc))
-        else:
-            rule.save(update_fields=["is_active"])
-            _record_configuration_activity(
-                request,
-                business,
-                (
-                    BusinessActivityEvent.EventType.AVAILABILITY_REACTIVATED
-                    if rule.is_active
-                    else BusinessActivityEvent.EventType.AVAILABILITY_PAUSED
-                ),
-                f"Horario de {_weekday_label(rule.weekday)} {'reactivado' if rule.is_active else 'pausado'}.",
-                rule,
-                "availability_rule",
-                {"is_active": rule.is_active},
+        with transaction.atomic():
+            lock_business_calendar(business)
+            rule = get_object_or_404(
+                AvailabilityRule.objects.select_for_update(),
+                pk=rule_id,
+                business=business,
             )
-            if rule.is_active:
-                messages.success(request, "El tramo vuelve a estar disponible para calcular huecos.")
+            rule.is_active = not rule.is_active
+            try:
+                rule.full_clean()
+                if not rule.is_active:
+                    _validate_availability_keeps_confirmed_appointments(rule)
+            except ValidationError as exc:
+                messages.error(request, _validation_message(exc))
             else:
-                messages.success(request, "El tramo queda pausado sin perder su historial.")
+                rule.save(update_fields=["is_active"])
+                _record_configuration_activity(
+                    request,
+                    business,
+                    (
+                        BusinessActivityEvent.EventType.AVAILABILITY_REACTIVATED
+                        if rule.is_active
+                        else BusinessActivityEvent.EventType.AVAILABILITY_PAUSED
+                    ),
+                    f"Horario de {_weekday_label(rule.weekday)} {'reactivado' if rule.is_active else 'pausado'}.",
+                    rule,
+                    "availability_rule",
+                    {"is_active": rule.is_active},
+                )
+                if rule.is_active:
+                    messages.success(
+                        request,
+                        "El tramo vuelve a estar disponible para calcular huecos.",
+                    )
+                else:
+                    messages.success(request, "El tramo queda pausado sin perder su historial.")
     return redirect("booking:professional_schedule")
 
 
@@ -741,20 +828,27 @@ def professional_work_line_edit(request, line_id):
 
     line = get_object_or_404(WorkLine, pk=line_id, business=business)
     if request.method == "POST":
-        work_line_form = WorkLineForm(request.POST, business=business, instance=line)
-        if work_line_form.is_valid():
-            line = work_line_form.save()
-            _record_configuration_activity(
-                request,
-                business,
-                BusinessActivityEvent.EventType.WORK_LINE_UPDATED,
-                f"{line} actualizada.",
-                line,
-                "work_line",
-                {"fields": tuple(work_line_form.changed_data)},
+        with transaction.atomic():
+            lock_business_calendar(business)
+            line = get_object_or_404(
+                WorkLine.objects.select_for_update(),
+                pk=line_id,
+                business=business,
             )
-            messages.success(request, f"{line} se ha actualizado.")
-            return redirect("booking:professional_schedule")
+            work_line_form = WorkLineForm(request.POST, business=business, instance=line)
+            if work_line_form.is_valid():
+                line = work_line_form.save()
+                _record_configuration_activity(
+                    request,
+                    business,
+                    BusinessActivityEvent.EventType.WORK_LINE_UPDATED,
+                    f"{line} actualizada.",
+                    line,
+                    "work_line",
+                    {"fields": tuple(work_line_form.changed_data)},
+                )
+                messages.success(request, f"{line} se ha actualizado.")
+                return redirect("booking:professional_schedule")
     else:
         work_line_form = WorkLineForm(business=business, instance=line)
 
@@ -778,36 +872,47 @@ def professional_work_line_toggle(request, line_id):
 
     line = get_object_or_404(WorkLine, pk=line_id, business=business)
     if request.method == "POST":
-        if line.is_active and _work_line_has_future_confirmed_appointments(line):
-            messages.error(
-                request,
-                "Esta línea tiene citas futuras confirmadas. Reubícalas o complétalas antes de pausarla.",
+        with transaction.atomic():
+            lock_business_calendar(business)
+            line = get_object_or_404(
+                WorkLine.objects.select_for_update(),
+                pk=line_id,
+                business=business,
             )
-        else:
-            line.is_active = not line.is_active
-            try:
-                line.full_clean()
-            except ValidationError as exc:
-                messages.error(request, _validation_message(exc))
-            else:
-                line.save(update_fields=["is_active"])
-                _record_configuration_activity(
+            if line.is_active and _work_line_has_future_confirmed_appointments(line):
+                messages.error(
                     request,
-                    business,
-                    (
-                        BusinessActivityEvent.EventType.WORK_LINE_REACTIVATED
-                        if line.is_active
-                        else BusinessActivityEvent.EventType.WORK_LINE_PAUSED
-                    ),
-                    f"{line} {'reactivada' if line.is_active else 'pausada'}.",
-                    line,
-                    "work_line",
-                    {"is_active": line.is_active},
+                    "Esta línea tiene citas confirmadas pendientes. "
+                    "Reubícalas o complétalas antes de pausarla.",
                 )
-                if line.is_active:
-                    messages.success(request, f"{line} vuelve a estar disponible para nuevas citas.")
+            else:
+                line.is_active = not line.is_active
+                try:
+                    line.full_clean()
+                except ValidationError as exc:
+                    messages.error(request, _validation_message(exc))
                 else:
-                    messages.success(request, f"{line} queda pausada para nuevas citas.")
+                    line.save(update_fields=["is_active"])
+                    _record_configuration_activity(
+                        request,
+                        business,
+                        (
+                            BusinessActivityEvent.EventType.WORK_LINE_REACTIVATED
+                            if line.is_active
+                            else BusinessActivityEvent.EventType.WORK_LINE_PAUSED
+                        ),
+                        f"{line} {'reactivada' if line.is_active else 'pausada'}.",
+                        line,
+                        "work_line",
+                        {"is_active": line.is_active},
+                    )
+                    if line.is_active:
+                        messages.success(
+                            request,
+                            f"{line} vuelve a estar disponible para nuevas citas.",
+                        )
+                    else:
+                        messages.success(request, f"{line} queda pausada para nuevas citas.")
     return redirect("booking:professional_schedule")
 
 
@@ -819,26 +924,43 @@ def professional_closure_edit(request, closure_id):
 
     closure = get_object_or_404(BusinessClosure, pk=closure_id, business=business)
     if request.method == "POST":
-        closure_form = BusinessClosureForm(
-            request.POST,
-            business=business,
-            created_by=request.user,
-            instance=closure,
-            prefix="closure",
-        )
-        if closure_form.is_valid():
-            closure = closure_form.save()
-            _record_configuration_activity(
-                request,
-                business,
-                BusinessActivityEvent.EventType.CLOSURE_UPDATED,
-                f"{_closure_type_label(closure.closure_type)} actualizado.",
-                closure,
-                "business_closure",
-                {"fields": tuple(closure_form.changed_data)},
+        with transaction.atomic():
+            lock_business_calendar(business)
+            closure = get_object_or_404(
+                BusinessClosure.objects.select_for_update(),
+                pk=closure_id,
+                business=business,
             )
-            messages.success(request, f"{_closure_type_label(closure.closure_type)} actualizado.")
-            return redirect("booking:professional_schedule")
+            closure_form = BusinessClosureForm(
+                request.POST,
+                business=business,
+                created_by=request.user,
+                instance=closure,
+                prefix="closure",
+            )
+            if closure_form.is_valid():
+                closure = closure_form.save(commit=False)
+                try:
+                    _validate_closure_keeps_confirmed_appointments(closure)
+                except ValidationError as exc:
+                    closure_form.add_error(None, _validation_message(exc))
+                else:
+                    closure.full_clean()
+                    closure.save()
+                    _record_configuration_activity(
+                        request,
+                        business,
+                        BusinessActivityEvent.EventType.CLOSURE_UPDATED,
+                        f"{_closure_type_label(closure.closure_type)} actualizado.",
+                        closure,
+                        "business_closure",
+                        {"fields": tuple(closure_form.changed_data)},
+                    )
+                    messages.success(
+                        request,
+                        f"{_closure_type_label(closure.closure_type)} actualizado.",
+                    )
+                    return redirect("booking:professional_schedule")
     else:
         closure_form = BusinessClosureForm(
             business=business,
@@ -867,30 +989,38 @@ def professional_closure_toggle(request, closure_id):
 
     closure = get_object_or_404(BusinessClosure, pk=closure_id, business=business)
     if request.method == "POST":
-        closure.is_active = not closure.is_active
-        try:
-            closure.full_clean()
-        except ValidationError as exc:
-            messages.error(request, _validation_message(exc))
-        else:
-            closure.save(update_fields=["is_active", "updated_at"])
-            _record_configuration_activity(
-                request,
-                business,
-                (
-                    BusinessActivityEvent.EventType.CLOSURE_REACTIVATED
-                    if closure.is_active
-                    else BusinessActivityEvent.EventType.CLOSURE_PAUSED
-                ),
-                f"{_closure_type_label(closure.closure_type)} {'reactivado' if closure.is_active else 'pausado'}.",
-                closure,
-                "business_closure",
-                {"is_active": closure.is_active},
+        with transaction.atomic():
+            lock_business_calendar(business)
+            closure = get_object_or_404(
+                BusinessClosure.objects.select_for_update(),
+                pk=closure_id,
+                business=business,
             )
-            if closure.is_active:
-                messages.success(request, "El cierre vuelve a aplicarse en el calendario.")
+            closure.is_active = not closure.is_active
+            try:
+                closure.full_clean()
+                _validate_closure_keeps_confirmed_appointments(closure)
+            except ValidationError as exc:
+                messages.error(request, _validation_message(exc))
             else:
-                messages.success(request, "El cierre queda pausado sin borrarlo.")
+                closure.save(update_fields=["is_active", "updated_at"])
+                _record_configuration_activity(
+                    request,
+                    business,
+                    (
+                        BusinessActivityEvent.EventType.CLOSURE_REACTIVATED
+                        if closure.is_active
+                        else BusinessActivityEvent.EventType.CLOSURE_PAUSED
+                    ),
+                    f"{_closure_type_label(closure.closure_type)} {'reactivado' if closure.is_active else 'pausado'}.",
+                    closure,
+                    "business_closure",
+                    {"is_active": closure.is_active},
+                )
+                if closure.is_active:
+                    messages.success(request, "El cierre vuelve a aplicarse en el calendario.")
+                else:
+                    messages.success(request, "El cierre queda pausado sin borrarlo.")
     return redirect("booking:professional_schedule")
 
 
@@ -1052,14 +1182,35 @@ def _confirm_public_booking_draft(request, business, client_access):
         messages.error(request, "La selección ya no es válida. Revisa los servicios y elige otra hora.")
         return redirect(_public_booking_search_url(business, draft))
 
-    try:
-        beneficiary = get_bookable_client(
-            client_access,
-            request.POST.get("business_client") or client_access.business_client_id,
+    privacy_status = customer_privacy_status(client_access.business_client)
+    if not privacy_status["is_current"] and request.POST.get("privacy_acknowledged") != "on":
+        messages.error(
+            request,
+            "Antes de confirmar, revisa la información de privacidad vigente y marca la casilla de lectura.",
         )
-        if beneficiary is None:
-            raise ValidationError("Ya no tienes permiso para reservar para esa persona.")
-        appointment = _confirm_public_appointment(business, client_access, beneficiary, form)
+        return _render_public_booking_confirmation(request, business, client_access)
+
+    try:
+        with transaction.atomic():
+            locked_calendar = lock_business_calendar(business)
+            beneficiary = get_bookable_client(
+                client_access,
+                request.POST.get("business_client") or client_access.business_client_id,
+            )
+            if beneficiary is None:
+                raise ValidationError("Ya no tienes permiso para reservar para esa persona.")
+            if not privacy_status["is_current"]:
+                acknowledge_customer_privacy(
+                    client_access=client_access,
+                    context=LegalAcceptance.Context.BOOKING_CONFIRMATION,
+                )
+            appointment = _confirm_public_appointment(
+                business,
+                client_access,
+                beneficiary,
+                form,
+                locked_calendar=locked_calendar,
+            )
     except (ValidationError, WorkLine.DoesNotExist) as exc:
         clear_public_booking_draft(request, business)
         messages.error(request, _validation_message(exc))
@@ -1102,7 +1253,7 @@ def _render_public_booking_confirmation(request, business, client_access):
         target_date=target_date,
         duration_minutes=duration_minutes,
     )
-    selected_slot = _selected_available_slot(draft, day_availability)
+    selected_slot = _selected_public_available_slot(draft, day_availability)
     if selected_slot is None:
         clear_public_booking_draft(request, business)
         messages.error(
@@ -1113,6 +1264,7 @@ def _render_public_booking_confirmation(request, business, client_access):
 
     selected_services = tuple(form.cleaned_data["services"])
     bookable_clients = tuple(get_bookable_clients(client_access))
+    privacy_status = customer_privacy_status(client_access.business_client)
     context = _public_booking_base_context(
         business=business,
         client_access=client_access,
@@ -1131,10 +1283,34 @@ def _render_public_booking_confirmation(request, business, client_access):
             "change_search_url": _public_booking_search_url(business, draft),
             "bookable_clients": bookable_clients,
             "selected_business_client": client_access.business_client,
+            "privacy_acknowledgement_required": not privacy_status["is_current"],
+            "privacy_document": privacy_status["document"],
             **_public_price_summary(selected_services),
         }
     )
     return render(request, "public/booking.html", context)
+
+
+def _selected_public_available_slot(data, day_availability):
+    """Preserva la hora pública y reasigna solo la línea interna si es necesario."""
+    selected_slot = _selected_available_slot(data, day_availability)
+    if selected_slot is not None:
+        return selected_slot
+
+    starts_at_value = str(data.get("selected_starts_at") or "").strip()
+    parsed_starts_at = parse_datetime(starts_at_value)
+    if parsed_starts_at is None:
+        return None
+    if timezone.is_naive(parsed_starts_at):
+        parsed_starts_at = timezone.make_aware(parsed_starts_at)
+    return next(
+        (
+            slot
+            for slot in day_availability.slots
+            if slot.starts_at == parsed_starts_at
+        ),
+        None,
+    )
 
 
 def _public_booking_base_context(*, business, client_access, form, has_search):
@@ -1213,8 +1389,21 @@ def _get_professional_appointment(business, appointment_id):
 
 def _appointment_detail_context(business, appointment, cancel_form):
     is_confirmed = appointment.status == Appointment.Status.CONFIRMED
-    has_started = appointment.starts_at <= timezone.now()
-    can_complete = is_confirmed and has_started
+    now = timezone.now()
+    has_started = appointment.starts_at <= now
+    has_ended = appointment.ends_at <= now
+    can_close = is_confirmed and has_ended
+    if is_confirmed and not has_started:
+        complete_blocked_reason = "La cita todavía no ha empezado."
+        closure_blocked_label = "Aún no ha empezado"
+    elif is_confirmed and not has_ended:
+        complete_blocked_reason = (
+            "La cita aún no ha terminado. Podrás registrar el resultado cuando finalice."
+        )
+        closure_blocked_label = "Aún no ha terminado"
+    else:
+        complete_blocked_reason = ""
+        closure_blocked_label = ""
     return {
         "business": business,
         "appointment": appointment,
@@ -1222,14 +1411,11 @@ def _appointment_detail_context(business, appointment, cancel_form):
         "appointment_emails": tuple(appointment.outbound_emails.order_by("scheduled_for", "pk")),
         "cancel_form": cancel_form,
         "can_cancel": is_confirmed,
-        "can_complete": can_complete,
-        "can_mark_no_show": can_complete,
+        "can_complete": can_close,
+        "can_mark_no_show": can_close,
         "is_pending_closure": appointment.is_pending_closure(),
-        "complete_blocked_reason": (
-            "La cita todavía no ha empezado."
-            if is_confirmed and not can_complete
-            else ""
-        ),
+        "complete_blocked_reason": complete_blocked_reason,
+        "closure_blocked_label": closure_blocked_label,
     }
 
 
@@ -1280,10 +1466,146 @@ def _new_work_line_form(business):
     )
 
 
+def _pending_confirmed_appointments(business):
+    return tuple(
+        Appointment.objects.filter(
+            business=business,
+            status=Appointment.Status.CONFIRMED,
+            ends_at__gt=timezone.now(),
+        )
+        .order_by("pk")
+    )
+
+
+def _validate_national_holidays_keep_confirmed_appointments(business):
+    tz = ZoneInfo(settings.TIME_ZONE)
+    appointments_by_date = {
+        timezone.localtime(appointment.starts_at, tz).date(): appointment
+        for appointment in _pending_confirmed_appointments(business)
+    }
+    holiday = (
+        OfficialHoliday.objects.filter(
+            date__in=appointments_by_date,
+            scope=OfficialHoliday.Scope.NATIONAL,
+        )
+        .order_by("date", "pk")
+        .first()
+    )
+    if holiday is None:
+        return
+
+    appointment = appointments_by_date[holiday.date]
+    local_start = timezone.localtime(appointment.starts_at, tz)
+    raise ValidationError(
+        "No puedes aplicar los festivos nacionales porque hay una cita confirmada "
+        f"pendiente el {local_start:%d/%m/%Y a las %H:%M}. Revisa esa cita antes."
+    )
+
+
+def _validate_closure_keeps_confirmed_appointments(closure):
+    if not closure.is_active:
+        return
+
+    conflicting_appointments = [
+        appointment
+        for appointment in _pending_confirmed_appointments(closure.business)
+        if closure.work_line_id in (None, appointment.work_line_id)
+        and _closure_overlaps_appointment(closure, appointment)
+    ]
+    if not conflicting_appointments:
+        return
+
+    if len(conflicting_appointments) == 1:
+        detail = "una cita confirmada pendiente"
+    else:
+        detail = f"{len(conflicting_appointments)} citas confirmadas pendientes"
+    raise ValidationError(
+        f"No puedes aplicar este cierre porque se solapa con {detail}. "
+        "Revisa esas citas antes de cerrar la agenda."
+    )
+
+
+def _closure_overlaps_appointment(closure, appointment):
+    tz = ZoneInfo(settings.TIME_ZONE)
+    local_start = timezone.localtime(appointment.starts_at, tz)
+    local_end = timezone.localtime(appointment.ends_at, tz)
+    appointment_last_day = (local_end - timedelta(microseconds=1)).date()
+    first_day = max(closure.date_from, local_start.date())
+    last_day = min(closure.date_to, appointment_last_day)
+    if first_day > last_day:
+        return False
+
+    day = first_day
+    while day <= last_day:
+        if closure.start_time and closure.end_time:
+            closure_start = datetime.combine(day, closure.start_time, tzinfo=tz)
+            closure_end = datetime.combine(day, closure.end_time, tzinfo=tz)
+        else:
+            closure_start = datetime.combine(day, time.min, tzinfo=tz)
+            closure_end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz)
+        if appointment.starts_at < closure_end and appointment.ends_at > closure_start:
+            return True
+        day += timedelta(days=1)
+    return False
+
+
+def _validate_availability_keeps_confirmed_appointments(rule):
+    active_rules = list(
+        AvailabilityRule.objects.filter(business=rule.business, is_active=True)
+        .exclude(pk=rule.pk)
+        .order_by("weekday", "start_time", "pk")
+    )
+    if rule.is_active:
+        active_rules.append(rule)
+
+    appointments = _pending_confirmed_appointments(rule.business)
+    uncovered = next(
+        (
+            appointment
+            for appointment in appointments
+            if not _appointment_is_covered_by_rules(appointment, active_rules)
+        ),
+        None,
+    )
+    if uncovered is None:
+        return
+
+    tz = ZoneInfo(settings.TIME_ZONE)
+    local_start = timezone.localtime(uncovered.starts_at, tz)
+    raise ValidationError(
+        "No puedes guardar este horario porque la cita confirmada del "
+        f"{local_start:%d/%m/%Y a las %H:%M} quedaría fuera de todos los tramos activos."
+    )
+
+
+def _appointment_is_covered_by_rules(appointment, rules):
+    tz = ZoneInfo(settings.TIME_ZONE)
+    local_start = timezone.localtime(appointment.starts_at, tz)
+    local_end = timezone.localtime(appointment.ends_at, tz)
+    if local_start.date() != local_end.date():
+        return False
+
+    starts_at = local_start.time().replace(tzinfo=None)
+    ends_at = local_end.time().replace(tzinfo=None)
+    cursor = starts_at
+    for rule in sorted(
+        (rule for rule in rules if rule.weekday == local_start.weekday()),
+        key=lambda item: (item.start_time, item.end_time, item.pk or 0),
+    ):
+        if rule.end_time <= cursor:
+            continue
+        if rule.start_time > cursor:
+            return False
+        cursor = max(cursor, rule.end_time)
+        if cursor >= ends_at:
+            return True
+    return False
+
+
 def _work_line_has_future_confirmed_appointments(line):
     return line.appointments.filter(
         status=Appointment.Status.CONFIRMED,
-        starts_at__gte=timezone.now(),
+        ends_at__gt=timezone.now(),
     ).exists()
 
 
@@ -1386,7 +1708,14 @@ def _confirm_professional_appointment(request, business, form):
     )
 
 
-def _confirm_public_appointment(business, client_access, business_client, form):
+def _confirm_public_appointment(
+    business,
+    client_access,
+    business_client,
+    form,
+    *,
+    locked_calendar,
+):
     grant = client_access.booking_grants.filter(
         business_client=business_client,
         is_active=True,
@@ -1407,7 +1736,9 @@ def _confirm_public_appointment(business, client_access, business_client, form):
                 if grant
                 else "Es su propia ficha"
             ),
-        )
+        ),
+        locked_calendar=locked_calendar,
+        allow_line_reassignment=True,
     )
 
 
@@ -1470,6 +1801,8 @@ def _appointment_assistant_url_with_client(data, business_client_id):
         "target_date",
         "adjusted_duration_minutes",
         "duration_adjustment_reason",
+        "selected_work_line_id",
+        "selected_starts_at",
     ):
         value = (data.get(field_name) or "").strip()
         if value:

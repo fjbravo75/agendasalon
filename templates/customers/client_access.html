@@ -1,22 +1,29 @@
 {% extends "base.html" %}
 
-{% block title %}Reservar en {{ business.commercial_name }} - AgendaSalon{% endblock %}
+{% block title %}{% if account_only %}Cuenta cliente en {{ business.commercial_name }}{% else %}Reservar en {{ business.commercial_name }}{% endif %} - AgendaSalon{% endblock %}
 {% block body_class %}login-body client-auth-body{% endblock %}
 
 {% block content %}
   <div class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--client-auth-bg: url('{{ client_auth_image_url }}');"{% endif %}>
     <section class="login-shell client-auth-shell">
       <div class="login-topbar" aria-label="Cabecera">
-        <a class="login-brand" href="{% url 'public_booking' business.slug %}">
+        <a class="login-brand" href="{% if account_only %}{% url 'legal:business_privacy' business.slug %}{% else %}{% url 'public_booking' business.slug %}{% endif %}">
           <strong>{{ business.commercial_name }}</strong>
-          <span>Reserva online con AgendaSalon</span>
+          <span>{% if account_only %}Cuenta y privacidad{% else %}Reserva online con AgendaSalon{% endif %}</span>
         </a>
       </div>
 
       <div class="client-auth-content">
         <div class="login-hero-copy client-auth-copy">
           <div class="client-auth-business-signal">Zona cliente de {{ business.commercial_name }}</div>
-          {% if has_pending_booking %}
+          {% if account_only %}
+            <h1 aria-label="Tu cuenta sigue disponible.">Tu cuenta sigue<br>disponible.</h1>
+            <p>
+              {{ business.commercial_name }} no admite reservas online ahora mismo,
+              pero puedes entrar para consultar la información de privacidad y
+              ejercer tus derechos sobre los datos de tu cuenta.
+            </p>
+          {% elif has_pending_booking %}
             <h1 aria-label="Tu hora sigue preparada.">Tu hora sigue<br>preparada.</h1>
             <p>
               Entra con tu cuenta de cliente para revisar los servicios y la
@@ -31,16 +38,22 @@
             </p>
           {% endif %}
           <div class="login-proof-line" aria-label="Ventajas para el cliente">
-            <span>Tus datos guardados</span>
-            <span>Citas en tu historial</span>
-            <span>Reserva más rápida</span>
+            {% if account_only %}
+              <span>Cuenta segura</span>
+              <span>Privacidad clara</span>
+              <span>Ejercicio de derechos</span>
+            {% else %}
+              <span>Tus datos guardados</span>
+              <span>Citas en tu historial</span>
+              <span>Reserva más rápida</span>
+            {% endif %}
           </div>
         </div>
 
         <aside class="login-panel client-auth-panel" aria-label="Acceso cliente">
           <div class="login-panel__inner">
             <div class="client-auth-panel-context">{{ business.commercial_name }}</div>
-            <h2 class="visually-hidden">Entrar para reservar</h2>
+            <h2 class="visually-hidden">{% if account_only %}Entrar en cuenta y privacidad{% else %}Entrar para reservar{% endif %}</h2>
             <form method="post" class="login-form-stack" novalidate>
               {% csrf_token %}
               <input type="hidden" name="next" value="{{ next_url }}">
@@ -51,11 +64,12 @@
                 </div>
               {% endif %}
 
-              <div class="login-field{% if login_form.phone.errors %} is-error{% endif %}">
-                <label for="{{ login_form.phone.id_for_label }}">TELÉFONO</label>
-                {{ login_form.phone }}
-                {% if login_form.phone.errors %}
-                  <div class="login-field-error" role="alert">{{ login_form.phone.errors }}</div>
+              <div class="login-field{% if login_form.identifier.errors %} is-error{% endif %}">
+                <label for="{{ login_form.identifier.id_for_label }}">CORREO ELECTRÓNICO O TELÉFONO</label>
+                {{ login_form.identifier }}
+                <small>Usa preferentemente el correo que verificaste al crear la cuenta.</small>
+                {% if login_form.identifier.errors %}
+                  <div class="login-field-error" role="alert">{{ login_form.identifier.errors }}</div>
                 {% endif %}
               </div>
 
@@ -67,12 +81,17 @@
                 {% endif %}
               </div>
 
-              <button class="login-button" type="submit">{% if has_pending_booking %}Entrar y revisar reserva{% else %}Entrar en mi cuenta{% endif %}</button>
+              <button class="login-button" type="submit">{% if account_only %}Entrar en mi cuenta{% elif has_pending_booking %}Entrar y revisar reserva{% else %}Entrar en mi cuenta{% endif %}</button>
             </form>
             <div class="login-panel-note client-auth-note">
-              ¿Todavía no tienes cuenta de cliente?
-              <a href="{% url 'customers:client_register' business.slug %}?next={{ next_url|urlencode }}">Créala en un momento</a>.
+              <a href="{% url 'customers:client_password_reset_request' business.slug %}">He olvidado mi contraseña</a>
             </div>
+            {% if not account_only %}
+              <div class="login-panel-note client-auth-note">
+                ¿Todavía no tienes cuenta de cliente?
+                <a href="{% url 'customers:client_register' business.slug %}?next={{ next_url|urlencode }}">Créala en un momento</a>.
+              </div>
+            {% endif %}
           </div>
         </aside>
       </div>

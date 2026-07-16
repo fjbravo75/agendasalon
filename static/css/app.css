@@ -3497,6 +3497,17 @@ a {
   min-width: 0;
 }
 
+[data-appointment-results-current][hidden],
+[data-appointment-results-stale][hidden] {
+  display: none !important;
+}
+
+[data-appointment-results-current]:not([hidden]) {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
 .decision-strip,
 .preview-band,
 .availability-month,
@@ -7670,6 +7681,10 @@ a {
   font-weight: 750;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.client-auth-panel .legal-consent a {
+  color: #9fe6d8;
 }
 
 .client-privacy-control {

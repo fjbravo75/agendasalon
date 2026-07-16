@@ -239,7 +239,7 @@ class SuperadminBusinessManagementTests(TestCase):
             ).exists()
         )
 
-    def test_public_booking_toggle_disables_business_public_routes(self):
+    def test_public_booking_toggle_keeps_existing_client_account_available(self):
         self.client.force_login(self.superadmin)
         response = self.client.post(
             reverse("businesses:superadmin_public_booking_toggle", args=[self.business.id])
@@ -254,8 +254,15 @@ class SuperadminBusinessManagementTests(TestCase):
             self.client.get(reverse("public_booking", args=[self.business.slug])).status_code,
             404,
         )
+        account_page = self.client.get(
+            reverse("customers:client_access", args=[self.business.slug])
+        )
+        self.assertEqual(account_page.status_code, 200)
+        self.assertContains(account_page, "Cuenta y privacidad")
         self.assertEqual(
-            self.client.get(reverse("customers:client_access", args=[self.business.slug])).status_code,
+            self.client.get(
+                reverse("customers:client_register", args=[self.business.slug])
+            ).status_code,
             404,
         )
 
