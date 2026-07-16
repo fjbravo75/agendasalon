@@ -706,6 +706,7 @@ class DemoSeeder:
 
     def _create_holidays_and_closures(self):
         holiday_date = self.base_date + timedelta(days=4)
+        calendar_loaded_at = timezone.now()
         OfficialHoliday.objects.filter(date=holiday_date, name="Festivo nacional demo").delete()
         HolidaySyncRun.objects.filter(year=holiday_date.year, source_name="Datos demo AgendaSalon").delete()
         _update_first_or_create(
@@ -731,8 +732,8 @@ class DemoSeeder:
             {
                 "source_url": "",
                 "status": HolidaySyncRun.Status.SUCCESS,
-                "started_at": _at(holiday_date - timedelta(days=1), time(8, 0)),
-                "finished_at": _at(holiday_date - timedelta(days=1), time(8, 1)),
+                "started_at": self.activity_anchor,
+                "finished_at": calendar_loaded_at,
                 "items_loaded": 1,
                 "error_detail": "",
                 "created_by": self.superadmin,

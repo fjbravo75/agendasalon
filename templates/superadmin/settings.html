@@ -135,7 +135,7 @@
             {{ latest_holiday_run.get_status_display }}
           </span>
         {% else %}
-          <span class="settings-state">Sin actualizar</span>
+          <span class="settings-state">Sin sincronizar</span>
         {% endif %}
       </div>
 
@@ -156,12 +156,12 @@
           <button class="button" type="submit">Sincronizar con BOE</button>
         </form>
 
-        <div class="holiday-sync-summary" aria-label="Resultado de la última actualización de {{ holiday_year }}">
+        <div class="holiday-sync-summary" aria-label="Resultado de la última sincronización con el BOE de {{ holiday_year }}">
           {% if latest_holiday_run %}
             <div class="holiday-sync-summary__header">
               <div>
-                <span>Última actualización de {{ holiday_year }}</span>
-                <strong>{{ latest_holiday_run.started_at|date:"d/m/Y H:i" }}</strong>
+                <span>Última sincronización con el BOE de {{ holiday_year }}</span>
+                <strong>{{ latest_holiday_run.finished_at|default:latest_holiday_run.started_at|date:"d/m/Y H:i" }}</strong>
               </div>
               {% if latest_holiday_run.source_url %}
                 <a href="{{ latest_holiday_run.source_url }}" target="_blank" rel="noopener noreferrer">
@@ -186,7 +186,7 @@
               </div>
             {% endif %}
           {% else %}
-            <div class="empty">Todavía no hay una actualización registrada para {{ holiday_year }}.</div>
+            <div class="empty">Todavía no hay una sincronización con el BOE registrada para {{ holiday_year }}.</div>
           {% endif %}
         </div>
       </div>
