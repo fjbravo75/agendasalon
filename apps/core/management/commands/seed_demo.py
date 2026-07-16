@@ -125,7 +125,7 @@ class DemoSeeder:
         self.lines = self._create_work_lines()
         self.clients = self._create_clients()
         self._create_client_accesses()
-        self._create_family_booking_demo()
+        self._create_representative_booking_demo()
         self._create_holidays_and_closures()
         appointments = self._create_appointments()
         self._create_notifications(appointments)
@@ -393,8 +393,17 @@ class DemoSeeder:
             "maria": self._upsert_client("María López", "600111201", "Prefiere citas por la mañana."),
             "lucia": self._upsert_client("Lucía Gómez", "600111202", "Suele reservar varios servicios en la misma visita."),
             "carmen": self._upsert_client("Carmen Ruiz", "600111203", "Agradece confirmar la duración antes de cerrar la cita."),
-            "ana": self._upsert_client("Ana Torres", "600111204", "Prefiere las primeras horas de la tarde."),
+            "daniel": self._upsert_client(
+                "Daniel Vega",
+                "600111204",
+                "Cuidador habitual de Rosa Martín; también acude como cliente.",
+            ),
             "rosa": self._upsert_client("Rosa Martín", "600111205", "Suele pedir cita por teléfono."),
+            "lucas": self._upsert_client(
+                "Lucas López",
+                "",
+                "Menor. Su madre, María López, gestiona sus citas.",
+            ),
         }
         self._upsert_authorized_contact(
             client=clients["lucia"],
@@ -407,11 +416,18 @@ class DemoSeeder:
 
     def _upsert_client(self, full_name, phone, internal_notes, business=None):
         business = business or self.business
-        client = BusinessClient.objects.filter(
-            business=business,
-            full_name_normalized=normalize_search_text(full_name),
-            phone_normalized=normalize_phone(phone),
-        ).first()
+        client_query = BusinessClient.objects.filter(business=business)
+        if phone:
+            # Los teléfonos de la semilla son identificadores estables del
+            # escenario. Esto permite corregir el nombre ficticio de una
+            # persona sin dejar una ficha antigua duplicada en la demo.
+            client_query = client_query.filter(phone_normalized=normalize_phone(phone))
+        else:
+            client_query = client_query.filter(
+                full_name_normalized=normalize_search_text(full_name),
+                phone_normalized="",
+            )
+        client = client_query.first()
         if client is None:
             client = BusinessClient(business=business)
         client.business = business
@@ -449,6 +465,7 @@ class DemoSeeder:
     def _create_client_accesses(self):
         self._upsert_client_access(self.clients["maria"])
         self._upsert_client_access(self.clients["lucia"])
+        self._upsert_client_access(self.clients["daniel"])
 
     def _create_legal_demo(self):
         profiles = (
@@ -526,31 +543,74 @@ class DemoSeeder:
                 evidence.full_clean()
                 evidence.save()
 
-    def _create_family_booking_demo(self):
+    def _create_representative_booking_demo(self):
+        self._upsert_online_representative(
+            beneficiary=self.clients["lucas"],
+            representative=self.clients["maria"],
+            relationship=BusinessClientAuthorizedContact.Relationship.MOTHER,
+            notes="Su madre gestiona las citas presenciales, telefónicas y online.",
+        )
+        self._upsert_online_representative(
+            beneficiary=self.clients["rosa"],
+            representative=self.clients["daniel"],
+            relationship=BusinessClientAuthorizedContact.Relationship.CAREGIVER,
+            notes="Su cuidador habitual puede pedir y reservar citas en su nombre.",
+        )
+
+    def _upsert_online_representative(
+        self,
+        *,
+        beneficiary,
+        representative,
+        relationship,
+        notes,
+    ):
         access = BusinessClientAccess.objects.get(
             business=self.business,
-            business_client=self.clients["maria"],
+            business_client=representative,
         )
-        contact = self._upsert_authorized_contact(
-            client=self.clients["rosa"],
-            full_name=self.clients["maria"].full_name,
-            phone=access.phone,
-            relationship=BusinessClientAuthorizedContact.Relationship.FAMILY,
-            is_primary=True,
-        )
-        contact.linked_business_client = self.clients["maria"]
+        contact = beneficiary.authorized_contacts.filter(
+            linked_business_client=representative,
+        ).first()
+        if contact is None:
+            # Rosa ya tenía un supuesto genérico en versiones anteriores de la
+            # demo. Se reutiliza ese registro para convertirlo en un caso real
+            # y no dejar dos historias incompatibles en producción.
+            contact = beneficiary.authorized_contacts.filter(is_primary_contact=True).first()
+        if contact is None:
+            contact = BusinessClientAuthorizedContact(
+                business=self.business,
+                business_client=beneficiary,
+            )
+        contact.linked_business_client = representative
+        contact.full_name = representative.full_name
+        contact.phone = representative.phone
+        contact.relationship_label = relationship
+        contact.is_primary_contact = True
+        contact.is_active = True
+        contact.notes = notes
         contact.full_clean()
-        contact.save(update_fields=["linked_business_client", "full_name", "phone", "phone_normalized", "updated_at"])
-        grant, _ = BusinessClientAccessGrant.objects.update_or_create(
-            access=access,
-            business_client=self.clients["rosa"],
-            defaults={
-                "business": self.business,
-                "authorized_contact": contact,
-                "relationship_label": BusinessClientAccessGrant.Relationship.FAMILY,
-                "is_active": True,
-            },
-        )
+        contact.save()
+
+        grant = BusinessClientAccessGrant.objects.filter(
+            business=self.business,
+            business_client=beneficiary,
+            authorized_contact=contact,
+        ).first()
+        if grant is None:
+            grant = BusinessClientAccessGrant.objects.filter(
+                business=self.business,
+                business_client=beneficiary,
+            ).exclude(relationship_label=BusinessClientAccessGrant.Relationship.SELF).first()
+        if grant is None:
+            grant = BusinessClientAccessGrant(
+                business=self.business,
+                business_client=beneficiary,
+            )
+        grant.access = access
+        grant.authorized_contact = contact
+        grant.relationship_label = relationship
+        grant.is_active = True
         grant.full_clean()
         grant.save()
 
@@ -783,7 +843,23 @@ class DemoSeeder:
                 start_at=_at(self.base_date, time(9, 0)),
                 minutes=30,
                 services=[self.services["Corte"]],
-                channel=Appointment.ManualChannel.FRONT_DESK,
+                channel=Appointment.ManualChannel.PUBLIC_WEB,
+                requested_by_client_access=self.clients["maria"].access,
+                requested_by_name=self.clients["maria"].full_name,
+                requested_by_relationship=BusinessClientAccessGrant.Relationship.SELF.label,
+            )
+        )
+        appointments.append(
+            self._upsert_appointment(
+                client=self.clients["lucas"],
+                line=self.lines[2],
+                start_at=_at(self.base_date, time(9, 0)),
+                minutes=30,
+                services=[self.services["Corte"]],
+                channel=Appointment.ManualChannel.PUBLIC_WEB,
+                requested_by_client_access=self.clients["maria"].access,
+                requested_by_name=self.clients["maria"].full_name,
+                requested_by_relationship=BusinessClientAccessGrant.Relationship.MOTHER.label,
             )
         )
         appointments.append(
@@ -814,7 +890,7 @@ class DemoSeeder:
         )
         appointments.append(
             self._upsert_appointment(
-                client=self.clients["ana"],
+                client=self.clients["daniel"],
                 line=self.lines[1],
                 start_at=_at(self.base_date + timedelta(days=1), time(11, 0)),
                 minutes=30,
@@ -831,8 +907,11 @@ class DemoSeeder:
                 start_at=_at(self.base_date + timedelta(days=1), time(16, 0)),
                 minutes=45,
                 services=[self.services["Corte"]],
-                channel=Appointment.ManualChannel.PHONE,
-                duration_adjustment_reason="Margen extra acordado durante la llamada.",
+                channel=Appointment.ManualChannel.PUBLIC_WEB,
+                duration_adjustment_reason="Margen extra previsto por las necesidades de la clienta.",
+                requested_by_client_access=self.clients["daniel"].access,
+                requested_by_name=self.clients["daniel"].full_name,
+                requested_by_relationship=BusinessClientAccessGrant.Relationship.CAREGIVER.label,
             )
         )
         appointments.append(
@@ -875,14 +954,14 @@ class DemoSeeder:
     def _create_no_capacity_appointments(self):
         day = self.no_capacity_date
         definitions = [
-            (1, "ana", time(9, 0), 150, ["Tinte", "Tratamiento hidratante"]),
+            (1, "daniel", time(9, 0), 150, ["Tinte", "Tratamiento hidratante"]),
             (1, "rosa", time(12, 0), 120, ["Tinte", "Corte"]),
             (1, "maria", time(16, 0), 120, ["Tinte", "Corte"]),
             (1, "lucia", time(18, 30), 90, ["Tinte"]),
             (2, "carmen", time(9, 0), 90, ["Tinte"]),
             (2, "maria", time(11, 0), 120, ["Tinte", "Corte"]),
             (2, "lucia", time(13, 30), 30, ["Corte"]),
-            (2, "ana", time(16, 0), 105, ["Tratamiento hidratante", "Peinado"]),
+            (2, "daniel", time(16, 0), 105, ["Tratamiento hidratante", "Peinado"]),
             (2, "rosa", time(18, 15), 105, ["Tratamiento hidratante", "Peinado"]),
             (3, "carmen", time(9, 0), 180, ["Lavado", "Tinte", "Corte", "Peinado"]),
             (3, "maria", time(16, 0), 180, ["Lavado", "Tinte", "Corte", "Peinado"]),
@@ -919,6 +998,9 @@ class DemoSeeder:
         completed=False,
         no_show=False,
         summary="",
+        requested_by_client_access=None,
+        requested_by_name="",
+        requested_by_relationship="",
     ):
         business = business or self.business
         created_by = created_by or self.professional
@@ -940,6 +1022,9 @@ class DemoSeeder:
         appointment.status = status
         appointment.manual_channel = channel
         appointment.created_by = created_by
+        appointment.requested_by_client_access = requested_by_client_access
+        appointment.requested_by_name_snapshot = requested_by_name
+        appointment.requested_by_relationship_snapshot = requested_by_relationship
         appointment.duration_adjustment_reason = duration_adjustment_reason
         appointment.cancellation_reason = cancellation_reason
         appointment.service_summary_snapshot = summary or " + ".join(service.name for service in services)
