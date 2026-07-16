@@ -57,13 +57,19 @@ cuentas:
 | Superadministrador | `+34910000001` |
 | Profesional de Peluquería Mari | `+34600111001` |
 | Profesional de Barbería Norte | `+34600222001` |
-| Cliente de Peluquería Mari | `600111201` |
+| María López · madre que reserva para Lucas | `600111201` |
+| Lucía Gómez · cliente con cuenta propia | `600111202` |
+| Daniel Vega · cuidador que reserva para Rosa | `600111204` |
 | Cliente de Barbería Norte | `600222201` |
 
 Son credenciales exclusivamente demostrativas y no deben reutilizarse en un
 despliegue real. Cada ejecución de `seed_demo` restaura estas credenciales y
 elimina cualquier cambio de contraseña obligatorio de las cuentas internas de
 demostración, para que el escenario académico siga siendo reproducible.
+
+Los personajes, relaciones y citas comprobables de Peluquería Mari se describen
+en [`docs/SUPUESTOS_USO_DEMO.md`](docs/SUPUESTOS_USO_DEMO.md). Son datos
+ficticios preparados para evaluación y no corresponden a personas reales.
 
 ## Estado actual
 
@@ -326,7 +332,7 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La última verificación local deja la batería en 326 pruebas Django, con cinco
+La última verificación local deja la batería en 329 pruebas Django, con cinco
 omisiones exclusivas de PostgreSQL, además de 21 pruebas frontend: 17 unitarias
 y 4 de componentes React. La cobertura con ramas es del 82 % y el umbral automatizado impide bajar
 de ese valor. La matriz de CI ejecuta la batería sobre SQLite y PostgreSQL 17,
@@ -402,8 +408,8 @@ La matriz académica de controles, las evidencias reproducibles y los riesgos
 que deben cerrarse durante el despliegue están reunidos en
 [`docs/SEGURIDAD_Y_PROTECCION_DE_DATOS.md`](docs/SEGURIDAD_Y_PROTECCION_DE_DATOS.md).
 
-La memoria técnica previa al despliegue, con capturas y diagramas basados en la
-aplicación real, está disponible en
+La memoria técnica desplegada, con casos de uso, capturas y diagramas basados en
+la aplicación real, está disponible en
 [`docs/memoria/Memoria_tecnica_AgendaSalon.docx`](docs/memoria/Memoria_tecnica_AgendaSalon.docx).
 
 ## Calendario nacional BOE

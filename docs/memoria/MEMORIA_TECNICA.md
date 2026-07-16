@@ -7,7 +7,7 @@
 **Alumno:** Fran Bravo
 
 **Fecha:** julio de 2026
-**Estado del documento:** versión técnica previa al despliegue público
+**Estado del documento:** versión técnica desplegada y verificable
 
 ---
 
@@ -17,7 +17,7 @@ AgendaSalon es una aplicación web multiempresa para organizar citas en salones 
 
 La solución concentra en una misma plataforma la agenda profesional, la reserva online, la gestión de clientes, los servicios, los horarios, las líneas de trabajo y la supervisión de los negocios asociados. El producto aplica un enfoque **Django-first**: Django gobierna la autenticación, los permisos, las reglas de negocio y la persistencia, mientras que React se utiliza de manera contenida en dos vistas con alta densidad de interacción: la agenda profesional y el dashboard del superadministrador.
 
-El resultado implementado incluye aislamiento por negocio, acceso profesional por teléfono, cuentas de cliente separadas por salón, motor de disponibilidad, reservas manuales y online, revalidación de huecos, trazabilidad operativa, personalización visual, modo oscuro y medidas específicas de seguridad. La versión descrita se encuentra preparada para el despliegue, pero todavía no se presenta como desplegada: la URL pública, HTTPS real, PostgreSQL operativo y las copias externas deberán verificarse antes de la entrega final.
+El resultado implementado incluye aislamiento por negocio, acceso profesional por teléfono, cuentas de cliente separadas por salón, motor de disponibilidad, reservas manuales y online, revalidación de huecos, trazabilidad operativa, personalización visual, modo oscuro y medidas específicas de seguridad. La demostración académica está desplegada en una URL pública con HTTPS, PostgreSQL, Gunicorn, Nginx, correo transaccional y copias locales verificadas. El destino externo cifrado de las copias permanece identificado como riesgo residual y no se presenta como resuelto.
 
 ## 1. Introducción
 
@@ -121,19 +121,57 @@ El visitante consulta primero y se identifica después. De este modo no se oblig
 
 **Figura 1.** Flujo de reserva pública con revalidación antes de confirmar.
 
-### 6.3 Cerrar una cita pasada
+### 6.3 Reservar para otra persona: familia y cuidados
+
+AgendaSalon separa la ficha de la persona atendida, la cuenta que entra por
+internet y el permiso para reservar en nombre de otra persona. Esta decisión
+evita que dos clientes compartan historial solo porque utilizan el mismo
+teléfono o porque uno de ellos depende de otra persona para organizarse.
+
+#### 6.3.1 María y Lucas: madre e hijo
+
+María López tiene ficha propia y cuenta online. Su hijo Lucas López tiene otra
+ficha, sin teléfono propio y sin cuenta digital. La ficha de Lucas muestra a
+María como madre y persona autorizada para reservar online.
+
+La semilla de Peluquería Mari crea dos cortes a la misma hora del lunes de
+demostración: María ocupa una línea de trabajo y Lucas otra. Son dos citas y dos
+historiales distintos. La cita de Lucas conserva además que fue solicitada por
+María en calidad de madre. Cuando María entra en la reserva pública, el selector
+`¿Para quién es la cita?` solo le ofrece su propia ficha y la de Lucas.
+
+#### 6.3.2 Daniel y Rosa: cuidador y persona atendida
+
+Daniel Vega es cliente del salón, dispone de cuenta online y figura como
+cuidador autorizado de Rosa Martín. Rosa conserva su propia ficha y no necesita
+usuario ni contraseña. La cita sembrada de Rosa queda en su historial, pero el
+detalle profesional identifica a Daniel como la persona que realizó la reserva.
+
+#### 6.3.3 Ana y Lucía: autorización solo presencial o telefónica
+
+La ficha de Lucía Gómez conserva a Ana Gómez como madre y contacto externo. Ana
+puede pedir una cita por teléfono o en el establecimiento, pero no aparece en la
+reserva online porque no tiene una ficha vinculada ni una cuenta activa. Este
+tercer supuesto demuestra que guardar un contacto no concede acceso digital de
+forma automática.
+
+Los tres casos utilizan datos ficticios reproducibles. El servidor comprueba el
+permiso al mostrar las fichas disponibles y vuelve a validarlo antes de crear la
+cita. Una autorización solo funciona dentro del negocio que la concedió.
+
+### 6.4 Cerrar una cita pasada
 
 El sistema no presupone que una cita fue atendida solo porque terminó su hora. La cita aparece como pendiente de cierre y el profesional registra uno de los resultados admitidos: atendida o no presentada. Esta decisión conserva la realidad operativa y evita datos falsos.
 
-### 6.4 Configurar el negocio
+### 6.5 Configurar el negocio
 
 El profesional puede gestionar servicios, duración, precio, color, horarios, cierres, líneas de trabajo, tema visual e imagen pública. Los colores se eligen mediante una paleta visual. Las imágenes públicas pueden seleccionarse entre dos fondos del sistema o entre los archivos que haya subido el propio negocio.
 
-### 6.5 Supervisar la plataforma
+### 6.6 Supervisar la plataforma
 
 El superadministrador consulta negocios operativos, configuración pendiente, reserva online, accesos y actividad registrada. Puede crear, editar, pausar o reactivar un negocio, pero no crea reservas en su nombre ni entra libremente en el panel profesional.
 
-### 6.6 Solicitar el alta de un nuevo negocio
+### 6.7 Solicitar el alta de un nuevo negocio
 
 Un profesional sin cuenta accede desde el propio login a un formulario breve. La plataforma registra los datos mínimos, la información de privacidad leída y el canal de contacto, pero no crea una cuenta. El superadministrador revisa la solicitud y, cuando confirma el alta, reutiliza el formulario transaccional de negocio y primer profesional. El contacto privado no se publica por defecto.
 
@@ -145,7 +183,7 @@ Un profesional sin cuenta accede desde el propio login a un formulario breve. La
 | React 19 | Agenda y dashboard de plataforma | Interacción rica en superficies concretas |
 | Vite | Compilación del frontend React | Construcción rápida y salida estática controlada |
 | SQLite | Desarrollo local | Simplicidad y reproducibilidad |
-| PostgreSQL | Producción prevista | Concurrencia, bloqueos y operación robusta |
+| PostgreSQL | Producción activa | Concurrencia, bloqueos y operación robusta |
 | Pillow | Tratamiento de imágenes | Verificación, orientación y recodificación segura |
 | Argon2 | Hashing de contraseñas | Algoritmo resistente y preferente en la configuración |
 | Git y GitHub | Historial y entrega de código | Trazabilidad progresiva y repositorio evaluable |
@@ -157,7 +195,7 @@ AgendaSalon utiliza una arquitectura web monolítica modular. Cada aplicación D
 
 ![Arquitectura general](diagramas/01_arquitectura_general.png)
 
-**Figura 2.** Arquitectura general implementada y componentes previstos para producción.
+**Figura 2.** Arquitectura general implementada y verificada en producción.
 
 ### 8.1 Decisión Django-first
 
@@ -183,6 +221,8 @@ Entre las entidades más relevantes se encuentran:
 - `Business`: identidad, estado, reserva pública y apariencia.
 - `BusinessMembership`: relación entre usuario profesional y negocio.
 - `BusinessClient` y `BusinessClientAccess`: ficha y cuenta online del cliente.
+- `BusinessClientAuthorizedContact` y `BusinessClientAccessGrant`: persona
+  autorizada y permiso explícito para reservar para una ficha concreta.
 - `Service`: duración, precio, color y estado del servicio.
 - `AvailabilityRule`, `BusinessClosure` y `WorkLine`: capacidad de la agenda.
 - `Appointment` y `AppointmentService`: cita y copia histórica de sus servicios.
@@ -201,7 +241,7 @@ Entre las entidades más relevantes se encuentran:
 
 ![Resumen profesional](capturas/02_resumen_profesional.png)
 
-**Figura 5.** Resumen operativo en modo oscuro con citas pendientes de cierre, métricas y próximas decisiones.
+**Figura 5.** Resumen operativo con citas pendientes de cierre, métricas y próximas decisiones.
 
 ### 10.3 Agenda React
 
@@ -225,6 +265,11 @@ Tras confirmar, el cliente llega a un justificante con negocio, fecha, hora,
 servicios, duración, precio y estado del correo. El justificante exige la misma
 cuenta cliente, queda aislado por negocio y puede recargarse durante una hora.
 No expone un historial completo ni citas de otras personas.
+
+Si la cuenta dispone de permisos sobre varias fichas, la revisión muestra
+`¿Para quién es la cita?`. El selector solo incluye la ficha propia y las
+personas autorizadas por el negocio. La cita se guarda siempre en el historial
+de quien recibe el servicio y conserva quién la solicitó y con qué relación.
 
 ### 10.6 Administración de la plataforma
 
@@ -306,7 +351,7 @@ Producción exige secreto, hosts, orígenes CSRF y PostgreSQL mediante variables
 
 La verificación actual incluye:
 
-- 326 pruebas Django, con cinco pruebas exclusivas de PostgreSQL omitidas cuando
+- 329 pruebas Django, con cinco pruebas exclusivas de PostgreSQL omitidas cuando
   ese motor no está disponible localmente.
 - 21 pruebas frontend: 17 unitarias y 4 de componentes React.
 - Compilación Vite de producción.
@@ -369,6 +414,10 @@ Durante el desarrollo se han utilizado herramientas de inteligencia artificial c
 - Incorporar monitorización y alertas de disponibilidad.
 - Medir tiempos de reserva y reducción de interrupciones con usuarios reales.
 - Ampliar permisos profesionales si un negocio necesita varios roles internos.
+- Permitir, en una evolución comercial, que una cuenta solicite al negocio el
+  alta de una persona dependiente sin crearla unilateralmente.
+- Incorporar una confirmación múltiple para familias sin mezclar las citas ni
+  los historiales de cada persona.
 
 ## 18. Conclusiones
 
@@ -397,7 +446,9 @@ gitleaks git --log-opts="--all"
 | Resumen profesional | `/profesional/` |
 | Agenda React | `/profesional/agenda/` |
 | Nueva cita | `/profesional/citas/nueva/` |
+| Clientes | `/clientes/profesional/` |
 | Ajustes | `/profesional/ajustes/` |
+| Acceso cliente de Peluquería Mari | `/clientes/peluqueria-mari/entrar/` |
 | Reserva de Peluquería Mari | `/reservar/peluqueria-mari/` |
 | Reserva de Barbería Norte | `/reservar/barberia-norte/` |
 | Dashboard de plataforma | `/superadmin/dashboard/` |

@@ -19,7 +19,12 @@ from apps.booking.models import (
 )
 from apps.booking.slot_engine import get_day_availability, suggest_next_slots
 from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
-from apps.customers.models import BusinessClient, BusinessClientAccess, BusinessClientAuthorizedContact
+from apps.customers.models import (
+    BusinessClient,
+    BusinessClientAccess,
+    BusinessClientAccessGrant,
+    BusinessClientAuthorizedContact,
+)
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 from apps.notifications.models import InternalNotification
 
@@ -67,9 +72,9 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(Service.objects.filter(business=barberia, is_active=True).count(), 5)
         self.assertEqual(AvailabilityRule.objects.filter(business=business, is_active=True).count(), 11)
         self.assertEqual(AvailabilityRule.objects.filter(business=barberia, is_active=True).count(), 11)
-        self.assertEqual(BusinessClient.objects.filter(business=business).count(), 5)
+        self.assertEqual(BusinessClient.objects.filter(business=business).count(), 6)
         self.assertEqual(BusinessClient.objects.filter(business=barberia).count(), 2)
-        self.assertEqual(BusinessClientAccess.objects.filter(business=business).count(), 2)
+        self.assertEqual(BusinessClientAccess.objects.filter(business=business).count(), 3)
         self.assertEqual(BusinessClientAccess.objects.filter(business=barberia).count(), 1)
         self.assertTrue(
             all(
@@ -77,7 +82,49 @@ class SeedDemoCommandTests(TestCase):
                 for access in BusinessClientAccess.objects.all()
             )
         )
-        self.assertEqual(BusinessClientAuthorizedContact.objects.filter(business=business).count(), 2)
+        self.assertEqual(BusinessClientAuthorizedContact.objects.filter(business=business).count(), 3)
+        self.assertEqual(BusinessClientAccessGrant.objects.filter(business=business).count(), 5)
+
+        maria = BusinessClient.objects.get(business=business, full_name="María López")
+        lucas = BusinessClient.objects.get(business=business, full_name="Lucas López")
+        daniel = BusinessClient.objects.get(business=business, full_name="Daniel Vega")
+        rosa = BusinessClient.objects.get(business=business, full_name="Rosa Martín")
+        self.assertEqual(lucas.phone, "")
+        self.assertFalse(hasattr(lucas, "access"))
+        mother = lucas.authorized_contacts.get(linked_business_client=maria)
+        self.assertEqual(mother.relationship_label, BusinessClientAuthorizedContact.Relationship.MOTHER)
+        self.assertTrue(
+            BusinessClientAccessGrant.objects.filter(
+                access=maria.access,
+                business_client=lucas,
+                authorized_contact=mother,
+                relationship_label=BusinessClientAccessGrant.Relationship.MOTHER,
+                is_active=True,
+            ).exists()
+        )
+        caregiver = rosa.authorized_contacts.get(linked_business_client=daniel)
+        self.assertEqual(
+            caregiver.relationship_label,
+            BusinessClientAuthorizedContact.Relationship.CAREGIVER,
+        )
+        self.assertTrue(
+            BusinessClientAccessGrant.objects.filter(
+                access=daniel.access,
+                business_client=rosa,
+                authorized_contact=caregiver,
+                relationship_label=BusinessClientAccessGrant.Relationship.CAREGIVER,
+                is_active=True,
+            ).exists()
+        )
+        external_mother = BusinessClientAuthorizedContact.objects.get(
+            business=business,
+            business_client__full_name="Lucía Gómez",
+            full_name="Ana Gómez",
+        )
+        self.assertIsNone(external_mother.linked_business_client)
+        self.assertFalse(
+            BusinessClientAccessGrant.objects.filter(authorized_contact=external_mother).exists()
+        )
         self.assertEqual(BusinessClosure.objects.filter(business=business, is_active=True).count(), 2)
         self.assertEqual(OfficialHoliday.objects.filter(name="Fiesta nacional").count(), 1)
         self.assertEqual(HolidaySyncRun.objects.filter(source_name="Calendario local AgendaSalon").count(), 1)
@@ -126,6 +173,33 @@ class SeedDemoCommandTests(TestCase):
         )
         self.assertEqual(combined.total_duration_minutes, 180)
         self.assertEqual(combined.appointment_services.count(), 4)
+
+        maria_appointment = Appointment.objects.get(
+            business=business,
+            business_client=maria,
+            starts_at=datetime(2026, 7, 6, 9, 0, tzinfo=MADRID),
+        )
+        lucas_appointment = Appointment.objects.get(
+            business=business,
+            business_client=lucas,
+            starts_at=datetime(2026, 7, 6, 9, 0, tzinfo=MADRID),
+        )
+        caregiver_appointment = Appointment.objects.get(
+            business=business,
+            business_client=rosa,
+            starts_at=datetime(2026, 7, 7, 16, 0, tzinfo=MADRID),
+        )
+        self.assertEqual(maria_appointment.requested_by_client_access, maria.access)
+        self.assertEqual(
+            maria_appointment.requested_by_relationship_snapshot,
+            BusinessClientAccessGrant.Relationship.SELF.label,
+        )
+        self.assertEqual(lucas_appointment.requested_by_client_access, maria.access)
+        self.assertEqual(lucas_appointment.requested_by_name_snapshot, "María López")
+        self.assertEqual(lucas_appointment.requested_by_relationship_snapshot, "Madre")
+        self.assertEqual(caregiver_appointment.requested_by_client_access, daniel.access)
+        self.assertEqual(caregiver_appointment.requested_by_name_snapshot, "Daniel Vega")
+        self.assertEqual(caregiver_appointment.requested_by_relationship_snapshot, "Cuidador")
 
         no_capacity = get_day_availability(
             business=business,
