@@ -14,6 +14,9 @@ from django.utils import timezone
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 
 
+BOE_NATIONAL_SOURCE_NAME = "BOE - calendario laboral nacional"
+
+
 class BoeSyncError(Exception):
     """Expected BOE lookup, download or parsing failure."""
 
@@ -227,7 +230,7 @@ def sync_boe_national_holidays(
     sync_service = service or BoeNationalHolidaySyncService()
     run = HolidaySyncRun.objects.create(
         year=target_year,
-        source_name="BOE - calendario laboral nacional",
+        source_name=BOE_NATIONAL_SOURCE_NAME,
         status=HolidaySyncRun.Status.FAILED,
         started_at=timezone.now(),
         created_by=created_by,
@@ -272,6 +275,19 @@ def sync_boe_national_holidays(
         ]
     )
     return OfficialHolidaySyncResult(run=run, resolution=resolution)
+
+
+def latest_boe_national_holiday_run(*, year: int | None = None, at=None):
+    """Return the latest BOE run that has actually started by ``at``."""
+
+    effective_at = at or timezone.now()
+    runs = HolidaySyncRun.objects.filter(
+        source_name=BOE_NATIONAL_SOURCE_NAME,
+        started_at__lte=effective_at,
+    )
+    if year is not None:
+        runs = runs.filter(year=year)
+    return runs.first()
 
 
 def _reconcile_national_holidays(target_year, resolution, holidays):

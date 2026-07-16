@@ -35,8 +35,12 @@ from apps.businesses.services import (
     get_primary_business_for_user,
 )
 from apps.holidays.forms import NationalHolidaySyncForm
-from apps.holidays.models import HolidaySyncRun, OfficialHoliday
-from apps.holidays.services import BoeSyncError, sync_boe_national_holidays
+from apps.holidays.models import OfficialHoliday
+from apps.holidays.services import (
+    BoeSyncError,
+    latest_boe_national_holiday_run,
+    sync_boe_national_holidays,
+)
 from apps.legal.models import LegalAcceptance
 from apps.notifications.services import queue_and_dispatch, queue_professional_activation
 from apps.legal.services import business_legal_status
@@ -600,7 +604,7 @@ def superadmin_platform_settings(request):
             messages.info(request, "No había cambios pendientes en la apariencia.")
         return redirect("platform_settings:superadmin_platform_settings")
 
-    latest_holiday_run = HolidaySyncRun.objects.first()
+    latest_holiday_run = latest_boe_national_holiday_run()
     try:
         holiday_year = int(request.GET.get("holiday_year", ""))
     except (TypeError, ValueError):
@@ -633,7 +637,7 @@ def superadmin_platform_settings(request):
             "holiday_year": holiday_year,
             "holiday_years": holiday_years,
             "national_holidays": national_holidays,
-            "latest_holiday_run": HolidaySyncRun.objects.filter(year=holiday_year).first(),
+            "latest_holiday_run": latest_boe_national_holiday_run(year=holiday_year),
         },
     )
 
