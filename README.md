@@ -106,6 +106,11 @@ confirmación pública termina en un justificante ligado a la sesión, el negoci
 la cuenta cliente, recuperable durante una hora sin convertir el MVP en un panel
 cliente completo.
 
+El mapa mensual de `Nueva cita` conserva la estructura real del calendario:
+semana de lunes a domingo, encabezados visibles y celdas vacías antes y después
+de los días del mes. La cuadrícula mantiene siete columnas también en móvil, con
+densidad adaptada y sin desplazar cada mes a una semana ficticia.
+
 La primera capa JSON para la agenda React profesional está disponible mediante
 dos endpoints de solo lectura. Ambos exigen sesión profesional, resuelven el
 negocio desde la pertenencia activa del usuario y no aceptan un identificador de

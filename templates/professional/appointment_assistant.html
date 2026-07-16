@@ -264,15 +264,35 @@
                 <p>Los días marcados incluyen al menos un hueco completo.</p>
               </header>
 
-              <div class="month-grid">
-                {% for day in month_days %}
-                  <div class="month-day{% if day.date == selected_date %} is-selected{% endif %}{% if day.status == 'available' %} is-available{% elif day.status == 'closed' %} is-closed{% elif day.status == 'past' %} is-past{% endif %}">
-                    <span>{{ day.date|date:"j" }}</span>
-                    {% if day.first_slot %}
-                      <strong>{{ day.first_slot.starts_at|date:"H:i" }}</strong>
-                    {% endif %}
-                  </div>
-                {% endfor %}
+              <div class="month-calendar" aria-label="Calendario de {{ selected_date|date:'F Y' }}">
+                <div class="month-weekdays" aria-hidden="true">
+                  <span><abbr title="Lunes">Lun</abbr></span>
+                  <span><abbr title="Martes">Mar</abbr></span>
+                  <span><abbr title="Miércoles">Mié</abbr></span>
+                  <span><abbr title="Jueves">Jue</abbr></span>
+                  <span><abbr title="Viernes">Vie</abbr></span>
+                  <span class="is-weekend"><abbr title="Sábado">Sáb</abbr></span>
+                  <span class="is-weekend"><abbr title="Domingo">Dom</abbr></span>
+                </div>
+                <div class="month-grid">
+                  {% for _ in month_leading_blanks %}
+                    <span class="month-day month-day--empty month-day--leading" aria-hidden="true"></span>
+                  {% endfor %}
+                  {% for day in month_days %}
+                    <div
+                      class="month-day{% if day.date == selected_date %} is-selected{% endif %}{% if day.status == 'available' %} is-available{% elif day.status == 'closed' %} is-closed{% elif day.status == 'past' %} is-past{% endif %}"
+                      aria-label="{{ day.date|date:'l j F' }}{% if day.first_slot %}. Primer hueco a las {{ day.first_slot.starts_at|date:'H:i' }}{% else %}. Sin hueco completo{% endif %}"
+                    >
+                      <span>{{ day.date|date:"j" }}</span>
+                      {% if day.first_slot %}
+                        <strong>{{ day.first_slot.starts_at|date:"H:i" }}</strong>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                  {% for _ in month_trailing_blanks %}
+                    <span class="month-day month-day--empty month-day--trailing" aria-hidden="true"></span>
+                  {% endfor %}
+                </div>
               </div>
             </section>
 
