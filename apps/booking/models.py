@@ -42,6 +42,27 @@ class BusinessCalendarSettings(models.Model):
             raise ValidationError(
                 {"slot_interval_minutes": "El intervalo debe ser compatible con tramos de 15 minutos."}
             )
+        if self.business_id:
+            incompatible_services = [
+                service
+                for service in Service.objects.filter(
+                    business_id=self.business_id,
+                    is_active=True,
+                )
+                .only("name", "duration_minutes")
+                .order_by("display_order", "name", "pk")
+                if service.duration_minutes % self.slot_interval_minutes != 0
+            ]
+            if incompatible_services:
+                service_names = ", ".join(service.name for service in incompatible_services)
+                raise ValidationError(
+                    {
+                        "slot_interval_minutes": (
+                            f"El intervalo de agenda de {self.slot_interval_minutes} minutos "
+                            f"no es compatible con los servicios activos: {service_names}."
+                        )
+                    }
+                )
 
     def __str__(self):
         return f"Calendario de {self.business}"
@@ -197,9 +218,20 @@ class Service(models.Model):
             return
         if self.duration_minutes <= 0:
             raise ValidationError({"duration_minutes": "La duración debe ser positiva."})
-        if self.duration_minutes % 15 != 0:
+        slot_interval_minutes = 15
+        if self.business_id:
+            try:
+                slot_interval_minutes = self.business.calendar_settings.slot_interval_minutes
+            except BusinessCalendarSettings.DoesNotExist:
+                pass
+        if self.duration_minutes % slot_interval_minutes != 0:
             raise ValidationError(
-                {"duration_minutes": "La duración debe ser compatible con tramos de 15 minutos."}
+                {
+                    "duration_minutes": (
+                        "La duración debe ser compatible con el intervalo de agenda "
+                        f"de {slot_interval_minutes} minutos."
+                    )
+                }
             )
         if self.color_hex and not self.color_hex.startswith("#"):
             raise ValidationError({"color_hex": "El color debe usar formato hexadecimal, por ejemplo #C56B5C."})
@@ -415,6 +447,26 @@ class Appointment(models.Model):
                 condition=models.Q(total_duration_minutes__gt=0),
                 name="appointment_duration_positive",
             ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(status="completada")
+                    | models.Q(
+                        completed_at__isnull=False,
+                        completed_at__gte=models.F("ends_at"),
+                    )
+                ),
+                name="appt_completed_at_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(status="no_presentada")
+                    | models.Q(
+                        no_show_marked_at__isnull=False,
+                        no_show_marked_at__gte=models.F("ends_at"),
+                    )
+                ),
+                name="appt_no_show_at_valid",
+            ),
         ]
         indexes = [
             models.Index(fields=["business", "starts_at"], name="appointment_business_start_idx"),
@@ -441,6 +493,8 @@ class Appointment(models.Model):
         elif self.total_duration_minutes <= 0:
             errors["total_duration_minutes"] = "La duración total debe ser positiva."
         elif self.total_duration_minutes % 15 != 0:
+            # La cita conserva su snapshot histórico aunque el negocio cambie
+            # después la cadencia. La compatibilidad vigente se valida al crearla.
             errors["total_duration_minutes"] = "La duración total debe usar tramos de 15 minutos."
         if self.business_client_id and self.business_id:
             if self.business_client.business_id != self.business_id:
@@ -453,9 +507,20 @@ class Appointment(models.Model):
                 errors["work_line"] = "La línea debe pertenecer al mismo negocio."
             elif not self.work_line.is_active and self.status == self.Status.CONFIRMED:
                 errors["work_line"] = "La línea debe estar activa para citas confirmadas."
-        if self.status in {self.Status.COMPLETED, self.Status.NO_SHOW} and self.starts_at:
-            if self.starts_at > timezone.now():
-                errors["status"] = "Una cita futura no puede cerrarse."
+        if self.status == self.Status.COMPLETED:
+            if self.ends_at and self.ends_at > timezone.now():
+                errors["status"] = "Una cita futura no puede marcarse como atendida."
+            if self.completed_at is None:
+                errors["completed_at"] = "Una cita atendida debe guardar cuándo se cerró."
+            elif self.ends_at and self.completed_at < self.ends_at:
+                errors["completed_at"] = "Una cita no puede marcarse como atendida antes de terminar."
+        if self.status == self.Status.NO_SHOW:
+            if self.ends_at and self.ends_at > timezone.now():
+                errors["status"] = "Una cita futura no puede marcarse como no presentada."
+            if self.no_show_marked_at is None:
+                errors["no_show_marked_at"] = "Una ausencia debe guardar cuándo se registró."
+            elif self.ends_at and self.no_show_marked_at < self.ends_at:
+                errors["no_show_marked_at"] = "Una ausencia no puede registrarse antes de que termine la cita."
 
         if (
             not errors

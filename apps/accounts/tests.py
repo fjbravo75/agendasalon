@@ -2,8 +2,11 @@ import importlib
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
 from django.test import Client, TestCase
 from django.urls import reverse
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 from apps.accounts.forms import PhoneAuthenticationForm
 from apps.businesses.models import Business, BusinessMembership, PlatformSettings
@@ -404,6 +407,70 @@ class AccountSecurityTests(TestCase):
         self.assertRedirects(response, reverse("accounts:security"))
         superadmin.refresh_from_db()
         self.assertTrue(superadmin.check_password(self.new_password))
+
+
+class AccountReadinessFlowTests(TestCase):
+    old_password = "TemporalAgendaSalon2026!"
+    new_password = "CuentaPersonal2026!Segura"
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            normalized_phone="+34600111888",
+            phone="600 111 888",
+            email="profesional@example.com",
+            password=self.old_password,
+            full_name="Profesional con dos pasos pendientes",
+            password_change_required=True,
+            email_verification_required=True,
+        )
+        self.client.force_login(self.user)
+
+    def test_password_then_email_then_original_destination_without_redirect_loop(self):
+        destination = reverse("accounts:no_business")
+        security_url = reverse("accounts:security")
+        email_url = reverse("accounts:email")
+
+        first_gate = self.client.get(destination)
+
+        self.assertEqual(first_gate.status_code, 302)
+        self.assertEqual(first_gate.url, f"{security_url}?next=%2Fcuenta%2Fsin-negocio%2F")
+        self.assertEqual(self.client.get(first_gate.url).status_code, 200)
+
+        password_changed = self.client.post(
+            security_url,
+            {
+                "old_password": self.old_password,
+                "new_password1": self.new_password,
+                "new_password2": self.new_password,
+                "next": destination,
+            },
+        )
+
+        self.assertEqual(password_changed.status_code, 302)
+        self.assertEqual(password_changed.url, destination)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.password_change_required)
+        self.assertTrue(self.user.email_verification_required)
+
+        second_gate = self.client.get(destination)
+
+        self.assertEqual(second_gate.status_code, 302)
+        self.assertEqual(second_gate.url, f"{email_url}?next=%2Fcuenta%2Fsin-negocio%2F")
+        self.assertEqual(self.client.get(second_gate.url).status_code, 200)
+
+        self.user.refresh_from_db()
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+        verified = self.client.get(
+            reverse("accounts:professional_email_verify", args=[uid, token])
+        )
+
+        self.assertEqual(verified.status_code, 302)
+        self.assertEqual(verified.url, destination)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.email_verification_required)
+        self.assertIsNotNone(self.user.email_verified_at)
+        self.assertEqual(self.client.get(destination).status_code, 200)
 
 
 class LogoutFlowTests(TestCase):

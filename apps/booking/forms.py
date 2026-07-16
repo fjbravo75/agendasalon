@@ -4,7 +4,14 @@ from django import forms
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from apps.booking.models import Appointment, AvailabilityRule, BusinessClosure, Service, WorkLine
+from apps.booking.models import (
+    Appointment,
+    AvailabilityRule,
+    BusinessCalendarSettings,
+    BusinessClosure,
+    Service,
+    WorkLine,
+)
 from apps.customers.models import BusinessClient
 
 
@@ -67,6 +74,13 @@ CLOSURE_TYPE_CHOICES = (
 )
 
 
+def _slot_interval_minutes(business):
+    try:
+        return business.calendar_settings.slot_interval_minutes
+    except BusinessCalendarSettings.DoesNotExist:
+        return 15
+
+
 class AppointmentSearchForm(forms.Form):
     business_client = forms.ModelChoiceField(
         label="Cliente",
@@ -111,6 +125,7 @@ class AppointmentSearchForm(forms.Form):
     def __init__(self, *args, business, **kwargs):
         super().__init__(*args, **kwargs)
         self.business = business
+        self.slot_interval_minutes = _slot_interval_minutes(business)
         self.fields["business_client"].queryset = BusinessClient.objects.filter(
             business=business,
             is_active=True,
@@ -125,6 +140,33 @@ class AppointmentSearchForm(forms.Form):
         self.fields["services"].label_from_instance = (
             lambda service: f"{service.name} - {service.duration_minutes} min"
         )
+
+        requester_clients = self.fields["business_client"].queryset.prefetch_related(
+            "authorized_contacts"
+        )
+        self.requester_choices_by_client = {}
+        for client in requester_clients:
+            contacts = sorted(
+                (contact for contact in client.authorized_contacts.all() if contact.is_active),
+                key=lambda contact: (
+                    not contact.is_primary_contact,
+                    contact.full_name.casefold(),
+                    contact.pk,
+                ),
+            )
+            self.requester_choices_by_client[str(client.pk)] = [
+                {"value": "self", "label": f"{client.full_name} (para s\u00ed)"},
+                *[
+                    {
+                        "value": f"contact:{contact.pk}",
+                        "label": (
+                            f"{contact.full_name} \u00b7 "
+                            f"{contact.get_relationship_label_display()}"
+                        ),
+                    }
+                    for contact in contacts
+                ],
+            ]
 
         selected_client_id = self.data.get("business_client") or self.initial.get("business_client")
         try:
@@ -144,7 +186,8 @@ class AppointmentSearchForm(forms.Form):
 
         self.fields["adjusted_duration_minutes"].widget.attrs.update(
             {
-                "step": "15",
+                "min": str(self.slot_interval_minutes),
+                "step": str(self.slot_interval_minutes),
                 "placeholder": "Opcional",
             }
         )
@@ -159,8 +202,11 @@ class AppointmentSearchForm(forms.Form):
         duration = self.cleaned_data.get("adjusted_duration_minutes")
         if duration is None:
             return duration
-        if duration % 15 != 0:
-            raise forms.ValidationError("La duración debe usar tramos de 15 minutos.")
+        if duration % self.slot_interval_minutes != 0:
+            raise forms.ValidationError(
+                "La duración debe ser compatible con el intervalo de agenda "
+                f"de {self.slot_interval_minutes} minutos."
+            )
         return duration
 
     def clean(self):
@@ -174,6 +220,13 @@ class AppointmentSearchForm(forms.Form):
             cleaned_data["calculated_duration_minutes"] = calculated_duration
             final_duration = adjusted_duration or calculated_duration
             cleaned_data["final_duration_minutes"] = final_duration
+
+            if calculated_duration % self.slot_interval_minutes != 0:
+                self.add_error(
+                    "services",
+                    "La duración conjunta debe ser compatible con el intervalo de agenda "
+                    f"de {self.slot_interval_minutes} minutos.",
+                )
 
             if adjusted_duration and adjusted_duration != calculated_duration and not reason:
                 self.add_error(
@@ -279,9 +332,16 @@ class ServiceForm(forms.ModelForm):
 
     def __init__(self, *args, business, **kwargs):
         self.business = business
+        self.slot_interval_minutes = _slot_interval_minutes(business)
         super().__init__(*args, **kwargs)
         self.color_palette = SERVICE_COLOR_PALETTE
         self.fields["is_active"].required = False
+        self.fields["duration_minutes"].widget.attrs.update(
+            {
+                "min": str(self.slot_interval_minutes),
+                "step": str(self.slot_interval_minutes),
+            }
+        )
         if self.instance.pk is None:
             self.fields["name"].widget.attrs["autofocus"] = "autofocus"
         if not self.is_bound and not self.initial.get("color_hex"):
@@ -309,8 +369,13 @@ class ServiceForm(forms.ModelForm):
         duration = self.cleaned_data["duration_minutes"]
         if duration <= 0:
             raise forms.ValidationError("La duración debe ser positiva.")
-        if duration % 15 != 0:
-            raise forms.ValidationError("Usa tramos de 15 minutos.")
+        if duration % self.slot_interval_minutes != 0:
+            if self.slot_interval_minutes == 15:
+                raise forms.ValidationError("Usa tramos de 15 minutos.")
+            raise forms.ValidationError(
+                "La duración debe ser compatible con el intervalo de agenda "
+                f"de {self.slot_interval_minutes} minutos."
+            )
         return duration
 
     def clean_price_amount(self):
@@ -433,11 +498,11 @@ class WorkLineForm(forms.ModelForm):
         if self.instance.pk and self._was_active and not is_active:
             if self.instance.appointments.filter(
                 status=Appointment.Status.CONFIRMED,
-                starts_at__gte=timezone.now(),
+                ends_at__gt=timezone.now(),
             ).exists():
                 self.add_error(
                     "is_active",
-                    "No puedes pausar una línea con citas futuras confirmadas.",
+                    "No puedes pausar una línea con citas confirmadas pendientes.",
                 )
         return cleaned_data
 
@@ -571,6 +636,7 @@ class PublicBookingForm(SlotSelectionMixin):
     def __init__(self, *args, business, **kwargs):
         super().__init__(*args, **kwargs)
         self.business = business
+        self.slot_interval_minutes = _slot_interval_minutes(business)
         self.fields["services"].queryset = Service.objects.filter(
             business=business,
             is_active=True,
@@ -589,8 +655,15 @@ class PublicBookingForm(SlotSelectionMixin):
         cleaned_data = super().clean()
         services = cleaned_data.get("services")
         if services:
-            cleaned_data["final_duration_minutes"] = sum(
+            final_duration = sum(
                 service.duration_minutes for service in services
             )
+            cleaned_data["final_duration_minutes"] = final_duration
+            if final_duration % self.slot_interval_minutes != 0:
+                self.add_error(
+                    "services",
+                    "La duración conjunta no es compatible con el intervalo de agenda "
+                    f"de {self.slot_interval_minutes} minutos.",
+                )
 
         return cleaned_data

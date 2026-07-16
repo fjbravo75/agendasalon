@@ -1,4 +1,101 @@
 {% extends "base.html" %}
+
 {% block title %}Verificación de correo - {{ business.commercial_name }}{% endblock %}
 {% block body_class %}login-body client-auth-body{% endblock %}
-{% block content %}<div class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--client-auth-bg:url('{{ client_auth_image_url }}')"{% endif %}><section class="login-shell client-auth-shell"><div class="client-auth-content"><div class="login-hero-copy client-auth-copy"><div class="client-auth-business-signal">{{ business.commercial_name }}</div><h1>Este enlace ya no está disponible.</h1><p>Puede que haya caducado, ya se haya usado o el correo de la cuenta haya cambiado.</p></div><aside class="login-panel client-auth-panel"><div class="login-panel__inner"><h2>Volvamos a empezar.</h2><p>Entra con tu cuenta o pide un enlace nuevo desde el registro pendiente.</p><a class="login-button login-button--link" href="{% url 'customers:client_access' business.slug %}">Ir al acceso cliente</a></div></aside></div><div class="client-auth-image-space" aria-hidden="true"></div></section></div>{% endblock %}
+
+{% block content %}
+  <div class="login-page client-auth-page client-auth-page--{{ client_auth_theme }}"{% if client_auth_image_url %} style="--client-auth-bg: url('{{ client_auth_image_url }}');"{% endif %}>
+    <section class="login-shell client-auth-shell">
+      <div class="client-auth-content">
+        <div class="login-hero-copy client-auth-copy">
+          <div class="client-auth-business-signal">{{ business.commercial_name }}</div>
+          {% if verification_valid %}
+            <h1>Confirma tu correo.</h1>
+            <p>
+              El correo es la identidad de tu cuenta. Crea ahora una contraseña que
+              solo tú conozcas; no guardamos ninguna clave elegida antes de demostrar
+              que este correo es tuyo.
+            </p>
+          {% else %}
+            <h1>Este enlace ya no está disponible.</h1>
+            <p>Puede que haya caducado, ya se haya usado o el correo de la cuenta haya cambiado.</p>
+          {% endif %}
+        </div>
+
+        <aside class="login-panel client-auth-panel" aria-label="Verificación de correo">
+          <div class="login-panel__inner">
+            {% if verification_valid %}
+              <h2>Crea tu contraseña.</h2>
+              <p>
+                Vas a confirmar <strong>{{ access.email }}</strong> como correo de tu
+                cuenta en {{ business.commercial_name }}.
+              </p>
+              {% if registration_activation_paused %}
+                <div class="login-form-error" role="status">
+                  Las altas online están pausadas. Este enlace caduca en 48 horas y
+                  no activaremos tu cuenta mientras el negocio no admita reservas.
+                  Si caduca antes de que reabran, podrás pedir uno nuevo cuando
+                  vuelvan a estar disponibles.
+                </div>
+              {% endif %}
+              <form method="post" class="login-form-stack" novalidate>
+                {% csrf_token %}
+
+                {% if verification_form.non_field_errors %}
+                  <div class="login-form-error" role="alert">{{ verification_form.non_field_errors }}</div>
+                {% endif %}
+
+                <div class="login-field{% if verification_form.password.errors %} is-error{% endif %}">
+                  <label for="{{ verification_form.password.id_for_label }}">NUEVA CONTRASEÑA</label>
+                  {{ verification_form.password }}
+                  <small id="password-requirements">
+                    Usa al menos 12 caracteres y evita contraseñas demasiado comunes o solo numéricas.
+                  </small>
+                  {% if verification_form.password.errors %}
+                    <div class="login-field-error" role="alert">{{ verification_form.password.errors }}</div>
+                  {% endif %}
+                </div>
+
+                <div class="login-field{% if verification_form.password_confirm.errors %} is-error{% endif %}">
+                  <label for="{{ verification_form.password_confirm.id_for_label }}">REPETIR CONTRASEÑA</label>
+                  {{ verification_form.password_confirm }}
+                  {% if verification_form.password_confirm.errors %}
+                    <div class="login-field-error" role="alert">{{ verification_form.password_confirm.errors }}</div>
+                  {% endif %}
+                </div>
+
+                {% if business.legal_compliance_enabled %}
+                  <div class="legal-consent{% if verification_form.privacy_acknowledged.errors %} is-error{% endif %}">
+                    <label for="{{ verification_form.privacy_acknowledged.id_for_label }}">
+                      {{ verification_form.privacy_acknowledged }}
+                      <span>
+                        Confirmo que he recibido y leído la
+                        <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">información sobre el tratamiento de mis datos</a>
+                        por {{ business.commercial_name }}{% if privacy_document %} (versión {{ privacy_document.version }}){% endif %}.
+                        Esta confirmación sirve para gestionar mi cuenta y mis reservas; no autoriza publicidad.
+                      </span>
+                    </label>
+                    {% if verification_form.privacy_acknowledged.errors %}
+                      <div class="login-field-error" role="alert">{{ verification_form.privacy_acknowledged.errors }}</div>
+                    {% endif %}
+                  </div>
+                {% endif %}
+
+                <button class="login-button" type="submit">Confirmar correo y crear contraseña</button>
+              </form>
+            {% else %}
+              <h2>Volvamos a empezar.</h2>
+              <p>Entra con tu cuenta o pide un enlace nuevo desde el registro pendiente.</p>
+              {% if business.is_active and business.public_booking_enabled %}
+                <a class="login-button login-button--link" href="{% url 'customers:client_access' business.slug %}">Ir al acceso cliente</a>
+              {% else %}
+                <a class="login-button login-button--link" href="{% url 'legal:business_privacy' business.slug %}">Ver información de privacidad</a>
+              {% endif %}
+            {% endif %}
+          </div>
+        </aside>
+      </div>
+      <div class="client-auth-image-space" aria-hidden="true"></div>
+    </section>
+  </div>
+{% endblock %}

@@ -7,6 +7,8 @@ from apps.customers.views import (
     client_email_pending,
     client_email_verify,
     client_logout,
+    client_password_reset,
+    client_password_reset_request,
     client_register,
     professional_client_access_toggle,
     professional_client_invitation_create,
@@ -103,6 +105,16 @@ urlpatterns = [
         "<slug:slug>/verificar-correo/<str:token>/",
         client_email_verify,
         name="client_email_verify",
+    ),
+    path(
+        "<slug:slug>/recuperar-contrasena/",
+        client_password_reset_request,
+        name="client_password_reset_request",
+    ),
+    path(
+        "<slug:slug>/recuperar-contrasena/<str:token>/",
+        client_password_reset,
+        name="client_password_reset",
     ),
     path("<slug:slug>/salir/", client_logout, name="client_logout"),
 ]

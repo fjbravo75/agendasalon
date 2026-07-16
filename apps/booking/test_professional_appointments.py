@@ -125,6 +125,27 @@ class ProfessionalAppointmentManagementTests(TestCase):
             ).exists()
         )
 
+    def test_started_appointment_cannot_be_completed_before_its_end(self):
+        self.client.force_login(self.professional)
+        appointment = self._create_appointment(
+            starts_at=timezone.now() - timedelta(minutes=10),
+        )
+
+        detail_response = self.client.get(
+            reverse("booking:professional_appointment_detail", args=[appointment.id])
+        )
+        response = self.client.post(
+            reverse("booking:professional_appointment_complete", args=[appointment.id]),
+            follow=True,
+        )
+
+        appointment.refresh_from_db()
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Aún no ha terminado")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(appointment.status, Appointment.Status.CONFIRMED)
+        self.assertContains(response, "todavía no ha terminado")
+
     def test_professional_can_mark_started_appointment_as_no_show(self):
         self.client.force_login(self.professional)
         appointment = self._create_appointment(
@@ -147,6 +168,22 @@ class ProfessionalAppointmentManagementTests(TestCase):
                 event_type=BusinessActivityEvent.EventType.APPOINTMENT_NO_SHOW,
             ).exists()
         )
+
+    def test_started_appointment_cannot_be_closed_as_no_show_before_its_end(self):
+        self.client.force_login(self.professional)
+        appointment = self._create_appointment(
+            starts_at=timezone.now() - timedelta(minutes=10),
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_appointment_no_show", args=[appointment.id]),
+            follow=True,
+        )
+
+        appointment.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(appointment.status, Appointment.Status.CONFIRMED)
+        self.assertContains(response, "todavía no ha terminado")
 
     def test_future_appointment_cannot_be_marked_as_no_show(self):
         self.client.force_login(self.professional)

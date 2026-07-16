@@ -56,8 +56,11 @@ class BusinessClient(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["business", "phone_normalized", "full_name_normalized"],
-                condition=models.Q(is_active=True) & ~models.Q(phone_normalized=""),
-                name="unique_active_business_client_identity",
+                condition=(
+                    models.Q(is_active=True, source="professional")
+                    & ~models.Q(phone_normalized="")
+                ),
+                name="unique_active_professional_client_identity",
             )
         ]
         indexes = [
@@ -237,6 +240,10 @@ class BusinessClientAccess(models.Model):
     )
     password_hash = models.CharField("hash de contraseña", max_length=128)
     is_active = models.BooleanField("activo", default=True)
+    is_pending_public_registration = models.BooleanField(
+        "alta pública pendiente de verificar",
+        default=False,
+    )
     last_login_at = models.DateTimeField("último acceso", null=True, blank=True)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
     updated_at = models.DateTimeField("última actualización", auto_now=True)
@@ -246,10 +253,6 @@ class BusinessClientAccess(models.Model):
         verbose_name_plural = "accesos de cliente"
         ordering = ["business__commercial_name", "business_client__full_name"]
         constraints = [
-            models.UniqueConstraint(
-                fields=["business", "phone_normalized"],
-                name="unique_business_client_access_phone",
-            ),
             models.UniqueConstraint(
                 fields=["business", "email_normalized"],
                 condition=models.Q(email_normalized__isnull=False),

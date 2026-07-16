@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Max, Min, Q
 from django.forms import ValidationError as FormValidationError
 from django.http import JsonResponse
@@ -22,19 +23,22 @@ from apps.businesses.services import (
     get_primary_business_for_user,
 )
 from apps.customers.forms import (
+    ClientEmailVerificationForm,
     ClientInvitationActivationForm,
     ClientLoginForm,
+    ClientPasswordResetForm,
+    ClientPasswordResetRequestForm,
     ClientRegistrationForm,
     ProfessionalAuthorizedContactForm,
     ProfessionalClientEditForm,
     ProfessionalClientQuickForm,
 )
 from apps.legal.forms import CustomerPrivacyEvidenceForm
-from apps.legal.models import LegalAcceptance
+from apps.legal.models import LegalDocument
 from apps.legal.services import (
-    acknowledge_customer_privacy,
     business_can_collect_personal_data,
     customer_privacy_status,
+    get_active_document,
     record_customer_privacy_information,
 )
 from apps.customers.models import (
@@ -71,13 +75,69 @@ from apps.core.security_throttle import (
 )
 from apps.core.text import normalize_search_text
 from apps.notifications.services import (
-    queue_and_dispatch,
+    client_password_reset_access_from_token,
     queue_client_email_verification,
+    queue_client_password_reset,
+    reset_client_password_from_token,
+    unverified_client_from_token,
     verified_client_from_token,
 )
 
 
 CLIENT_EMAIL_PENDING_SESSION_KEY = "client_email_verification_pending"
+CLIENT_GENERIC_EMAIL_MESSAGE = (
+    "Si los datos corresponden a una cuenta disponible, recibirás un correo en unos minutos."
+)
+
+
+def _email_throttle_key(value):
+    return str(value or "").strip().lower()
+
+
+def _login_identifier_throttle_key(value):
+    value = str(value or "").strip()
+    if "@" in value:
+        return _email_throttle_key(value)
+    return phone_throttle_key(value)
+
+
+def _queue_client_verification_if_allowed(
+    request,
+    access=None,
+    *,
+    business=None,
+    email=None,
+):
+    business = access.business if access is not None else business
+    normalized_email = access.email_normalized if access is not None else _email_throttle_key(email)
+    cooldown_identity = access.pk if access is not None else f"pending:{normalized_email}"
+    reservation = reserve_throttle_attempts(
+        limits=(
+            ThrottleLimit(
+                "client_email_resend_cooldown",
+                f"{business.pk}:{cooldown_identity}",
+                1,
+                60,
+            ),
+            ThrottleLimit(
+                "client_email_resend_address",
+                f"{business.pk}:{normalized_email}",
+                5,
+                60 * 60,
+            ),
+            ThrottleLimit(
+                "client_email_resend_ip",
+                request_ip(request),
+                20,
+                60 * 60,
+            ),
+        )
+    )
+    if not reservation.allowed or access is None:
+        return None
+    # Encolamos sin SMTP síncrono: la respuesta no delata por latencia si la
+    # dirección corresponde a una cuenta y el timer entrega los correos debidos.
+    return queue_client_email_verification(access)
 
 
 @login_required
@@ -119,33 +179,34 @@ def professional_client_list(request):
         )
 
     now = timezone.now()
-    clients = (
-        clients.annotate(
-            appointments_total=Count("appointments", distinct=True),
-            last_appointment_at=Max(
-                "appointments__starts_at",
-                filter=Q(appointments__starts_at__lt=now),
+    clients = clients.annotate(
+        appointments_total=Count("appointments", distinct=True),
+        last_appointment_at=Max(
+            "appointments__starts_at",
+            filter=Q(appointments__starts_at__lt=now),
+        ),
+        next_appointment_at=Min(
+            "appointments__starts_at",
+            filter=Q(
+                appointments__starts_at__gte=now,
+                appointments__status=Appointment.Status.CONFIRMED,
             ),
-            next_appointment_at=Min(
-                "appointments__starts_at",
-                filter=Q(
-                    appointments__starts_at__gte=now,
-                    appointments__status=Appointment.Status.CONFIRMED,
-                ),
-            ),
-        )
-        .order_by("full_name", "pk")
-    )
+        ),
+    ).order_by("full_name", "pk")
     clients_page = Paginator(clients, 6).get_page(request.GET.get("page"))
 
     selected_authorized_client = None
     selected_authorized_client_id = quick_form["authorized_business_client"].value()
     if selected_authorized_client_id:
-        selected_authorized_client = BusinessClient.objects.filter(
-            business=business,
-            is_active=True,
-            pk=selected_authorized_client_id,
-        ).select_related("access").first()
+        selected_authorized_client = (
+            BusinessClient.objects.filter(
+                business=business,
+                is_active=True,
+                pk=selected_authorized_client_id,
+            )
+            .select_related("access")
+            .first()
+        )
     selected_authorized_access = (
         getattr(selected_authorized_client, "access", None)
         if selected_authorized_client is not None
@@ -231,11 +292,25 @@ def professional_client_edit(request, client_id):
     )
     if request.method == "POST" and edit_form.is_valid():
         try:
-            business_client = edit_form.save()
+            with transaction.atomic():
+                business_client, access_to_verify = edit_form.save()
+                if access_to_verify is not None:
+                    queue_client_email_verification(access_to_verify)
         except ValidationError as exc:
             edit_form.add_error(None, exc)
         else:
-            messages.success(request, f"Datos actualizados para {business_client.full_name}.")
+            if access_to_verify is not None:
+                messages.success(
+                    request,
+                    f"Datos actualizados para {business_client.full_name}. "
+                    "La cuenta deberá verificar el nuevo correo y crear una contraseña "
+                    "antes de volver a entrar.",
+                )
+            else:
+                messages.success(
+                    request,
+                    f"Datos actualizados para {business_client.full_name}.",
+                )
             return redirect("customers:professional_client_detail", client_id=business_client.id)
 
     return render(
@@ -263,7 +338,9 @@ def professional_client_toggle(request, client_id):
         messages.error(request, _validation_message(exc))
     else:
         if target_state:
-            messages.success(request, f"La ficha de {business_client.full_name} vuelve a estar activa.")
+            messages.success(
+                request, f"La ficha de {business_client.full_name} vuelve a estar activa."
+            )
         else:
             messages.success(request, f"La ficha de {business_client.full_name} queda pausada.")
     return redirect("customers:professional_client_detail", client_id=business_client.id)
@@ -370,11 +447,7 @@ def _professional_client_search_response(request, *, business, excluded_client_i
     clients = BusinessClient.objects.filter(business=business, is_active=True)
     if excluded_client_id is not None:
         clients = clients.exclude(pk=excluded_client_id)
-    clients = (
-        clients.filter(filters)
-        .select_related("access")
-        .order_by("full_name", "pk")[:8]
-    )
+    clients = clients.filter(filters).select_related("access").order_by("full_name", "pk")[:8]
     results = []
     for client in clients:
         access = getattr(client, "access", None)
@@ -385,7 +458,9 @@ def _professional_client_search_response(request, *, business, excluded_client_i
                 "phone": client.phone,
                 "has_phone": bool(client.phone_normalized),
                 "online_status": (
-                    "active" if access is not None and access.is_active else "inactive"
+                    "active"
+                    if access is not None and access.is_active
+                    else "inactive"
                     if access is not None
                     else "none"
                 ),
@@ -547,8 +622,7 @@ def _professional_client_context(business, business_client):
         appointments.exclude(
             status=Appointment.Status.CONFIRMED,
             starts_at__gte=now,
-        )
-        .order_by("-starts_at", "-pk")[:12]
+        ).order_by("-starts_at", "-pk")[:12]
     )
     for appointment in history_appointments:
         appointment.operational_status_label = (
@@ -558,17 +632,19 @@ def _professional_client_context(business, business_client):
         )
 
     client_access = getattr(business_client, "access", None)
-    active_invitation = business_client.access_invitations.filter(
-        used_at__isnull=True,
-        revoked_at__isnull=True,
-        expires_at__gt=now,
-    ).order_by("-created_at").first()
+    active_invitation = (
+        business_client.access_invitations.filter(
+            used_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=now,
+        )
+        .order_by("-created_at")
+        .first()
+    )
     authorized_contacts = list(
         business_client.authorized_contacts.select_related(
             "linked_business_client__access"
-        ).order_by(
-            "-is_active", "-is_primary_contact", "full_name", "pk"
-        )
+        ).order_by("-is_active", "-is_primary_contact", "full_name", "pk")
     )
     grant_by_contact = {
         grant.authorized_contact_id: grant
@@ -624,11 +700,15 @@ def _professional_contact_form_view(request, *, business, business_client, conta
     selected_linked_client = None
     selected_linked_client_id = contact_form["linked_business_client"].value()
     if selected_linked_client_id:
-        selected_linked_client = BusinessClient.objects.filter(
-            business=business,
-            is_active=True,
-            pk=selected_linked_client_id,
-        ).select_related("access").first()
+        selected_linked_client = (
+            BusinessClient.objects.filter(
+                business=business,
+                is_active=True,
+                pk=selected_linked_client_id,
+            )
+            .select_related("access")
+            .first()
+        )
     selected_access = (
         getattr(selected_linked_client, "access", None)
         if selected_linked_client is not None
@@ -669,15 +749,13 @@ def _validation_message(exc):
 
 
 def client_access(request, slug):
-    business = get_object_or_404(
-        Business,
-        slug=slug,
-        is_active=True,
-        public_booking_enabled=True,
-    )
+    # La pausa cierra nuevas reservas y altas, no la cuenta ni el ejercicio de
+    # derechos de clientes existentes.
+    business = get_object_or_404(Business, slug=slug)
     next_url = _safe_next_url(request, business)
     auth_theme = get_business_visual_theme(business)
     has_pending_booking = get_public_booking_draft(request, business) is not None
+    account_only = not business.accepts_public_bookings()
 
     if get_session_client_access(request, business):
         return redirect(next_url)
@@ -686,7 +764,8 @@ def client_access(request, slug):
     response_status = 200
 
     if request.method == "POST":
-        subject_key = f"{business.id}:{phone_throttle_key(request.POST.get('phone', ''))}"
+        identifier = request.POST.get("identifier") or request.POST.get("phone", "")
+        subject_key = f"{business.id}:{_login_identifier_throttle_key(identifier)}"
         ip_key = request_ip(request)
         reservation = reserve_throttle_attempts(
             limits=(
@@ -711,7 +790,13 @@ def client_access(request, slug):
                     reset_scopes={"client_login_subject"},
                 )
                 login_client_access(request, login_form.client_access)
-                messages.success(request, "Has entrado en tu zona de reservas.")
+                if account_only:
+                    messages.success(
+                        request,
+                        "Has entrado en tu cuenta. Aunque las reservas estén pausadas, puedes consultar la privacidad y ejercer tus derechos.",
+                    )
+                else:
+                    messages.success(request, "Has entrado en tu zona de reservas.")
                 return redirect(next_url)
             if reservation.blocked_scopes:
                 login_form.add_error(None, THROTTLE_MESSAGE)
@@ -727,6 +812,7 @@ def client_access(request, slug):
             "client_auth_theme": auth_theme,
             "client_auth_image_url": get_business_public_image_url(business),
             "has_pending_booking": has_pending_booking,
+            "account_only": account_only,
         },
         status=response_status,
     )
@@ -797,15 +883,9 @@ def client_invitation_activate(request, slug):
                 request=request,
                 business=business,
                 email=activation_form.cleaned_data["email"],
-                password=activation_form.cleaned_data["password"],
             )
         except ValidationError:
             return _invitation_unavailable_response(request, business)
-        if business.legal_compliance_enabled:
-            acknowledge_customer_privacy(
-                client_access=access,
-                context=LegalAcceptance.Context.CLIENT_INVITATION,
-            )
         record_business_activity(
             business=business,
             category=BusinessActivityEvent.Category.ACCESS,
@@ -823,9 +903,7 @@ def client_invitation_activate(request, slug):
             access,
             reverse("public_booking", args=[business.slug]),
         )
-        delivery = queue_and_dispatch(queue_client_email_verification(access))
-        if delivery.status != delivery.Status.SENT:
-            messages.warning(request, "El correo está pendiente de envío. Puedes reenviarlo desde esta pantalla.")
+        _queue_client_verification_if_allowed(request, access)
         return redirect("customers:client_email_pending", slug=business.slug)
 
     response = render(
@@ -884,24 +962,72 @@ def client_register(request, slug):
         return redirect(next_url)
 
     registration_form = ClientRegistrationForm(business=business)
+    response_status = 200
 
     if request.method == "POST":
+        reservation = reserve_throttle_attempts(
+            limits=(
+                ThrottleLimit(
+                    "client_registration_email",
+                    f"{business.pk}:{_email_throttle_key(request.POST.get('email'))}",
+                    3,
+                    60 * 60,
+                ),
+                ThrottleLimit(
+                    "client_registration_phone",
+                    f"{business.pk}:{phone_throttle_key(request.POST.get('phone'))}",
+                    3,
+                    60 * 60,
+                ),
+                ThrottleLimit(
+                    "client_registration_ip",
+                    request_ip(request),
+                    20,
+                    60 * 60,
+                ),
+            )
+        )
         registration_form = ClientRegistrationForm(request.POST, business=business)
-        if registration_form.is_valid():
+        if not reservation.allowed:
+            registration_form.is_valid()
+            registration_form.add_error(None, THROTTLE_MESSAGE)
+            response_status = 429
+        elif registration_form.is_valid():
             try:
                 access = registration_form.save()
-            except FormValidationError as exc:
-                registration_form.add_error(None, exc)
-            else:
-                if business.legal_compliance_enabled:
-                    acknowledge_customer_privacy(
-                        client_access=access,
-                        context=LegalAcceptance.Context.CLIENT_REGISTRATION,
+            except FormValidationError:
+                # La respuesta pública no distingue una dirección ya usada de
+                # un alta recién creada. Tampoco se enlaza ni modifica la cuenta previa.
+                pending_access = (
+                    BusinessClientAccess.objects.select_related("business", "business_client")
+                    .filter(
+                        business=business,
+                        email_normalized=registration_form.cleaned_data["email"].lower(),
+                        email_verified_at__isnull=True,
+                        is_active=True,
                     )
+                    .filter(
+                        Q(business_client__is_active=True) | Q(is_pending_public_registration=True)
+                    )
+                    .first()
+                )
+                _store_pending_email_verification(
+                    request,
+                    pending_access,
+                    next_url,
+                    business=business,
+                    email=registration_form.cleaned_data["email"],
+                )
+                _queue_client_verification_if_allowed(
+                    request,
+                    pending_access,
+                    business=business,
+                    email=registration_form.cleaned_data["email"],
+                )
+                return redirect("customers:client_email_pending", slug=business.slug)
+            else:
                 _store_pending_email_verification(request, access, next_url)
-                delivery = queue_and_dispatch(queue_client_email_verification(access))
-                if delivery.status != delivery.Status.SENT:
-                    messages.warning(request, "El correo está pendiente de envío. Puedes reenviarlo desde esta pantalla.")
+                _queue_client_verification_if_allowed(request, access)
                 return redirect("customers:client_email_pending", slug=business.slug)
 
     return render(
@@ -915,55 +1041,71 @@ def client_register(request, slug):
             "client_auth_image_url": get_business_public_image_url(business),
             "has_pending_booking": has_pending_booking,
         },
+        status=response_status,
     )
 
 
-def _store_pending_email_verification(request, access, next_url):
+def _store_pending_email_verification(
+    request,
+    access,
+    next_url,
+    *,
+    business=None,
+    email=None,
+):
+    business = access.business if access is not None else business
     request.session[CLIENT_EMAIL_PENDING_SESSION_KEY] = {
-        "access_id": access.pk,
-        "business_id": access.business_id,
+        "access_id": access.pk if access is not None else None,
+        "business_id": business.pk,
+        "email": access.email if access is not None else _email_throttle_key(email),
         "next": next_url,
     }
 
 
 def client_email_pending(request, slug):
-    business = get_object_or_404(Business, slug=slug, is_active=True)
+    business = get_object_or_404(Business, slug=slug)
     pending = request.session.get(CLIENT_EMAIL_PENDING_SESSION_KEY, {})
+    if pending.get("business_id") != business.pk or not pending.get("email"):
+        return redirect("customers:client_access", slug=business.slug)
     access = BusinessClientAccess.objects.filter(
         pk=pending.get("access_id"),
         business=business,
         is_active=True,
         email_verified_at__isnull=True,
     ).first()
-    if access is None:
-        return redirect("customers:client_access", slug=business.slug)
     if request.method == "POST":
-        delivery = queue_and_dispatch(queue_client_email_verification(access))
-        if delivery.status == delivery.Status.SENT:
-            messages.success(
-                request,
-                "El servicio de correo ha aceptado un enlace nuevo para su envío.",
-            )
-        else:
-            messages.warning(request, "El correo sigue pendiente. No hace falta crear otra cuenta.")
+        _queue_client_verification_if_allowed(
+            request,
+            access,
+            business=business,
+            email=pending["email"],
+        )
+        messages.info(request, CLIENT_GENERIC_EMAIL_MESSAGE)
         return redirect("customers:client_email_pending", slug=business.slug)
-    return render(
+    response = render(
         request,
         "customers/client_email_pending.html",
         {
             "business": business,
             "access": access,
+            "pending_email": pending["email"],
+            "account_only": not business.accepts_public_bookings(),
             "client_auth_theme": get_business_visual_theme(business),
             "client_auth_image_url": get_business_public_image_url(business),
         },
     )
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def client_email_verify(request, slug, token):
-    business = get_object_or_404(Business, slug=slug, is_active=True)
-    access = verified_client_from_token(token, business=business)
+    # Un negocio puede pausarse entre el envío del correo y la apertura del
+    # enlace. La pausa impide nuevas reservas, pero no debe dejar una identidad
+    # a medio verificar ni inutilizar un enlace ya emitido.
+    business = get_object_or_404(Business, slug=slug)
+    access = unverified_client_from_token(token, business=business)
     if access is None:
-        return render(
+        response = render(
             request,
             "customers/client_email_verified.html",
             {
@@ -974,22 +1116,235 @@ def client_email_verify(request, slug, token):
             },
             status=410,
         )
-    login_client_access(request, access)
-    pending = request.session.pop(CLIENT_EMAIL_PENDING_SESSION_KEY, {})
-    next_url = pending.get("next") if pending.get("business_id") == business.pk else ""
-    messages.success(request, "Correo confirmado. Ya puedes continuar con tu reserva.")
-    return redirect(next_url or reverse("public_booking", args=[business.slug]))
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "no-store"
+        return response
+
+    privacy_document = (
+        get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+        if business.legal_compliance_enabled
+        else None
+    )
+    verification_form = ClientEmailVerificationForm(
+        request.POST or None,
+        business=business,
+    )
+    if request.method == "POST" and verification_form.is_valid():
+        try:
+            access = verified_client_from_token(
+                token,
+                business=business,
+                password=verification_form.cleaned_data["password"],
+                privacy_acknowledged=verification_form.cleaned_data.get(
+                    "privacy_acknowledged",
+                    False,
+                ),
+            )
+        except ValidationError as exc:
+            verification_form.add_error(None, exc)
+        else:
+            if access is None:
+                response = render(
+                    request,
+                    "customers/client_email_verified.html",
+                    {
+                        "business": business,
+                        "verification_valid": False,
+                        "client_auth_theme": get_business_visual_theme(business),
+                        "client_auth_image_url": get_business_public_image_url(business),
+                    },
+                    status=410,
+                )
+                response["Referrer-Policy"] = "no-referrer"
+                response["Cache-Control"] = "no-store"
+                return response
+            login_client_access(request, access)
+            pending = request.session.pop(CLIENT_EMAIL_PENDING_SESSION_KEY, {})
+            next_url = pending.get("next") if pending.get("business_id") == business.pk else ""
+            business.refresh_from_db(fields=["is_active", "public_booking_enabled"])
+            if business.accepts_public_bookings():
+                messages.success(
+                    request,
+                    "Correo confirmado y contraseña creada. Ya puedes continuar con tu reserva.",
+                )
+                destination = next_url or reverse("public_booking", args=[business.slug])
+            else:
+                messages.success(
+                    request,
+                    "Correo confirmado y contraseña creada. El negocio está pausado ahora mismo, pero tu cuenta ya queda preparada.",
+                )
+                destination = reverse("legal:business_privacy", args=[business.slug])
+            response = redirect(destination)
+            response["Referrer-Policy"] = "no-referrer"
+            response["Cache-Control"] = "no-store"
+            return response
+
+    response = render(
+        request,
+        "customers/client_email_verified.html",
+        {
+            "business": business,
+            "access": access,
+            "verification_form": verification_form,
+            "verification_valid": True,
+            "privacy_document": privacy_document,
+            "registration_activation_paused": (
+                access.is_pending_public_registration and not business.accepts_public_bookings()
+            ),
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+        },
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def client_password_reset_request(request, slug):
+    business = get_object_or_404(Business, slug=slug)
+    reset_form = ClientPasswordResetRequestForm(request.POST or None)
+    submitted = False
+    if request.method == "POST":
+        reservation = reserve_throttle_attempts(
+            limits=(
+                ThrottleLimit(
+                    "client_password_reset_email",
+                    f"{business.pk}:{_email_throttle_key(request.POST.get('email'))}",
+                    3,
+                    60 * 60,
+                ),
+                ThrottleLimit(
+                    "client_password_reset_ip",
+                    request_ip(request),
+                    20,
+                    60 * 60,
+                ),
+            )
+        )
+        if reset_form.is_valid():
+            submitted = True
+            if reservation.allowed:
+                access = (
+                    BusinessClientAccess.objects.select_related("business", "business_client")
+                    .filter(
+                        business=business,
+                        email_normalized=reset_form.cleaned_data["email"].lower(),
+                        email_verified_at__isnull=False,
+                        is_active=True,
+                        business_client__is_active=True,
+                    )
+                    .first()
+                )
+                if access is not None:
+                    # La respuesta es idéntica para cuentas existentes y ausentes;
+                    # el envío real queda en la cola para no filtrar existencia por latencia.
+                    queue_client_password_reset(access)
+
+    response = render(
+        request,
+        "customers/client_password_reset_request.html",
+        {
+            "business": business,
+            "reset_form": reset_form,
+            "submitted": submitted,
+            "generic_message": CLIENT_GENERIC_EMAIL_MESSAGE,
+            "account_only": not business.accepts_public_bookings(),
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+        },
+    )
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def client_password_reset(request, slug, token):
+    business = get_object_or_404(Business, slug=slug)
+    access = client_password_reset_access_from_token(token, business=business)
+    if access is None:
+        response = render(
+            request,
+            "customers/client_password_reset.html",
+            {
+                "business": business,
+                "reset_valid": False,
+                "client_auth_theme": get_business_visual_theme(business),
+                "client_auth_image_url": get_business_public_image_url(business),
+            },
+            status=410,
+        )
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "no-store"
+        return response
+
+    reset_form = ClientPasswordResetForm(request.POST or None)
+    if request.method == "POST" and reset_form.is_valid():
+        access = reset_client_password_from_token(
+            token,
+            business=business,
+            password=reset_form.cleaned_data["password"],
+        )
+        if access is None:
+            response = render(
+                request,
+                "customers/client_password_reset.html",
+                {
+                    "business": business,
+                    "reset_valid": False,
+                    "client_auth_theme": get_business_visual_theme(business),
+                    "client_auth_image_url": get_business_public_image_url(business),
+                },
+                status=410,
+            )
+            response["Referrer-Policy"] = "no-referrer"
+            response["Cache-Control"] = "no-store"
+            return response
+        business.refresh_from_db(fields=["is_active", "public_booking_enabled"])
+        if business.accepts_public_bookings():
+            logout_client_access(request)
+            messages.success(request, "Contraseña actualizada. Ya puedes entrar con la nueva.")
+            response = redirect("customers:client_access", slug=business.slug)
+        else:
+            # El enlace ya acredita el control del correo. Dejamos la nueva
+            # sesión vinculada a la contraseña recién elegida para que la
+            # privacidad no provoque un bucle de vuelta al login.
+            login_client_access(request, access)
+            messages.success(
+                request,
+                "Contraseña actualizada. Ya puedes acceder a tu cuenta y a la información de privacidad.",
+            )
+            response = redirect("legal:business_privacy", slug=business.slug)
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "no-store"
+        return response
+
+    response = render(
+        request,
+        "customers/client_password_reset.html",
+        {
+            "business": business,
+            "access": access,
+            "reset_form": reset_form,
+            "reset_valid": True,
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+        },
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @require_POST
 def client_logout(request, slug):
-    business = get_object_or_404(Business, slug=slug, is_active=True)
+    business = get_object_or_404(Business, slug=slug)
     logout_client_access(request)
-    messages.success(request, "Has salido de tu zona de reservas.")
+    messages.success(request, "Has salido de tu cuenta de cliente.")
     return redirect("customers:client_access", slug=business.slug)
 
 
 def _safe_next_url(request, business):
+    if not business.accepts_public_bookings():
+        return reverse("legal:business_privacy", args=[business.slug])
     fallback = reverse("public_booking", args=[business.slug])
     next_url = request.POST.get("next") or request.GET.get("next") or fallback
     if url_has_allowed_host_and_scheme(
