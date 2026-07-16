@@ -1,3 +1,4 @@
+from datetime import timedelta
 from io import BytesIO
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
@@ -110,6 +111,45 @@ class PlatformSettingsTests(TestCase):
         self.assertContains(response, "Año Nuevo")
         self.assertContains(response, "BOE-A-2025-21667")
         self.assertContains(response, "Cargados")
+
+    def test_holiday_panel_ignores_future_and_non_boe_runs(self):
+        now = timezone.now()
+        HolidaySyncRun.objects.create(
+            year=2026,
+            source_name="Calendario local AgendaSalon",
+            status=HolidaySyncRun.Status.SUCCESS,
+            started_at=now - timedelta(minutes=5),
+            finished_at=now - timedelta(minutes=4),
+            items_loaded=1,
+        )
+        future_boe_run = HolidaySyncRun.objects.create(
+            year=2026,
+            source_name="BOE - calendario laboral nacional",
+            status=HolidaySyncRun.Status.SUCCESS,
+            started_at=now + timedelta(days=1),
+            finished_at=now + timedelta(days=1, minutes=1),
+            items_loaded=99,
+        )
+        actual_boe_run = HolidaySyncRun.objects.create(
+            year=2026,
+            source_name="BOE - calendario laboral nacional",
+            source_url="https://www.boe.es/diario_boe/txt.php?id=BOE-A-2025-21667",
+            official_reference="BOE-A-2025-21667",
+            status=HolidaySyncRun.Status.SUCCESS,
+            started_at=now - timedelta(minutes=2),
+            finished_at=now - timedelta(minutes=1),
+            items_loaded=8,
+            items_created=8,
+        )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(f"{self.url}?holiday_year=2026")
+
+        self.assertEqual(response.context["latest_holiday_run"], actual_boe_run)
+        self.assertNotEqual(response.context["latest_holiday_run"], future_boe_run)
+        self.assertContains(response, "Última sincronización con el BOE de 2026")
+        self.assertContains(response, ">8<", count=2)
+        self.assertNotContains(response, ">99<")
 
     @patch("apps.businesses.views.sync_boe_national_holidays")
     def test_only_superadmin_can_trigger_holiday_sync(self, mocked_sync):

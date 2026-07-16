@@ -407,6 +407,12 @@ AgendaSalon mantiene un único catálogo de festivos nacionales para todos los
 negocios. El superadministrador puede sincronizar un año desde `Ajustes`, y cada
 negocio decide en `Horarios` si esas fechas cierran su agenda.
 
+La trazabilidad visible distingue las cargas locales de demostración de las
+sincronizaciones oficiales del BOE. La última sincronización muestra el momento
+real de finalización y descarta defensivamente cualquier registro fechado en el
+futuro, de modo que una carga demo nunca puede ocultar una operación oficial
+recién ejecutada.
+
 La misma operación está disponible por consola:
 
 ```bash
