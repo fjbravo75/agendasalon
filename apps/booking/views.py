@@ -223,6 +223,10 @@ def appointment_assistant(request):
             month=target_date.month,
             duration_minutes=duration_minutes,
         )
+        month_leading_days = target_date.replace(day=1).weekday()
+        month_trailing_days = (
+            -(month_leading_days + len(month_availability.days)) % 7
+        )
         suggestions = tuple()
         if not day_availability.has_slots:
             suggestions = suggest_next_slots(
@@ -262,6 +266,8 @@ def appointment_assistant(request):
                 "day_availability": day_availability,
                 "day_unavailable_message": day_unavailable_message,
                 "month_days": month_availability.days,
+                "month_leading_blanks": range(month_leading_days),
+                "month_trailing_blanks": range(month_trailing_days),
                 "suggestions": suggestions,
                 "recommended_slot": recommended_slot,
                 "slot_was_selected": slot_was_selected,
