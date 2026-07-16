@@ -38,6 +38,9 @@ from apps.notifications.services import (
 )
 
 
+ACCOUNT_EMAIL_NEXT_SESSION_KEY = "account_email_verification_next"
+
+
 def get_post_login_redirect_url(user):
     if user.is_superuser:
         return reverse("dashboards:superadmin_home")
@@ -199,6 +202,8 @@ def professional_activate(request, uidb64, token):
 @login_required
 def account_email(request):
     next_url = _safe_next_url(request)
+    if next_url:
+        request.session[ACCOUNT_EMAIL_NEXT_SESSION_KEY] = next_url
     if request.user.email_verified_at and not request.user.email_verification_required:
         return redirect(next_url or "accounts:security")
     form = AccountEmailForm(
@@ -238,8 +243,9 @@ def professional_email_verify(request, uidb64, token):
     user.email_verification_required = False
     user.save(update_fields=["email_verified_at", "email_verification_required"])
     if request.user.is_authenticated and request.user.pk == user.pk:
+        next_url = request.session.pop(ACCOUNT_EMAIL_NEXT_SESSION_KEY, "")
         messages.success(request, "Correo verificado. Ya puedes continuar en AgendaSalon.")
-        return redirect(get_post_login_redirect_url(user))
+        return redirect(next_url or get_post_login_redirect_url(user))
     return render(request, "accounts/email_verified.html", {"verification_valid": True})
 @login_required
 @require_POST

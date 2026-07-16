@@ -99,6 +99,7 @@ class OutboundEmail(models.Model):
             "Verificación profesional",
         )
         CLIENT_EMAIL_VERIFICATION = "client_email_verification", "Verificación cliente"
+        CLIENT_PASSWORD_RESET = "client_password_reset", "Recuperación de contraseña cliente"
         APPOINTMENT_CONFIRMATION = "appointment_confirmation", "Confirmación de cita"
         APPOINTMENT_REMINDER = "appointment_reminder", "Recordatorio de cita"
 

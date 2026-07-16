@@ -23,6 +23,7 @@ from apps.booking.public_booking_drafts import (
 from apps.booking.slot_engine import CHANNEL_PUBLIC, get_booking_options, get_day_availability
 from apps.businesses.models import Business, BusinessActivityEvent
 from apps.customers.models import BusinessClientAccess, BusinessClientAccessGrant
+from apps.legal.models import CustomerPrivacyEvidence, LegalDocument
 
 
 class AppointmentAssistantTests(TestCase):
@@ -70,7 +71,24 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, 'data-service-count="6"')
         self.assertContains(response, 'data-service-count="6" tabindex="0"')
         self.assertContains(response, "data-appointment-search")
+        self.assertContains(response, 'id="appointment-search-form"')
+        self.assertContains(response, "data-appointment-results-stale")
+        self.assertContains(response, 'data-results-actionable="false"')
+        self.assertContains(response, "Buscar con estos cambios")
         self.assertContains(response, "data-appointment-service", count=6)
+        self.assertContains(response, 'id="appointment-requester-options"')
+        lucas = self.business.clients.get(full_name="Lucas L\u00f3pez")
+        mother = lucas.authorized_contacts.get(full_name="Mar\u00eda L\u00f3pez")
+        self.assertEqual(
+            response.context["requester_choices_by_client"][str(lucas.pk)],
+            [
+                {"value": "self", "label": "Lucas L\u00f3pez (para s\u00ed)"},
+                {
+                    "value": f"contact:{mother.pk}",
+                    "label": "Mar\u00eda L\u00f3pez \u00b7 Madre",
+                },
+            ],
+        )
         self.assertContains(response, 'data-duration="15"')
         self.assertContains(response, "Duración")
         self.assertContains(response, "Selecciona servicios para calcular el tiempo total.")
@@ -253,6 +271,19 @@ class AppointmentAssistantTests(TestCase):
         self.assertTrue(response.context["slot_was_selected"])
         self.assertContains(response, "Hora elegida")
         self.assertContains(response, f'value="{selected_slot.starts_at.isoformat()}"')
+        self.assertContains(response, 'data-results-actionable="true"')
+        quick_client_html = response.content.decode().split(
+            'class="quick-client-card"',
+            maxsplit=1,
+        )[1].split("</form>", maxsplit=1)[0]
+        self.assertIn(
+            f'name="selected_work_line_id" value="{selected_slot.work_line_id}"',
+            quick_client_html,
+        )
+        self.assertIn(
+            f'name="selected_starts_at" value="{selected_slot.starts_at.isoformat()}"',
+            quick_client_html,
+        )
 
     def test_professional_can_confirm_recommended_slot(self):
         self.client.force_login(self.professional)
@@ -360,6 +391,25 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, 'type="checkbox"', count=5)
         self.assertNotContains(response, "service-choice-list--scrollable")
         self.assertNotContains(response, 'data-service-count="5" tabindex="0"')
+
+    def test_public_booking_reports_a_legacy_duration_incompatibility_without_500(self):
+        self.business.calendar_settings.slot_interval_minutes = 30
+        self.business.calendar_settings.save(update_fields=["slot_interval_minutes"])
+        incompatible_service = self.business.services.get(name="Tinte")
+        self.assertEqual(incompatible_service.duration_minutes, 90)
+        incompatible_service.duration_minutes = 45
+        incompatible_service.save(update_fields=["duration_minutes", "updated_at"])
+
+        response = self.client.get(
+            reverse("public_booking", args=[self.business.slug]),
+            {
+                "services": [incompatible_service.pk],
+                "target_date": self._target_date().isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "no es compatible con el intervalo de agenda de 30 minutos")
 
     def test_public_booking_shows_optimized_options_without_internal_agenda(self):
         self._login_demo_client()
@@ -523,6 +573,70 @@ class AppointmentAssistantTests(TestCase):
         refreshed_response = self.client.get(response["Location"])
         self.assertEqual(refreshed_response.status_code, 200)
         self.assertContains(refreshed_response, "Tu cita está confirmada")
+
+    def test_public_confirmation_requires_the_current_privacy_version(self):
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        self._login_demo_client(next_url=confirmation_url)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        previous_document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        )
+        previous_document.is_active = False
+        previous_document.save(update_fields=["is_active"])
+        current_document = LegalDocument.objects.create(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            slug="privacidad-clientes-v2-prueba",
+            version="test-v2",
+            title="Privacidad de clientes",
+            lead="Información actualizada para la prueba.",
+            sections=[{"heading": "Responsable", "body": "Información vigente."}],
+            is_active=True,
+        )
+
+        review_response = self.client.get(confirmation_url)
+
+        self.assertEqual(review_response.status_code, 200)
+        self.assertContains(review_response, "información vigente sobre el tratamiento")
+        self.assertContains(review_response, "versión test-v2")
+
+        rejected_response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking"},
+        )
+
+        self.assertEqual(rejected_response.status_code, 200)
+        self.assertContains(rejected_response, "marca la casilla de lectura")
+        self.assertIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
+
+        confirmed_response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking", "privacy_acknowledged": "on"},
+        )
+
+        self.assertEqual(confirmed_response.status_code, 302)
+        self.assertTrue(
+            CustomerPrivacyEvidence.objects.filter(
+                business=self.business,
+                business_client=access.business_client,
+                client_access=access,
+                document=current_document,
+                channel=CustomerPrivacyEvidence.Channel.BOOKING,
+            ).exists()
+        )
 
     def test_public_receipt_requires_a_recent_booking_from_the_active_account(self):
         receipt_url = reverse("public_booking_receipt", args=[self.business.slug])
@@ -777,17 +891,28 @@ class AppointmentAssistantTests(TestCase):
         service_ids = self._combined_service_ids()
         slot = self._first_public_slot()
         self._choose_public_slot(slot, service_ids)
-        Appointment.objects.create(
-            business=self.business,
-            business_client=self.business.clients.get(full_name="Lucía Gómez"),
-            work_line_id=slot.work_line_id,
-            starts_at=slot.starts_at,
-            ends_at=slot.starts_at + timedelta(minutes=180),
-            total_duration_minutes=180,
-            status=Appointment.Status.CONFIRMED,
-            manual_channel=Appointment.ManualChannel.PHONE,
-            service_summary_snapshot="Bloqueo de prueba",
-        )
+        same_time_slots = [
+            candidate
+            for candidate in get_day_availability(
+                business=self.business,
+                target_date=slot.starts_at.date(),
+                duration_minutes=180,
+            ).slots
+            if candidate.starts_at == slot.starts_at
+        ]
+        self.assertTrue(same_time_slots)
+        for candidate in same_time_slots:
+            Appointment.objects.create(
+                business=self.business,
+                business_client=self.business.clients.get(full_name="Lucía Gómez"),
+                work_line_id=candidate.work_line_id,
+                starts_at=candidate.starts_at,
+                ends_at=candidate.starts_at + timedelta(minutes=180),
+                total_duration_minutes=180,
+                status=Appointment.Status.CONFIRMED,
+                manual_channel=Appointment.ManualChannel.PHONE,
+                service_summary_snapshot="Bloqueo de prueba",
+            )
 
         response = self.client.get(
             reverse("public_booking", args=[self.business.slug]),
@@ -806,6 +931,50 @@ class AppointmentAssistantTests(TestCase):
                 manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
             ).exists()
         )
+
+    def test_public_confirmation_keeps_the_time_when_another_internal_line_is_free(self):
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        same_time_slots = [
+            candidate
+            for candidate in get_day_availability(
+                business=self.business,
+                target_date=slot.starts_at.date(),
+                duration_minutes=180,
+            ).slots
+            if candidate.starts_at == slot.starts_at
+        ]
+        self.assertGreaterEqual(len(same_time_slots), 2)
+        self._choose_public_slot(slot, service_ids)
+        Appointment.objects.create(
+            business=self.business,
+            business_client=self.business.clients.get(full_name="Lucía Gómez"),
+            work_line_id=slot.work_line_id,
+            starts_at=slot.starts_at,
+            ends_at=slot.starts_at + timedelta(minutes=180),
+            total_duration_minutes=180,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            service_summary_snapshot="Bloqueo de una línea",
+        )
+        confirmation_url = f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        self._login_demo_client(next_url=confirmation_url)
+
+        review_response = self.client.get(confirmation_url)
+        response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking"},
+        )
+
+        self.assertEqual(review_response.status_code, 200)
+        self.assertEqual(response.status_code, 302)
+        appointment = Appointment.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+            starts_at=slot.starts_at,
+            manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+        )
+        self.assertNotEqual(appointment.work_line_id, slot.work_line_id)
 
     def _combined_service_ids(self):
         return list(

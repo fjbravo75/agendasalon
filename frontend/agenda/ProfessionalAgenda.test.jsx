@@ -73,4 +73,71 @@ describe("ProfessionalAgenda", () => {
     expect(await screen.findByText("No se puede consultar ahora")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Intentar de nuevo" })).toBeInTheDocument();
   });
+
+  it("conserva la línea y la hora exactas de una sugerencia tras cargar el nuevo día", async () => {
+    const suggestedSlot = {
+      work_line_id: 2,
+      work_line_name: "Línea 2",
+      starts_at: "2026-07-23T09:00:00+02:00",
+      ends_at: "2026-07-23T10:00:00+02:00",
+      duration_minutes: 60,
+      reason: "primer_hueco",
+    };
+    const competingRecommendedSlot = {
+      ...suggestedSlot,
+      work_line_id: 1,
+      work_line_name: "Línea 1",
+      starts_at: "2026-07-23T10:00:00+02:00",
+      ends_at: "2026-07-23T11:00:00+02:00",
+    };
+    const fetchMock = vi.fn((url) => {
+      if (url.startsWith(config.monthEndpoint)) {
+        return Promise.resolve(jsonResponse(payloadFor(url)));
+      }
+      const requestedDate = new URL(url, "https://agenda.test").searchParams.get("date");
+      if (requestedDate === "2026-07-23") {
+        return Promise.resolve(jsonResponse({
+          ...payloadFor(url),
+          work_lines: [
+            {
+              id: 1,
+              name: "Línea 1",
+              appointments: [],
+              available_slots: [competingRecommendedSlot],
+            },
+            { id: 2, name: "Línea 2", appointments: [], available_slots: [suggestedSlot] },
+          ],
+          recommended_slot: competingRecommendedSlot,
+          suggestions: [],
+        }));
+      }
+      return Promise.resolve(jsonResponse({
+        ...payloadFor(url),
+        calendar: { status: "unavailable", reason: "sin_hueco", calculated_from: null, slot_interval_minutes: 15 },
+        suggestions: [suggestedSlot],
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProfessionalAgenda config={config} />);
+
+    const suggestion = await screen.findByRole("button", { name: /jue.*23.*09:00.*Línea 2/i });
+    fireEvent.click(suggestion);
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.includes("date=2026-07-23"))).toBe(true));
+    expect(await screen.findByRole("button", { name: "Línea 2" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hora elegida" })).toBeInTheDocument();
+    expect(screen.getByText("Línea 2 · 60 min")).toBeInTheDocument();
+    const continueLink = screen.getByRole("link", { name: "Continuar en Nueva cita" });
+    expect(continueLink).toHaveAttribute(
+      "href",
+      expect.stringContaining("target_date=2026-07-23"),
+    );
+    expect(continueLink).toHaveAttribute(
+      "href",
+      expect.stringContaining("selected_work_line_id=2"),
+    );
+    expect(continueLink.getAttribute("href")).toContain(
+      "selected_starts_at=2026-07-23T09%3A00%3A00%2B02%3A00",
+    );
+  });
 });

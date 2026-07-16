@@ -1,4 +1,4 @@
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from io import StringIO
 
 from django.contrib.auth import get_user_model
@@ -59,6 +59,49 @@ class ProfessionalScheduleTests(TestCase):
                 business=self.business,
                 event_type=BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_DISABLED,
             ).exists()
+        )
+
+    def test_cannot_enable_national_holidays_over_confirmed_pending_appointment(self):
+        self.client.force_login(self.professional)
+        calendar_settings = self.business.calendar_settings
+        calendar_settings.apply_national_holidays = False
+        calendar_settings.save(update_fields=["apply_national_holidays"])
+        target_date = timezone.localdate() + timedelta(days=45)
+        OfficialHoliday.objects.create(
+            date=target_date,
+            name="Festivo nacional de prueba",
+            scope=OfficialHoliday.Scope.NATIONAL,
+            year=target_date.year,
+            source_name="BOE - prueba",
+            official_reference="BOE-TEST-CONFLICT",
+        )
+        starts_at = timezone.make_aware(
+            datetime.combine(target_date, time(10, 0)),
+            timezone.get_current_timezone(),
+        )
+        Appointment.objects.create(
+            business=self.business,
+            business_client=self.business.clients.first(),
+            work_line=self.business.work_lines.filter(is_active=True).first(),
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=30),
+            total_duration_minutes=30,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            created_by=self.professional,
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_national_holidays_update"),
+            {"apply_national_holidays": "true"},
+            follow=True,
+        )
+        calendar_settings.refresh_from_db()
+
+        self.assertFalse(calendar_settings.apply_national_holidays)
+        self.assertContains(
+            response,
+            "No puedes aplicar los festivos nacionales porque hay una cita confirmada",
         )
 
     def test_schedule_shows_upcoming_national_holidays_and_source_trace(self):
@@ -225,4 +268,192 @@ class ProfessionalScheduleTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(line.is_active)
-        self.assertContains(response, "tiene citas futuras confirmadas")
+        self.assertContains(response, "tiene citas confirmadas pendientes")
+
+    def test_cannot_pause_line_with_confirmed_appointment_already_in_progress(self):
+        self.client.force_login(self.professional)
+        line = self.business.work_lines.filter(is_active=True).first()
+        starts_at = timezone.now() - timedelta(minutes=10)
+        Appointment.objects.create(
+            business=self.business,
+            business_client=self.business.clients.first(),
+            work_line=line,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=30),
+            total_duration_minutes=30,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            created_by=self.professional,
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_work_line_toggle", args=[line.id]),
+            follow=True,
+        )
+        line.refresh_from_db()
+
+        self.assertTrue(line.is_active)
+        self.assertContains(response, "tiene citas confirmadas pendientes")
+
+    def test_cannot_create_closure_over_confirmed_pending_appointment(self):
+        self.client.force_login(self.professional)
+        line = self.business.work_lines.filter(is_active=True).first()
+        target_date = timezone.localdate() + timedelta(days=30)
+        starts_at = timezone.make_aware(
+            datetime.combine(target_date, time(12, 0)),
+            timezone.get_current_timezone(),
+        )
+        Appointment.objects.create(
+            business=self.business,
+            business_client=self.business.clients.first(),
+            work_line=line,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=30),
+            total_duration_minutes=30,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            created_by=self.professional,
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_schedule"),
+            {
+                "form_kind": "closure",
+                "closure-closure_type": BusinessClosure.ClosureType.PUNCTUAL_BLOCK,
+                "closure-date_from": target_date.isoformat(),
+                "closure-date_to": target_date.isoformat(),
+                "closure-start_time": "12:00",
+                "closure-end_time": "13:00",
+                "closure-work_line": "",
+                "closure-internal_reason": "Formación interna",
+                "closure-is_active": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            BusinessClosure.objects.filter(
+                business=self.business,
+                date_from=target_date,
+                start_time=time(12, 0),
+            ).exists()
+        )
+        self.assertContains(response, "No puedes aplicar este cierre porque se solapa")
+
+    def test_cannot_reactivate_closure_over_confirmed_pending_appointment(self):
+        self.client.force_login(self.professional)
+        line = self.business.work_lines.filter(is_active=True).first()
+        target_date = timezone.localdate() + timedelta(days=31)
+        starts_at = timezone.make_aware(
+            datetime.combine(target_date, time(10, 0)),
+            timezone.get_current_timezone(),
+        )
+        Appointment.objects.create(
+            business=self.business,
+            business_client=self.business.clients.first(),
+            work_line=line,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=30),
+            total_duration_minutes=30,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            created_by=self.professional,
+        )
+        closure = BusinessClosure.objects.create(
+            business=self.business,
+            work_line=line,
+            date_from=target_date,
+            date_to=target_date,
+            start_time=time(10, 0),
+            end_time=time(11, 0),
+            closure_type=BusinessClosure.ClosureType.PUNCTUAL_BLOCK,
+            is_active=False,
+            created_by=self.professional,
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_closure_toggle", args=[closure.id]),
+            follow=True,
+        )
+        closure.refresh_from_db()
+
+        self.assertFalse(closure.is_active)
+        self.assertContains(response, "No puedes aplicar este cierre porque se solapa")
+
+    def test_cannot_pause_only_schedule_covering_confirmed_pending_appointment(self):
+        self.client.force_login(self.professional)
+        rule = self.business.availability_rules.filter(is_active=True).order_by("pk").first()
+        target_date = self._next_date_for_weekday(rule.weekday)
+        starts_at = timezone.make_aware(
+            datetime.combine(target_date, rule.start_time),
+            timezone.get_current_timezone(),
+        )
+        Appointment.objects.create(
+            business=self.business,
+            business_client=self.business.clients.first(),
+            work_line=self.business.work_lines.filter(is_active=True).first(),
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=15),
+            total_duration_minutes=15,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            created_by=self.professional,
+        )
+
+        response = self.client.post(
+            reverse("booking:professional_availability_toggle", args=[rule.id]),
+            follow=True,
+        )
+        rule.refresh_from_db()
+
+        self.assertTrue(rule.is_active)
+        self.assertContains(response, "quedaría fuera de todos los tramos activos")
+
+    def test_cannot_shrink_schedule_past_confirmed_pending_appointment(self):
+        self.client.force_login(self.professional)
+        rule = (
+            self.business.availability_rules.filter(is_active=True)
+            .order_by("weekday", "start_time", "pk")
+            .first()
+        )
+        target_date = self._next_date_for_weekday(rule.weekday)
+        starts_at = timezone.make_aware(
+            datetime.combine(target_date, rule.start_time),
+            timezone.get_current_timezone(),
+        )
+        Appointment.objects.create(
+            business=self.business,
+            business_client=self.business.clients.first(),
+            work_line=self.business.work_lines.filter(is_active=True).first(),
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=15),
+            total_duration_minutes=15,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            created_by=self.professional,
+        )
+        original_start_time = rule.start_time
+        later_start = (
+            datetime.combine(date.min, original_start_time) + timedelta(minutes=15)
+        ).time()
+
+        response = self.client.post(
+            reverse("booking:professional_availability_edit", args=[rule.id]),
+            {
+                "availability-weekday": rule.weekday,
+                "availability-start_time": later_start.strftime("%H:%M"),
+                "availability-end_time": rule.end_time.strftime("%H:%M"),
+                "availability-is_active": "on",
+            },
+        )
+        rule.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(rule.start_time, original_start_time)
+        self.assertContains(response, "quedaría fuera de todos los tramos activos")
+
+    @staticmethod
+    def _next_date_for_weekday(weekday):
+        today = timezone.localdate()
+        days_ahead = (weekday - today.weekday()) % 7
+        return today + timedelta(days=days_ahead or 7)

@@ -47,6 +47,8 @@
             <input type="hidden" name="target_date" value="{{ form.target_date.value|default:'' }}">
             <input type="hidden" name="adjusted_duration_minutes" value="{{ form.adjusted_duration_minutes.value|default:'' }}">
             <input type="hidden" name="duration_adjustment_reason" value="{{ form.duration_adjustment_reason.value|default:'' }}">
+            <input type="hidden" name="selected_work_line_id" value="{{ selected_work_line_id }}">
+            <input type="hidden" name="selected_starts_at" value="{{ selected_starts_at }}">
             {% for service_id in form.services.value %}
               <input type="hidden" name="services" value="{{ service_id }}">
             {% endfor %}
@@ -115,10 +117,10 @@
           </form>
         </details>
 
-        <form class="assistant-search-form" method="get" aria-label="Buscar huecos para nueva cita" data-appointment-search>
-          {% if request.GET.selected_work_line_id and request.GET.selected_starts_at %}
-            <input type="hidden" name="selected_work_line_id" value="{{ request.GET.selected_work_line_id }}">
-            <input type="hidden" name="selected_starts_at" value="{{ request.GET.selected_starts_at }}">
+        <form class="assistant-search-form" id="appointment-search-form" method="get" aria-label="Buscar huecos para nueva cita" data-appointment-search>
+          {% if selected_work_line_id and selected_starts_at %}
+            <input type="hidden" name="selected_work_line_id" value="{{ selected_work_line_id }}">
+            <input type="hidden" name="selected_starts_at" value="{{ selected_starts_at }}">
           {% endif %}
           {% if form.non_field_errors %}
             <div class="alert">{{ form.non_field_errors }}</div>
@@ -213,7 +215,20 @@
       </aside>
 
       <div class="assistant-results">
-        {% if has_search and search_is_valid %}
+        <section class="empty assistant-empty assistant-empty--guided" data-appointment-results-stale role="status" aria-live="polite" hidden>
+          <div class="assistant-empty__inner">
+            <span>Búsqueda desactualizada</span>
+            <h2>Vuelve a consultar las horas libres</h2>
+            <p>
+              Has cambiado los datos de la cita. Vuelve a buscar para actualizar
+              las horas antes de confirmar.
+            </p>
+            <button class="button button--wide" type="submit" form="appointment-search-form">Buscar con estos cambios</button>
+          </div>
+        </section>
+
+        <div data-appointment-results-current data-results-actionable="{{ search_is_valid|yesno:'true,false' }}">
+          {% if has_search and search_is_valid %}
           <section class="decision-strip decision-strip--professional" aria-label="Resumen de la cita preparada">
             <div class="decision-strip__main">
               <span>Duración total</span>
@@ -426,47 +441,49 @@
               {% endfor %}
             </div>
           </section>
-        {% elif has_search %}
-          <section class="empty assistant-empty assistant-empty--guided">
-            <div class="assistant-empty__inner">
-              <span>Falta algún dato</span>
-              <h2>Revisa la cita antes de buscar huecos</h2>
-              <p>
-                Cuando cliente, día y servicios estén completos, verás las horas
-                que continúan disponibles antes de confirmar.
-              </p>
-            </div>
-          </section>
-        {% else %}
-          <section class="empty assistant-empty assistant-empty--guided">
-            <div class="assistant-empty__inner">
-              <span>Sin búsqueda activa</span>
-              <h2>Prepara la cita y consulta las horas libres</h2>
-              <p>
-                Selecciona cliente, servicios y día. Podrás comparar las opciones
-                y revisar la agenda por líneas antes de confirmar.
-              </p>
-              <div class="assistant-empty__steps" aria-label="Flujo de búsqueda">
-                <div>
-                  <strong>1</strong>
-                  <span>Cliente</span>
-                  <small>Ficha existente o alta rápida.</small>
-                </div>
-                <div>
-                  <strong>2</strong>
-                  <span>Servicios</span>
-                  <small>Duración real del trabajo.</small>
-                </div>
-                <div>
-                  <strong>3</strong>
-                  <span>Hueco</span>
-                  <small>Horas libres por línea.</small>
+          {% elif has_search %}
+            <section class="empty assistant-empty assistant-empty--guided">
+              <div class="assistant-empty__inner">
+                <span>Falta algún dato</span>
+                <h2>Revisa la cita antes de buscar huecos</h2>
+                <p>
+                  Cuando cliente, día y servicios estén completos, verás las horas
+                  que continúan disponibles antes de confirmar.
+                </p>
+              </div>
+            </section>
+          {% else %}
+            <section class="empty assistant-empty assistant-empty--guided">
+              <div class="assistant-empty__inner">
+                <span>Sin búsqueda activa</span>
+                <h2>Prepara la cita y consulta las horas libres</h2>
+                <p>
+                  Selecciona cliente, servicios y día. Podrás comparar las opciones
+                  y revisar la agenda por líneas antes de confirmar.
+                </p>
+                <div class="assistant-empty__steps" aria-label="Flujo de búsqueda">
+                  <div>
+                    <strong>1</strong>
+                    <span>Cliente</span>
+                    <small>Ficha existente o alta rápida.</small>
+                  </div>
+                  <div>
+                    <strong>2</strong>
+                    <span>Servicios</span>
+                    <small>Duración real del trabajo.</small>
+                  </div>
+                  <div>
+                    <strong>3</strong>
+                    <span>Hueco</span>
+                    <small>Horas libres por línea.</small>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
-        {% endif %}
+            </section>
+          {% endif %}
+        </div>
       </div>
     </div>
   </section>
+  {{ requester_choices_by_client|json_script:"appointment-requester-options" }}
 {% endblock %}

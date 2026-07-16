@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hmac
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import signing
+from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.template.loader import render_to_string
@@ -14,12 +16,16 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 from apps.booking.models import Appointment
-from apps.customers.models import BusinessClientAccess
+from apps.businesses.models import Business
+from apps.customers.models import BusinessClient, BusinessClientAccess
+from apps.customers.services import client_password_fingerprint
 from apps.notifications.models import OutboundEmail
 
 
 CLIENT_EMAIL_TOKEN_SALT = "agendasalon.client-email-verification.v1"
 CLIENT_EMAIL_TOKEN_MAX_AGE = 48 * 60 * 60
+CLIENT_PASSWORD_RESET_TOKEN_SALT = "agendasalon.client-password-reset.v1"
+CLIENT_PASSWORD_RESET_TOKEN_MAX_AGE = 60 * 60
 MAX_EMAIL_ATTEMPTS = 3
 
 
@@ -73,9 +79,23 @@ def queue_professional_email_verification(user, *, business=None):
 
 def queue_client_email_verification(access):
     return _upsert_email(
-        key=f"client-email:{access.pk}:{access.email_normalized}",
+        key=f"client-email:{access.pk}:{client_password_fingerprint(access)}",
         defaults={
             "kind": OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+            "business": access.business,
+            "client_access": access,
+            "recipient_email": access.email,
+            "scheduled_for": timezone.now(),
+        },
+        allow_resend=True,
+    )
+
+
+def queue_client_password_reset(access):
+    return _upsert_email(
+        key=f"client-password-reset:{access.pk}:{client_password_fingerprint(access)}",
+        defaults={
+            "kind": OutboundEmail.Kind.CLIENT_PASSWORD_RESET,
             "business": access.business,
             "client_access": access,
             "recipient_email": access.email,
@@ -153,7 +173,11 @@ def _professional_token_url(user, route_name):
 
 def client_verification_token(access):
     return signing.dumps(
-        {"access_id": access.pk, "email": access.email_normalized},
+        {
+            "access_id": access.pk,
+            "email": access.email_normalized,
+            "password_fingerprint": client_password_fingerprint(access),
+        },
         salt=CLIENT_EMAIL_TOKEN_SALT,
         compress=True,
     )
@@ -168,25 +192,183 @@ def client_verification_url(access):
     )
 
 
-def verified_client_from_token(token, *, business):
+def _client_verification_payload(token):
     try:
-        payload = signing.loads(
+        return signing.loads(
             token,
             salt=CLIENT_EMAIL_TOKEN_SALT,
             max_age=CLIENT_EMAIL_TOKEN_MAX_AGE,
         )
     except signing.BadSignature:
         return None
-    access = BusinessClientAccess.objects.select_related("business", "business_client").filter(
+
+
+def unverified_client_from_token(token, *, business, lock=False):
+    payload = _client_verification_payload(token)
+    if not isinstance(payload, dict):
+        return None
+    queryset = BusinessClientAccess.objects.select_related("business", "business_client")
+    if lock:
+        queryset = queryset.select_for_update()
+    access = queryset.filter(
         pk=payload.get("access_id"),
         email_normalized=payload.get("email"),
         business=business,
         is_active=True,
+        email_verified_at__isnull=True,
     ).first()
-    if access is None or access.email_verified_at is not None:
+    if (
+        access is None
+        or (not access.business_client.is_active and not access.is_pending_public_registration)
+        or not hmac.compare_digest(
+            str(payload.get("password_fingerprint") or ""),
+            client_password_fingerprint(access),
+        )
+    ):
         return None
+    return access
+
+
+@transaction.atomic
+def verified_client_from_token(
+    token,
+    *,
+    business,
+    password,
+    privacy_acknowledged=False,
+):
+    # La pausa operativa puede cambiar entre el GET y el POST. Bloqueamos y
+    # releemos el negocio dentro de la misma transacción antes de consolidar
+    # una nueva alta pública.
+    locked_business = Business.objects.select_for_update().get(pk=business.pk)
+    candidate = unverified_client_from_token(
+        token,
+        business=locked_business,
+    )
+    if candidate is None:
+        return None
+    locked_client = BusinessClient.objects.select_for_update().get(
+        pk=candidate.business_client_id,
+        business=locked_business,
+    )
+    access = unverified_client_from_token(
+        token,
+        business=locked_business,
+        lock=True,
+    )
+    if access is None or access.business_client_id != locked_client.pk:
+        return None
+    if (
+        access.is_pending_public_registration
+        and not locked_business.accepts_public_bookings()
+    ):
+        raise ValidationError(
+            "Las altas online están pausadas. No hemos activado tu cuenta; "
+            "podrás terminarla cuando el negocio vuelva a admitir reservas."
+        )
+    if locked_business.legal_compliance_enabled and not privacy_acknowledged:
+        raise ValidationError("Debes confirmar la información de privacidad vigente.")
+
+    was_pending_public_registration = access.is_pending_public_registration
+    client_update_fields = []
+    if was_pending_public_registration:
+        locked_client.is_active = True
+        client_update_fields.append("is_active")
+    if (locked_client.email or "").strip() != (access.email or "").strip():
+        locked_client.email = access.email
+        client_update_fields.append("email")
+    if client_update_fields:
+        locked_client.save(update_fields=[*client_update_fields, "updated_at"])
+    access.set_password(password)
     access.email_verified_at = timezone.now()
-    access.save(update_fields=["email_verified_at", "updated_at"])
+    access.is_pending_public_registration = False
+    access.save(
+        update_fields=[
+            "password_hash",
+            "email_verified_at",
+            "is_pending_public_registration",
+            "updated_at",
+        ]
+    )
+    if locked_business.legal_compliance_enabled:
+        from apps.legal.models import LegalAcceptance
+        from apps.legal.services import acknowledge_customer_privacy
+
+        context = (
+            LegalAcceptance.Context.CLIENT_REGISTRATION
+            if locked_client.source == "other"
+            else LegalAcceptance.Context.CLIENT_INVITATION
+        )
+        acknowledge_customer_privacy(client_access=access, context=context)
+    return access
+
+
+def client_password_reset_token(access):
+    return signing.dumps(
+        {
+            "access_id": access.pk,
+            "business_id": access.business_id,
+            "email": access.email_normalized,
+            "password_fingerprint": client_password_fingerprint(access),
+        },
+        salt=CLIENT_PASSWORD_RESET_TOKEN_SALT,
+        compress=True,
+    )
+
+
+def client_password_reset_url(access):
+    return _absolute_url(
+        reverse(
+            "customers:client_password_reset",
+            args=[access.business.slug, client_password_reset_token(access)],
+        )
+    )
+
+
+def _client_password_reset_payload(token):
+    try:
+        return signing.loads(
+            token,
+            salt=CLIENT_PASSWORD_RESET_TOKEN_SALT,
+            max_age=CLIENT_PASSWORD_RESET_TOKEN_MAX_AGE,
+        )
+    except signing.BadSignature:
+        return None
+
+
+def client_password_reset_access_from_token(token, *, business, lock=False):
+    payload = _client_password_reset_payload(token)
+    if not isinstance(payload, dict) or payload.get("business_id") != business.pk:
+        return None
+    queryset = BusinessClientAccess.objects.select_related("business", "business_client")
+    if lock:
+        queryset = queryset.select_for_update()
+    access = queryset.filter(
+        pk=payload.get("access_id"),
+        business=business,
+        email_normalized=payload.get("email"),
+        is_active=True,
+        email_verified_at__isnull=False,
+        business_client__is_active=True,
+    ).first()
+    if access is None:
+        return None
+    if payload.get("password_fingerprint") != client_password_fingerprint(access):
+        return None
+    return access
+
+
+@transaction.atomic
+def reset_client_password_from_token(token, *, business, password):
+    access = client_password_reset_access_from_token(
+        token,
+        business=business,
+        lock=True,
+    )
+    if access is None:
+        return None
+    access.set_password(password)
+    access.save(update_fields=["password_hash", "updated_at"])
     return access
 
 
@@ -213,6 +395,12 @@ def _delivery_context(email):
             access=email.client_access,
             client=email.client_access.business_client,
             action_url=client_verification_url(email.client_access),
+        )
+    elif email.kind == OutboundEmail.Kind.CLIENT_PASSWORD_RESET:
+        context.update(
+            access=email.client_access,
+            client=email.client_access.business_client,
+            action_url=client_password_reset_url(email.client_access),
         )
     else:
         appointment = email.appointment
@@ -242,8 +430,25 @@ def _is_still_valid(email):
         return bool(
             access
             and access.is_active
+            and (
+                access.business_client.is_active
+                or access.is_pending_public_registration
+            )
             and access.email_verified_at is None
             and access.email_normalized == email.recipient_email.lower()
+            and email.deduplication_key
+            == f"client-email:{access.pk}:{client_password_fingerprint(access)}"
+        )
+    if email.kind == OutboundEmail.Kind.CLIENT_PASSWORD_RESET:
+        access = email.client_access
+        return bool(
+            access
+            and access.is_active
+            and access.business_client.is_active
+            and access.email_verified_at is not None
+            and access.email_normalized == email.recipient_email.lower()
+            and email.deduplication_key
+            == f"client-password-reset:{access.pk}:{client_password_fingerprint(access)}"
         )
     appointment = email.appointment
     access = email.client_access

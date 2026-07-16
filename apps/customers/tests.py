@@ -1,20 +1,22 @@
 import importlib
 from datetime import timedelta
 from io import StringIO
-from urllib.parse import urlparse
+from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.hashers import identify_hasher, make_password
+from django.contrib.auth.hashers import identify_hasher, is_password_usable, make_password
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.booking.models import Appointment
 from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
+from apps.core.models import SecurityThrottle
 from apps.customers.models import (
     BusinessClient,
     BusinessClientAccess,
@@ -24,13 +26,28 @@ from apps.customers.models import (
 )
 from apps.customers.services import (
     CLIENT_ACCESS_LAST_SEEN_SESSION_KEY,
+    CLIENT_ACCESS_PASSWORD_SESSION_KEY,
     CLIENT_ACCESS_SESSION_KEY,
     authenticate_client_access,
+    create_or_reuse_professional_client,
     get_bookable_client,
     register_client_access,
     set_authorized_contact_active,
 )
-from apps.legal.models import CustomerPrivacyEvidence
+from apps.legal.models import (
+    CustomerPrivacyEvidence,
+    LegalAcceptance,
+    LegalDocument,
+)
+from apps.legal.services import (
+    accept_professional_legal_documents,
+    get_active_document,
+)
+from apps.notifications.models import OutboundEmail
+from apps.notifications.services import (
+    client_password_reset_url,
+    client_verification_url,
+)
 
 
 class DemoClientMigrationTests(TestCase):
@@ -63,6 +80,76 @@ class DemoClientMigrationTests(TestCase):
         self.assertEqual(access.email_normalized, expected_email)
         self.assertIsNotNone(access.email_verified_at)
         self.assertEqual(client.email, expected_email)
+
+    def test_legacy_client_email_is_aligned_only_from_verified_non_empty_access(self):
+        business = Business.objects.create(
+            commercial_name="Salón migración",
+            slug="salon-migracion-email",
+        )
+        canonical_client = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente desalineada",
+            phone="600555445",
+            email="antiguo@example.com",
+        )
+        canonical_access = BusinessClientAccess(
+            business=business,
+            business_client=canonical_client,
+            phone=canonical_client.phone,
+            email="canonico@example.com",
+            email_verified_at=timezone.now(),
+        )
+        canonical_access.set_password(None)
+        canonical_access.save()
+        empty_client = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente con correo residual",
+            phone="600555446",
+            email="residual@example.com",
+        )
+        empty_access = BusinessClientAccess(
+            business=business,
+            business_client=empty_client,
+            phone=empty_client.phone,
+            email="",
+            email_verified_at=timezone.now(),
+        )
+        empty_access.set_password(None)
+        empty_access.save()
+        BusinessClientAccess.objects.filter(pk=empty_access.pk).update(email="   ")
+        unverified_client = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente pendiente de verificar",
+            phone="600555447",
+            email="contacto@example.com",
+        )
+        unverified_access = BusinessClientAccess(
+            business=business,
+            business_client=unverified_client,
+            phone=unverified_client.phone,
+            email="pendiente@example.com",
+        )
+        unverified_access.set_password(None)
+        unverified_access.save()
+        migration = importlib.import_module(
+            "apps.customers.migrations.0014_sync_business_client_email_from_access"
+        )
+
+        migration.sync_business_client_email_from_access(
+            importlib.import_module("django.apps").apps,
+            SimpleNamespace(connection=connection),
+        )
+        migration.sync_business_client_email_from_access(
+            importlib.import_module("django.apps").apps,
+            SimpleNamespace(connection=connection),
+        )
+
+        canonical_client.refresh_from_db()
+        empty_client.refresh_from_db()
+        unverified_client.refresh_from_db()
+        self.assertEqual(canonical_client.email, canonical_access.email)
+        self.assertEqual(empty_client.email, "residual@example.com")
+        self.assertEqual(unverified_client.email, "contacto@example.com")
 
 
 class CustomerModelTests(TestCase):
@@ -154,32 +241,28 @@ class CustomerModelTests(TestCase):
                 is_primary_contact=True,
             )
 
-    def test_public_registration_cannot_claim_an_existing_client_file(self):
+    def test_public_registration_with_existing_phone_creates_an_independent_file(self):
         client = BusinessClient.objects.create(
             business=self.business,
             full_name="María López",
             phone="600111222",
         )
 
-        with self.assertRaises(ValidationError):
-            register_client_access(
-                business=self.business,
-                full_name="Otra persona",
-                phone="600111222",
-                email="otra@example.test",
-                password="ClienteDemo2026!",
-            )
+        access = register_client_access(
+            business=self.business,
+            full_name="Otra persona",
+            phone="600111222",
+            email="otra@example.test",
+            password="ClienteDemo2026!",
+        )
 
         client.refresh_from_db()
         self.assertEqual(client.full_name, "María López")
-        self.assertFalse(
-            BusinessClientAccess.objects.filter(
-                business=self.business,
-                phone_normalized="+34600111222",
-            ).exists()
-        )
+        self.assertNotEqual(access.business_client_id, client.pk)
+        self.assertEqual(access.phone_normalized, client.phone_normalized)
+        self.assertEqual(access.business_client.full_name, "Otra persona")
 
-    def test_client_access_phone_is_unique_inside_business(self):
+    def test_client_access_phone_can_repeat_inside_business(self):
         client = BusinessClient.objects.create(
             business=self.business,
             full_name="María López",
@@ -202,6 +285,43 @@ class CustomerModelTests(TestCase):
             business=self.business,
             business_client=other_client,
             phone="+34 600 111 222",
+        )
+        duplicate.set_password("ClienteDemo2026!")
+
+        duplicate.save()
+
+        self.assertEqual(
+            BusinessClientAccess.objects.filter(
+                business=self.business,
+                phone_normalized="+34600111222",
+            ).count(),
+            2,
+        )
+
+    def test_client_access_email_remains_unique_inside_business(self):
+        first_client = BusinessClient.objects.create(
+            business=self.business,
+            full_name="María López",
+            phone="600111222",
+        )
+        first = BusinessClientAccess(
+            business=self.business,
+            business_client=first_client,
+            phone=first_client.phone,
+            email="cliente@example.test",
+        )
+        first.set_password("ClienteDemo2026!")
+        first.save()
+        second_client = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Otra persona",
+            phone="600111223",
+        )
+        duplicate = BusinessClientAccess(
+            business=self.business,
+            business_client=second_client,
+            phone=second_client.phone,
+            email="CLIENTE@example.test",
         )
         duplicate.set_password("ClienteDemo2026!")
 
@@ -230,6 +350,34 @@ class CustomerModelTests(TestCase):
         self.assertEqual(access.business, self.business)
         self.assertEqual(access.business_client.full_name, "Cliente Mari")
 
+    def test_public_registration_rejects_duplicate_email_with_generic_error(self):
+        register_client_access(
+            business=self.business,
+            full_name="Cliente Primera",
+            phone="600111230",
+            email="identidad@example.test",
+            password="ClienteDemo2026!",
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "No podemos crear una cuenta con esos datos.",
+        ):
+            register_client_access(
+                business=self.business,
+                full_name="Cliente Segunda",
+                phone="600111231",
+                email="IDENTIDAD@example.test",
+                password="ClienteDemo2026!",
+            )
+
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente Segunda",
+            ).exists()
+        )
+
 
 class ClientAccessViewTests(TestCase):
     def setUp(self):
@@ -240,9 +388,7 @@ class ClientAccessViewTests(TestCase):
         )
 
     def test_client_access_page_uses_customer_copy(self):
-        response = self.client.get(
-            reverse("customers:client_access", args=[self.business.slug])
-        )
+        response = self.client.get(reverse("customers:client_access", args=[self.business.slug]))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Peluquería Mari")
@@ -265,16 +411,14 @@ class ClientAccessViewTests(TestCase):
         self.assertNotContains(response, "Entrar en AgendaSalon")
 
     def test_client_register_page_uses_separate_registration_flow(self):
-        response = self.client.get(
-            reverse("customers:client_register", args=[self.business.slug])
-        )
+        response = self.client.get(reverse("customers:client_register", args=[self.business.slug]))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Cuenta cliente de Peluquería Mari")
         self.assertContains(response, "Crea tu cuenta")
         self.assertContains(response, "en Peluquería Mari")
         self.assertContains(response, "Crear cuenta cliente")
-        self.assertContains(response, "Crear mi cuenta")
+        self.assertContains(response, "Verificar mi correo")
         self.assertContains(response, "Entra para reservar")
         self.assertContains(response, "client-auth-register-page")
         self.assertContains(response, "client-auth-page--salon")
@@ -284,6 +428,7 @@ class ClientAccessViewTests(TestCase):
         )
         self.assertNotContains(response, "Acceso profesional")
         self.assertNotContains(response, "Entrar y revisar reserva")
+        self.assertNotContains(response, 'name="password"')
 
     def test_business_uses_the_selected_barbershop_visual_theme(self):
         barberia = Business.objects.create(
@@ -293,9 +438,7 @@ class ClientAccessViewTests(TestCase):
             public_image_preset=Business.PublicImagePreset.BARBERSHOP,
         )
 
-        response = self.client.get(
-            reverse("customers:client_access", args=[barberia.slug])
-        )
+        response = self.client.get(reverse("customers:client_access", args=[barberia.slug]))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Zona cliente de Barbería Norte")
@@ -333,7 +476,7 @@ class ClientAccessViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Teléfono o contraseña no válidos.")
+        self.assertContains(response, "Correo, teléfono o contraseña no válidos.")
 
         response = self.client.post(
             reverse("customers:client_access", args=[other_business.slug]),
@@ -345,7 +488,9 @@ class ClientAccessViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], reverse("public_booking", args=[other_business.slug]))
+        self.assertEqual(
+            response["Location"], reverse("public_booking", args=[other_business.slug])
+        )
 
     def test_registration_waits_for_email_verification_before_booking(self):
         response = self.client.post(
@@ -366,11 +511,12 @@ class ClientAccessViewTests(TestCase):
             reverse("customers:client_email_pending", args=[self.business.slug]),
         )
         access = BusinessClientAccess.objects.get(
-                business=self.business,
-                business_client__full_name="Cliente Web",
-                phone_normalized="+34600999001",
+            business=self.business,
+            business_client__full_name="Cliente Web",
+            phone_normalized="+34600999001",
         )
         self.assertIsNone(access.email_verified_at)
+        self.assertFalse(is_password_usable(access.password_hash))
         self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, self.client.session)
 
     def test_new_client_password_uses_argon2(self):
@@ -380,6 +526,7 @@ class ClientAccessViewTests(TestCase):
             phone="600999010",
             email="argon2@example.test",
             password="ClienteDemo2026!",
+            email_verified=True,
         )
 
         self.assertEqual(identify_hasher(access.password_hash).algorithm, "argon2")
@@ -459,8 +606,8 @@ class ClientAccessViewTests(TestCase):
             status_code=429,
         )
 
-    def test_registration_with_existing_phone_fails_closed_without_disclosing_the_client(self):
-        BusinessClient.objects.create(
+    def test_registration_with_existing_phone_creates_a_separate_unverified_account(self):
+        existing = BusinessClient.objects.create(
             business=self.business,
             full_name="María López",
             phone="600999002",
@@ -477,18 +624,17 @@ class ClientAccessViewTests(TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(
+        self.assertRedirects(
             response,
-            "No podemos crear una cuenta con esos datos. Contacta con el negocio para activar tu acceso.",
+            reverse("customers:client_email_pending", args=[self.business.slug]),
         )
-        self.assertNotContains(response, "María López")
-        self.assertFalse(
-            BusinessClientAccess.objects.filter(
-                business=self.business,
-                phone_normalized="+34600999002",
-            ).exists()
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="otra@example.com",
         )
+        self.assertNotEqual(access.business_client_id, existing.pk)
+        self.assertEqual(access.phone_normalized, existing.phone_normalized)
+        self.assertIsNone(access.email_verified_at)
 
     def test_client_logout_requires_post_and_clears_the_business_session(self):
         register_client_access(
@@ -517,7 +663,9 @@ class ClientAccessViewTests(TestCase):
         )
         booking_response = self.client.get(reverse("public_booking", args=[self.business.slug]))
         self.assertEqual(booking_response.status_code, 200)
-        self.assertContains(booking_response, "No necesitas una cuenta para consultar servicios y horas")
+        self.assertContains(
+            booking_response, "No necesitas una cuenta para consultar servicios y horas"
+        )
         self.assertNotContains(booking_response, "Reservas como")
 
     def test_client_session_expires_after_one_hour_without_activity(self):
@@ -536,13 +684,789 @@ class ClientAccessViewTests(TestCase):
         ).isoformat()
         session.save()
 
-        response = self.client.get(
-            reverse("customers:client_access", args=[self.business.slug])
-        )
+        response = self.client.get(reverse("customers:client_access", args=[self.business.slug]))
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, self.client.session)
         self.assertNotIn(CLIENT_ACCESS_LAST_SEEN_SESSION_KEY, self.client.session)
+
+
+class ClientAccessSecurityP0Tests(TestCase):
+    def setUp(self):
+        self.business = Business.objects.create(
+            commercial_name="Peluquería Mari",
+            slug="peluqueria-mari-seguridad",
+            is_active=True,
+            public_booking_enabled=True,
+        )
+
+    def _access(self, *, name, email, phone="600777001", password="ClienteDemo2026!"):
+        return register_client_access(
+            business=self.business,
+            full_name=name,
+            phone=phone,
+            email=email,
+            password=password,
+            email_verified=True,
+        )
+
+    def _enable_current_legal_compliance(self):
+        self.business.legal_compliance_enabled = True
+        self.business.save(update_fields=["legal_compliance_enabled", "updated_at"])
+        legal_actor = get_user_model().objects.create_user(
+            normalized_phone="+34600777999",
+            password="ProfesionalLegal2026!",
+            full_name="Responsable legal",
+        )
+        accept_professional_legal_documents(
+            user=legal_actor,
+            business=self.business,
+            profile_data={
+                "legal_name": "Peluquería Mari, S.L.",
+                "tax_identifier": "B12345678",
+                "registered_address": "Calle Mayor, 10, Málaga",
+                "privacy_email": "privacidad@example.com",
+                "rights_contact_name": "Responsable de privacidad",
+                "retention_criteria": ("Durante la relación y los plazos legales aplicables."),
+            },
+        )
+
+    def test_email_is_canonical_and_ambiguous_legacy_phone_fails_closed(self):
+        first = self._access(name="Ana Uno", email="ana.uno@example.com")
+        second = self._access(name="Ana Dos", email="ana.dos@example.com")
+
+        self.assertIsNone(
+            authenticate_client_access(
+                business=self.business,
+                phone="600777001",
+                password="ClienteDemo2026!",
+            )
+        )
+        self.assertEqual(
+            authenticate_client_access(
+                business=self.business,
+                identifier="ANA.UNO@example.com",
+                password="ClienteDemo2026!",
+            ),
+            first,
+        )
+        self.assertEqual(
+            authenticate_client_access(
+                business=self.business,
+                identifier="ana.dos@example.com",
+                password="ClienteDemo2026!",
+            ),
+            second,
+        )
+
+    def test_login_ui_prioritizes_email_and_keeps_legacy_phone_post_compatible(self):
+        access = self._access(name="Cliente Única", email="unica@example.com")
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+
+        page = self.client.get(login_url)
+        self.assertContains(page, "CORREO ELECTRÓNICO O TELÉFONO")
+        self.assertContains(page, 'name="identifier"')
+        self.assertContains(page, "He olvidado mi contraseña")
+
+        response = self.client.post(
+            login_url,
+            {"phone": access.phone, "password": "ClienteDemo2026!"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session[CLIENT_ACCESS_SESSION_KEY], access.pk)
+        self.assertIn(CLIENT_ACCESS_PASSWORD_SESSION_KEY, self.client.session)
+
+    def test_registration_is_persistently_throttled_by_email_phone_and_ip(self):
+        registration_url = reverse("customers:client_register", args=[self.business.slug])
+        payload = {
+            "full_name": "",
+            "phone": "600777010",
+            "email": "repetida@example.com",
+        }
+
+        responses = [self.client.post(registration_url, payload) for _ in range(4)]
+
+        self.assertEqual(responses[-1].status_code, 429)
+        self.assertContains(responses[-1], "Demasiados intentos", status_code=429)
+        self.assertFalse(
+            BusinessClientAccess.objects.filter(
+                business=self.business,
+                email_normalized="repetida@example.com",
+            ).exists()
+        )
+        self.assertTrue(SecurityThrottle.objects.filter(scope="client_registration_email").exists())
+        self.assertTrue(SecurityThrottle.objects.filter(scope="client_registration_phone").exists())
+        self.assertTrue(SecurityThrottle.objects.filter(scope="client_registration_ip").exists())
+
+    def test_new_and_duplicate_email_registration_share_the_same_public_response(self):
+        self._access(name="Cuenta existente", email="existente@example.com")
+        registration_url = reverse("customers:client_register", args=[self.business.slug])
+        duplicate_browser = self.client_class()
+        new_browser = self.client_class()
+
+        duplicate = duplicate_browser.post(
+            registration_url,
+            {
+                "full_name": "Intento duplicado",
+                "phone": "600777020",
+                "email": "EXISTENTE@example.com",
+            },
+        )
+        new = new_browser.post(
+            registration_url,
+            {
+                "full_name": "Alta nueva",
+                "phone": "600777021",
+                "email": "nueva@example.com",
+            },
+        )
+
+        self.assertEqual(duplicate.status_code, 302)
+        self.assertEqual(new.status_code, 302)
+        self.assertEqual(duplicate["Location"], new["Location"])
+        duplicate_pending = duplicate_browser.get(duplicate["Location"])
+        new_pending = new_browser.get(new["Location"])
+        for response in (duplicate_pending, new_pending):
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Un último paso")
+            self.assertContains(response, "Enviar un enlace nuevo")
+            self.assertNotContains(response, "No podemos crear una cuenta")
+        self.assertEqual(
+            BusinessClientAccess.objects.filter(
+                business=self.business,
+                email_normalized="existente@example.com",
+            ).count(),
+            1,
+        )
+        self.assertTrue(
+            BusinessClientAccess.objects.filter(
+                business=self.business,
+                email_normalized="nueva@example.com",
+            ).exists()
+        )
+
+    def test_exact_professional_identity_does_not_block_independent_public_registration(self):
+        professional_file = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Nombre Compartido",
+            phone="600777022",
+            source=BusinessClient.Source.PROFESSIONAL,
+        )
+
+        response = self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Nombre Compartido",
+                "phone": "600777022",
+                "email": "identidad.publica@example.com",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="identidad.publica@example.com",
+        )
+        self.assertNotEqual(access.business_client_id, professional_file.pk)
+        self.assertEqual(access.business_client.source, BusinessClient.Source.OTHER)
+        self.assertFalse(access.business_client.is_active)
+        self.assertTrue(access.is_pending_public_registration)
+        self.assertFalse(is_password_usable(access.password_hash))
+        self.assertTrue(
+            OutboundEmail.objects.filter(
+                kind=OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+                client_access=access,
+            ).exists()
+        )
+
+    def test_pending_public_file_cannot_poison_professional_identity_reuse(self):
+        pending_access = register_client_access(
+            business=self.business,
+            full_name="Nombre Compartido",
+            phone="600777024",
+            email="pendiente@example.com",
+        )
+
+        professional_file, created = create_or_reuse_professional_client(
+            business=self.business,
+            full_name="Nombre Compartido",
+            phone="600777024",
+        )
+
+        self.assertTrue(created)
+        self.assertNotEqual(professional_file.pk, pending_access.business_client_id)
+        self.assertEqual(professional_file.source, BusinessClient.Source.PROFESSIONAL)
+        self.assertTrue(professional_file.is_active)
+        pending_access.business_client.refresh_from_db()
+        self.assertFalse(pending_access.business_client.is_active)
+
+    def test_registration_retry_from_new_browser_recovers_pending_access(self):
+        registration_url = reverse("customers:client_register", args=[self.business.slug])
+        payload = {
+            "full_name": "Cliente Pendiente",
+            "phone": "600777025",
+            "email": "pendiente.retry@example.com",
+        }
+        self.client.post(registration_url, payload)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="pendiente.retry@example.com",
+        )
+        self.assertFalse(access.business_client.is_active)
+        self.assertTrue(access.is_pending_public_registration)
+        SecurityThrottle.objects.filter(scope="client_email_resend_cooldown").delete()
+
+        retry_browser = self.client_class()
+        with patch("apps.customers.views.queue_client_email_verification") as queue_mock:
+            response = retry_browser.post(registration_url, payload)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            reverse("customers:client_email_pending", args=[self.business.slug]),
+        )
+        queue_mock.assert_called_once_with(access)
+        pending_page = retry_browser.get(response["Location"])
+        self.assertContains(pending_page, "pendiente.retry@example.com")
+        self.assertEqual(
+            BusinessClientAccess.objects.filter(
+                business=self.business,
+                email_normalized="pendiente.retry@example.com",
+            ).count(),
+            1,
+        )
+
+    def test_legal_evidence_is_created_only_after_identity_verification(self):
+        self._enable_current_legal_compliance()
+        response = self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Cliente Legal",
+                "phone": "600777026",
+                "email": "cliente.legal@example.com",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="cliente.legal@example.com",
+        )
+        verify_path = urlparse(client_verification_url(access)).path
+        self.assertFalse(LegalAcceptance.objects.filter(client_access=access).exists())
+        self.assertFalse(CustomerPrivacyEvidence.objects.filter(client_access=access).exists())
+
+        page = self.client.get(verify_path)
+        privacy_document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'name="privacy_acknowledged"')
+        self.assertContains(page, f"versión {privacy_document.version}")
+        self.assertContains(page, "no autoriza publicidad")
+        self.assertFalse(LegalAcceptance.objects.filter(client_access=access).exists())
+
+        rejected = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+            },
+        )
+        self.assertEqual(rejected.status_code, 200)
+        self.assertContains(rejected, "Confirma que has recibido la información")
+        access.refresh_from_db()
+        access.business_client.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+        self.assertFalse(is_password_usable(access.password_hash))
+        self.assertTrue(access.is_pending_public_registration)
+        self.assertFalse(access.business_client.is_active)
+        self.assertFalse(LegalAcceptance.objects.filter(client_access=access).exists())
+
+        confirmed = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+                "privacy_acknowledged": "on",
+            },
+        )
+        self.assertEqual(confirmed.status_code, 302)
+        access.refresh_from_db()
+        access.business_client.refresh_from_db()
+        self.assertIsNotNone(access.email_verified_at)
+        self.assertTrue(access.check_password("NuevaClaveCliente2026!"))
+        self.assertFalse(access.is_pending_public_registration)
+        self.assertTrue(access.business_client.is_active)
+
+        acceptance = LegalAcceptance.objects.get(client_access=access)
+        evidence = CustomerPrivacyEvidence.objects.get(client_access=access)
+        self.assertEqual(acceptance.context, LegalAcceptance.Context.CLIENT_REGISTRATION)
+        self.assertEqual(acceptance.document, privacy_document)
+        self.assertEqual(acceptance.document_hash_snapshot, privacy_document.content_hash)
+        self.assertTrue(acceptance.legal_context_snapshot)
+        self.assertEqual(
+            evidence.channel,
+            CustomerPrivacyEvidence.Channel.ONLINE_REGISTRATION,
+        )
+        self.assertEqual(evidence.document, privacy_document)
+
+    def test_paused_business_preserves_pending_public_registration_for_later(self):
+        access = register_client_access(
+            business=self.business,
+            full_name="Cliente en pausa",
+            phone="600777027",
+            email="pausa.alta@example.com",
+        )
+        verify_path = urlparse(client_verification_url(access)).path
+        self.business.is_active = False
+        self.business.save(update_fields=["is_active", "updated_at"])
+
+        page = self.client.get(verify_path)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Las altas online están pausadas")
+        rejected = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+            },
+        )
+        self.assertEqual(rejected.status_code, 200)
+        self.assertContains(rejected, "No hemos activado tu cuenta")
+        access.refresh_from_db()
+        access.business_client.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+        self.assertFalse(is_password_usable(access.password_hash))
+        self.assertTrue(access.is_pending_public_registration)
+        self.assertFalse(access.business_client.is_active)
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, self.client.session)
+
+        self.business.is_active = True
+        self.business.save(update_fields=["is_active", "updated_at"])
+        completed = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+            },
+        )
+        self.assertEqual(completed.status_code, 302)
+        access.refresh_from_db()
+        self.assertIsNotNone(access.email_verified_at)
+
+    def test_existing_client_can_verify_email_while_business_is_paused(self):
+        client_file = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Cliente invitada",
+            phone="600777028",
+            source=BusinessClient.Source.PROFESSIONAL,
+        )
+        access = BusinessClientAccess(
+            business=self.business,
+            business_client=client_file,
+            phone=client_file.phone,
+            email="invitada.pausa@example.com",
+            is_active=True,
+        )
+        access.set_password(None)
+        access.save()
+        verify_path = urlparse(client_verification_url(access)).path
+        self.business.is_active = False
+        self.business.public_booking_enabled = False
+        self.business.save(update_fields=["is_active", "public_booking_enabled", "updated_at"])
+
+        self.assertEqual(self.client.get(verify_path).status_code, 200)
+        response = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            reverse("legal:business_privacy", args=[self.business.slug]),
+        )
+        access.refresh_from_db()
+        self.assertIsNotNone(access.email_verified_at)
+        self.assertTrue(access.check_password("NuevaClaveCliente2026!"))
+
+    def test_paused_business_keeps_existing_login_and_privacy_available(self):
+        access = self._access(
+            name="Cliente con cuenta",
+            email="cuenta.pausada@example.com",
+            phone="600777029",
+        )
+        self.business.is_active = False
+        self.business.public_booking_enabled = False
+        self.business.save(update_fields=["is_active", "public_booking_enabled", "updated_at"])
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+        privacy_url = reverse("legal:business_privacy", args=[self.business.slug])
+
+        page = self.client.get(login_url)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Tu cuenta sigue")
+        self.assertContains(page, "ejercer tus derechos")
+        self.assertContains(page, f'href="{privacy_url}"')
+        self.assertNotContains(page, "Créala en un momento")
+        self.assertNotContains(
+            page,
+            reverse("customers:client_register", args=[self.business.slug]),
+        )
+
+        response = self.client.post(
+            login_url,
+            {
+                "identifier": access.email,
+                "password": "ClienteDemo2026!",
+                "next": reverse("public_booking", args=[self.business.slug]),
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], privacy_url)
+        self.assertEqual(self.client.session[CLIENT_ACCESS_SESSION_KEY], access.pk)
+        self.assertEqual(self.client.get(login_url).status_code, 302)
+        self.assertEqual(self.client.get(privacy_url).status_code, 200)
+
+        self.assertEqual(
+            self.client.get(
+                reverse("customers:client_register", args=[self.business.slug])
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(reverse("public_booking", args=[self.business.slug])).status_code,
+            404,
+        )
+
+    def test_pending_email_can_be_revisited_and_resent_while_business_is_paused(self):
+        registration = self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Cliente pendiente en pausa",
+                "phone": "600777030",
+                "email": "pendiente.pausa@example.com",
+            },
+        )
+        self.assertEqual(registration.status_code, 302)
+        pending_url = reverse("customers:client_email_pending", args=[self.business.slug])
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="pendiente.pausa@example.com",
+        )
+        self.business.is_active = False
+        self.business.public_booking_enabled = False
+        self.business.save(update_fields=["is_active", "public_booking_enabled", "updated_at"])
+
+        page = self.client.get(pending_url)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Las altas online están pausadas")
+        SecurityThrottle.objects.filter(scope="client_email_resend_cooldown").delete()
+        with patch("apps.customers.views.queue_client_email_verification") as queue_mock:
+            response = self.client.post(pending_url)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], pending_url)
+        queue_mock.assert_called_once_with(access)
+
+    def test_password_recovery_works_while_paused_and_enters_privacy(self):
+        access = self._access(
+            name="Cliente recuperación pausada",
+            email="reset.pausa@example.com",
+            phone="600777031",
+        )
+        request_url = reverse(
+            "customers:client_password_reset_request",
+            args=[self.business.slug],
+        )
+        reset_path = urlparse(client_password_reset_url(access)).path
+        privacy_url = reverse("legal:business_privacy", args=[self.business.slug])
+        self.business.is_active = False
+        self.business.public_booking_enabled = False
+        self.business.save(update_fields=["is_active", "public_booking_enabled", "updated_at"])
+
+        request_page = self.client.get(request_url)
+        self.assertEqual(request_page.status_code, 200)
+        self.assertContains(request_page, "cuenta y a la información de privacidad")
+        with patch("apps.customers.views.queue_client_password_reset") as queue_mock:
+            requested = self.client.post(request_url, {"email": access.email})
+        self.assertEqual(requested.status_code, 200)
+        queue_mock.assert_called_once_with(access)
+
+        self.assertEqual(self.client.get(reset_path).status_code, 200)
+        changed = self.client.post(
+            reset_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+            },
+        )
+        self.assertEqual(changed.status_code, 302)
+        self.assertEqual(changed["Location"], privacy_url)
+        access.refresh_from_db()
+        self.assertTrue(access.check_password("NuevaClaveCliente2026!"))
+        self.assertEqual(self.client.session[CLIENT_ACCESS_SESSION_KEY], access.pk)
+        self.assertIn(CLIENT_ACCESS_PASSWORD_SESSION_KEY, self.client.session)
+        self.assertEqual(self.client.get(privacy_url).status_code, 200)
+
+    def test_logout_remains_available_while_business_is_paused(self):
+        access = self._access(
+            name="Cliente salida pausada",
+            email="salida.pausa@example.com",
+            phone="600777032",
+        )
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+        self.client.post(
+            login_url,
+            {"identifier": access.email, "password": "ClienteDemo2026!"},
+        )
+        self.business.is_active = False
+        self.business.save(update_fields=["is_active", "updated_at"])
+
+        response = self.client.post(reverse("customers:client_logout", args=[self.business.slug]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], login_url)
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, self.client.session)
+        self.assertEqual(self.client.get(login_url).status_code, 200)
+
+    def test_verification_get_is_read_only_post_is_csrf_protected_and_replay_is_gone(self):
+        access = register_client_access(
+            business=self.business,
+            full_name="Cliente por verificar",
+            phone="600777011",
+            email="verificar@example.com",
+            password="ClienteDemo2026!",
+        )
+        verify_path = urlparse(client_verification_url(access)).path
+        browser = Client(enforce_csrf_checks=True)
+
+        page = browser.get(verify_path)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Confirmar correo y crear contraseña")
+        access.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+        self.assertFalse(is_password_usable(access.password_hash))
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, browser.session)
+
+        rejected = browser.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+            },
+        )
+        self.assertEqual(rejected.status_code, 403)
+        access.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+
+        csrf_token = browser.cookies["csrftoken"].value
+        mismatch = browser.post(
+            verify_path,
+            {
+                "csrfmiddlewaretoken": csrf_token,
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "OtraClaveCliente2026!",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        self.assertEqual(mismatch.status_code, 200)
+        access.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+        self.assertFalse(is_password_usable(access.password_hash))
+
+        confirmed = browser.post(
+            verify_path,
+            {
+                "csrfmiddlewaretoken": csrf_token,
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        self.assertEqual(confirmed.status_code, 302)
+        access.refresh_from_db()
+        self.assertIsNotNone(access.email_verified_at)
+        self.assertTrue(access.check_password("NuevaClaveCliente2026!"))
+        self.assertEqual(browser.session[CLIENT_ACCESS_SESSION_KEY], access.pk)
+
+        replay = self.client_class().get(verify_path)
+        self.assertEqual(replay.status_code, 410)
+
+    def test_old_verification_token_cannot_revive_after_email_b_c_b_rotation(self):
+        access = register_client_access(
+            business=self.business,
+            full_name="Cliente con rotación",
+            phone="600777023",
+            email="b@example.com",
+        )
+        old_path = urlparse(client_verification_url(access)).path
+
+        access.email = "c@example.com"
+        access.set_password(None)
+        access.save()
+        access.email = "b@example.com"
+        access.set_password(None)
+        access.save()
+
+        self.assertEqual(self.client.get(old_path).status_code, 410)
+        fresh_path = urlparse(client_verification_url(access)).path
+        self.assertEqual(self.client.get(fresh_path).status_code, 200)
+
+    def test_verification_resend_has_cooldown_and_persistent_address_limit(self):
+        registration_url = reverse("customers:client_register", args=[self.business.slug])
+        response = self.client.post(
+            registration_url,
+            {
+                "full_name": "Cliente Reenvío",
+                "phone": "600777012",
+                "email": "reenvio@example.com",
+                "password": "ClienteDemo2026!",
+                "password_confirm": "ClienteDemo2026!",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        pending_url = reverse("customers:client_email_pending", args=[self.business.slug])
+
+        with patch("apps.customers.views.queue_client_email_verification") as queue_mock:
+            self.client.post(pending_url)
+        queue_mock.assert_not_called()
+
+        # Aislamos el límite horario del correo eliminando solo el cooldown y
+        # el límite IP entre peticiones. El contador por dirección permanece.
+        for _ in range(4):
+            SecurityThrottle.objects.filter(
+                scope__in=["client_email_resend_cooldown", "client_email_resend_ip"]
+            ).delete()
+            self.client.post(pending_url)
+        SecurityThrottle.objects.filter(
+            scope__in=["client_email_resend_cooldown", "client_email_resend_ip"]
+        ).delete()
+        with patch("apps.customers.views.queue_client_email_verification") as queue_mock:
+            blocked = self.client.post(pending_url)
+        self.assertEqual(blocked.status_code, 302)
+        queue_mock.assert_not_called()
+        address_throttle = SecurityThrottle.objects.get(scope="client_email_resend_address")
+        self.assertEqual(address_throttle.attempts, 5)
+        self.assertIsNotNone(address_throttle.blocked_until)
+
+    def test_password_reset_request_is_generic_for_known_and_unknown_email(self):
+        self._access(name="Cliente Recuperación", email="recuperacion@example.com")
+        request_url = reverse(
+            "customers:client_password_reset_request",
+            args=[self.business.slug],
+        )
+
+        known = self.client.post(request_url, {"email": "recuperacion@example.com"})
+        unknown = self.client_class().post(request_url, {"email": "nadie@example.com"})
+
+        self.assertEqual(known.status_code, 200)
+        self.assertEqual(unknown.status_code, 200)
+        self.assertContains(known, "Si los datos corresponden a una cuenta disponible")
+        self.assertContains(unknown, "Si los datos corresponden a una cuenta disponible")
+        self.assertEqual(
+            OutboundEmail.objects.filter(kind=OutboundEmail.Kind.CLIENT_PASSWORD_RESET).count(),
+            1,
+        )
+        self.client.post(request_url, {"email": "recuperacion@example.com"})
+        self.client.post(request_url, {"email": "recuperacion@example.com"})
+        with patch("apps.customers.views.queue_client_password_reset") as queue_mock:
+            throttled = self.client.post(
+                request_url,
+                {"email": "recuperacion@example.com"},
+            )
+        self.assertEqual(throttled.status_code, 200)
+        self.assertContains(
+            throttled,
+            "Si los datos corresponden a una cuenta disponible",
+        )
+        queue_mock.assert_not_called()
+
+    def test_password_reset_is_one_time_and_invalidates_existing_sessions(self):
+        access = self._access(name="Cliente Sesión", email="sesion.segura@example.com")
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+        old_browser = self.client_class()
+        self.assertEqual(
+            old_browser.post(
+                login_url,
+                {
+                    "identifier": access.email,
+                    "password": "ClienteDemo2026!",
+                },
+            ).status_code,
+            302,
+        )
+        reset_path = urlparse(client_password_reset_url(access)).path
+        reset_browser = self.client_class()
+
+        page = reset_browser.get(reset_path)
+        self.assertEqual(page.status_code, 200)
+        access.refresh_from_db()
+        self.assertTrue(access.check_password("ClienteDemo2026!"))
+
+        changed = reset_browser.post(
+            reset_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+            },
+        )
+        self.assertEqual(changed.status_code, 302)
+        access.refresh_from_db()
+        self.assertFalse(access.check_password("ClienteDemo2026!"))
+        self.assertTrue(access.check_password("NuevaClaveCliente2026!"))
+        self.assertEqual(reset_browser.get(reset_path).status_code, 410)
+
+        old_session_response = old_browser.get(login_url)
+        self.assertEqual(old_session_response.status_code, 200)
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, old_browser.session)
+        self.assertNotIn(CLIENT_ACCESS_PASSWORD_SESSION_KEY, old_browser.session)
+        self.assertEqual(
+            old_browser.post(
+                login_url,
+                {
+                    "identifier": access.email,
+                    "password": "NuevaClaveCliente2026!",
+                },
+            ).status_code,
+            302,
+        )
+
+    def test_password_reset_token_expires_and_is_scoped_to_business(self):
+        access = self._access(name="Cliente Token", email="token@example.com")
+        reset_path = urlparse(client_password_reset_url(access)).path
+        other_business = Business.objects.create(
+            commercial_name="Otro salón",
+            slug="otro-salon-seguridad",
+            is_active=True,
+        )
+        token = reset_path.rstrip("/").split("/")[-1]
+        wrong_business_path = reverse(
+            "customers:client_password_reset",
+            args=[other_business.slug, token],
+        )
+
+        self.assertEqual(self.client.get(wrong_business_path).status_code, 410)
+        with patch(
+            "apps.notifications.services.CLIENT_PASSWORD_RESET_TOKEN_MAX_AGE",
+            -1,
+        ):
+            self.assertEqual(self.client.get(reset_path).status_code, 410)
+
+    def test_session_is_rejected_if_verified_email_is_withdrawn(self):
+        access = self._access(name="Cliente Verificada", email="verificada@example.com")
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+        self.client.post(
+            login_url,
+            {"identifier": access.email, "password": "ClienteDemo2026!"},
+        )
+        BusinessClientAccess.objects.filter(pk=access.pk).update(email_verified_at=None)
+
+        response = self.client.get(login_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, self.client.session)
+        self.assertNotIn(CLIENT_ACCESS_PASSWORD_SESSION_KEY, self.client.session)
 
 
 class ClientAccessInvitationTests(TestCase):
@@ -633,7 +1557,7 @@ class ClientAccessInvitationTests(TestCase):
         invitation.refresh_from_db()
         self.assertEqual(access.business, self.business)
         self.assertIsNotNone(invitation.used_at)
-        self.assertEqual(identify_hasher(access.password_hash).algorithm, "argon2")
+        self.assertFalse(is_password_usable(access.password_hash))
         self.assertIsNone(access.email_verified_at)
         self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, customer_browser.session)
         self.assertTrue(
@@ -647,6 +1571,57 @@ class ClientAccessInvitationTests(TestCase):
         replay_response = self.client_class().get(claim_path)
         self.assertEqual(replay_response.status_code, 410)
         self.assertContains(replay_response, "Este enlace ya", status_code=410)
+
+    def test_invitation_privacy_evidence_is_recorded_only_after_email_verification(self):
+        self.business.legal_compliance_enabled = True
+        self.business.save(update_fields=["legal_compliance_enabled", "updated_at"])
+        accept_professional_legal_documents(
+            user=self.professional,
+            business=self.business,
+            profile_data={
+                "legal_name": "Peluquería Mari, S.L.",
+                "tax_identifier": "B12345678",
+                "registered_address": "Calle Mayor, 10, Málaga",
+                "privacy_email": "privacidad@example.com",
+                "rights_contact_name": "Responsable de privacidad",
+                "retention_criteria": ("Durante la relación y los plazos legales aplicables."),
+            },
+        )
+        response, _ = self._create_invitation()
+        claim_path = urlparse(response.context["invitation_url"]).path
+        customer_browser = self.client_class()
+        customer_browser.get(claim_path)
+        activation = customer_browser.post(
+            reverse("customers:client_invitation_activate", args=[self.business.slug]),
+            {"email": "invitada.legal@example.com"},
+        )
+        self.assertEqual(activation.status_code, 302)
+        access = BusinessClientAccess.objects.get(business_client=self.business_client)
+        self.business_client.refresh_from_db()
+        self.assertEqual(self.business_client.email, "")
+        self.assertFalse(LegalAcceptance.objects.filter(client_access=access).exists())
+        self.assertFalse(CustomerPrivacyEvidence.objects.filter(client_access=access).exists())
+
+        verify_path = urlparse(client_verification_url(access)).path
+        verified = customer_browser.post(
+            verify_path,
+            {
+                "password": "ClienteInvitado2026!",
+                "password_confirm": "ClienteInvitado2026!",
+                "privacy_acknowledged": "on",
+            },
+        )
+
+        self.assertEqual(verified.status_code, 302)
+        self.business_client.refresh_from_db()
+        self.assertEqual(self.business_client.email, "invitada.legal@example.com")
+        acceptance = LegalAcceptance.objects.get(client_access=access)
+        evidence = CustomerPrivacyEvidence.objects.get(client_access=access)
+        self.assertEqual(acceptance.context, LegalAcceptance.Context.CLIENT_INVITATION)
+        self.assertEqual(
+            evidence.channel,
+            CustomerPrivacyEvidence.Channel.CLIENT_INVITATION,
+        )
 
     def test_activation_accepts_a_valid_same_origin_csrf_submission(self):
         response, _ = self._create_invitation()
@@ -694,7 +1669,9 @@ class ClientAccessInvitationTests(TestCase):
         response = self.client_class().get(wrong_path)
 
         self.assertEqual(response.status_code, 410)
-        self.assertFalse(BusinessClientAccess.objects.filter(business_client=self.business_client).exists())
+        self.assertFalse(
+            BusinessClientAccess.objects.filter(business_client=self.business_client).exists()
+        )
 
     def test_expired_invitation_fails_closed(self):
         response, invitation = self._create_invitation()
@@ -706,7 +1683,23 @@ class ClientAccessInvitationTests(TestCase):
         response = self.client_class().get(claim_path)
 
         self.assertEqual(response.status_code, 410)
-        self.assertFalse(BusinessClientAccess.objects.filter(business_client=self.business_client).exists())
+        self.assertFalse(
+            BusinessClientAccess.objects.filter(business_client=self.business_client).exists()
+        )
+
+    def test_paused_business_does_not_accept_a_new_invitation_claim(self):
+        response, _ = self._create_invitation()
+        claim_path = urlparse(response.context["invitation_url"]).path
+        self.business.is_active = False
+        self.business.public_booking_enabled = False
+        self.business.save(update_fields=["is_active", "public_booking_enabled", "updated_at"])
+
+        blocked = self.client_class().get(claim_path)
+
+        self.assertEqual(blocked.status_code, 404)
+        self.assertFalse(
+            BusinessClientAccess.objects.filter(business_client=self.business_client).exists()
+        )
 
 
 class ProfessionalClientViewTests(TestCase):
@@ -791,7 +1784,9 @@ class ProfessionalClientViewTests(TestCase):
 
         client = BusinessClient.objects.get(business=self.business, full_name="Paula Vega")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], reverse("customers:professional_client_detail", args=[client.id]))
+        self.assertEqual(
+            response["Location"], reverse("customers:professional_client_detail", args=[client.id])
+        )
         self.assertEqual(client.phone_normalized, "+34600333111")
         self.assertEqual(client.source, BusinessClient.Source.PROFESSIONAL)
         evidence = CustomerPrivacyEvidence.objects.get(business_client=client)
@@ -912,9 +1907,13 @@ class ProfessionalClientViewTests(TestCase):
     def test_professional_client_detail_is_scoped_to_business(self):
         self.client.force_login(self.professional)
         client = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
-        other_client = BusinessClient.objects.get(business=self.other_business, full_name="Javier Martín")
+        other_client = BusinessClient.objects.get(
+            business=self.other_business, full_name="Javier Martín"
+        )
 
-        response = self.client.get(reverse("customers:professional_client_detail", args=[client.id]))
+        response = self.client.get(
+            reverse("customers:professional_client_detail", args=[client.id])
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Ficha de cliente")
@@ -923,7 +1922,9 @@ class ProfessionalClientViewTests(TestCase):
         self.assertContains(response, "Historial")
         self.assertContains(response, "Personas autorizadas")
 
-        response = self.client.get(reverse("customers:professional_client_detail", args=[other_client.id]))
+        response = self.client.get(
+            reverse("customers:professional_client_detail", args=[other_client.id])
+        )
         self.assertEqual(response.status_code, 404)
 
     def test_quick_client_from_appointment_assistant_selects_new_client(self):
@@ -937,6 +1938,8 @@ class ProfessionalClientViewTests(TestCase):
                 "phone": "600333222",
                 "manual_channel": "telefono",
                 "target_date": "2026-07-09",
+                "selected_work_line_id": "8",
+                "selected_starts_at": "2026-07-09T18:30:00+02:00",
                 "privacy_channel": CustomerPrivacyEvidence.Channel.WHATSAPP,
                 "privacy_information_provided": "on",
             },
@@ -944,9 +1947,15 @@ class ProfessionalClientViewTests(TestCase):
 
         client = BusinessClient.objects.get(business=self.business, full_name="Nuria Soler")
         self.assertEqual(response.status_code, 302)
-        self.assertIn(f"business_client={client.id}", response["Location"])
-        self.assertIn("manual_channel=telefono", response["Location"])
-        self.assertIn("target_date=2026-07-09", response["Location"])
+        redirect_query = parse_qs(urlparse(response["Location"]).query)
+        self.assertEqual(redirect_query["business_client"], [str(client.id)])
+        self.assertEqual(redirect_query["manual_channel"], ["telefono"])
+        self.assertEqual(redirect_query["target_date"], ["2026-07-09"])
+        self.assertEqual(redirect_query["selected_work_line_id"], ["8"])
+        self.assertEqual(
+            redirect_query["selected_starts_at"],
+            ["2026-07-09T18:30:00+02:00"],
+        )
         evidence = CustomerPrivacyEvidence.objects.get(business_client=client)
         self.assertEqual(evidence.channel, CustomerPrivacyEvidence.Channel.WHATSAPP)
 
@@ -963,6 +1972,268 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'value="María López"')
         self.assertContains(response, 'value="600111201"')
+        self.assertContains(response, "Si cambias el correo, se cerrarán sus sesiones")
+
+    def test_professional_edit_with_same_access_email_preserves_security_state(self):
+        business_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+        access = business_client.access
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+        customer_browser = Client()
+        self.assertEqual(
+            customer_browser.post(
+                login_url,
+                {
+                    "identifier": access.email,
+                    "password": "DemoAgendaSalon2026!",
+                },
+            ).status_code,
+            302,
+        )
+        reset_path = urlparse(client_password_reset_url(access)).path
+        self.assertEqual(Client().get(reset_path).status_code, 200)
+        old_password_hash = access.password_hash
+        old_verified_at = access.email_verified_at
+        old_session_fingerprint = customer_browser.session[CLIENT_ACCESS_PASSWORD_SESSION_KEY]
+        queued_before = OutboundEmail.objects.filter(
+            client_access=access,
+            kind=OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+        ).count()
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("customers:professional_client_edit", args=[business_client.id]),
+            {
+                "full_name": business_client.full_name,
+                "phone": business_client.phone,
+                "email": access.email,
+                "internal_notes": "Nota actualizada sin rotar identidad.",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("customers:professional_client_detail", args=[business_client.id]),
+        )
+        business_client.refresh_from_db()
+        access.refresh_from_db()
+        self.assertEqual(business_client.email, access.email)
+        self.assertEqual(access.password_hash, old_password_hash)
+        self.assertEqual(access.email_verified_at, old_verified_at)
+        self.assertEqual(customer_browser.get(login_url).status_code, 302)
+        self.assertEqual(
+            customer_browser.session[CLIENT_ACCESS_PASSWORD_SESSION_KEY],
+            old_session_fingerprint,
+        )
+        self.assertEqual(Client().get(reset_path).status_code, 200)
+        self.assertEqual(
+            OutboundEmail.objects.filter(
+                client_access=access,
+                kind=OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+            ).count(),
+            queued_before,
+        )
+
+    def test_professional_email_change_rotates_identity_and_queues_verification(self):
+        business_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+        access = business_client.access
+        old_password_hash = access.password_hash
+        old_reset_path = urlparse(client_password_reset_url(access)).path
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+        customer_browser = Client()
+        self.assertEqual(
+            customer_browser.post(
+                login_url,
+                {
+                    "identifier": access.email,
+                    "password": "DemoAgendaSalon2026!",
+                },
+            ).status_code,
+            302,
+        )
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("customers:professional_client_edit", args=[business_client.id]),
+            {
+                "full_name": business_client.full_name,
+                "phone": business_client.phone,
+                "email": "maria.nueva@example.com",
+                "internal_notes": business_client.internal_notes,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("customers:professional_client_detail", args=[business_client.id]),
+        )
+        business_client.refresh_from_db()
+        access.refresh_from_db()
+        self.assertEqual(business_client.email, "maria.nueva@example.com")
+        self.assertEqual(access.email, "maria.nueva@example.com")
+        self.assertEqual(access.email_normalized, "maria.nueva@example.com")
+        self.assertIsNone(access.email_verified_at)
+        self.assertNotEqual(access.password_hash, old_password_hash)
+        self.assertFalse(is_password_usable(access.password_hash))
+        delivery = OutboundEmail.objects.get(
+            client_access=access,
+            kind=OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+            recipient_email="maria.nueva@example.com",
+        )
+        self.assertEqual(delivery.status, OutboundEmail.Status.PENDING)
+        self.assertEqual(Client().get(old_reset_path).status_code, 410)
+        self.assertEqual(customer_browser.get(login_url).status_code, 200)
+        self.assertNotIn(CLIENT_ACCESS_SESSION_KEY, customer_browser.session)
+        self.assertNotIn(CLIENT_ACCESS_PASSWORD_SESSION_KEY, customer_browser.session)
+        fresh_verification_path = urlparse(client_verification_url(access)).path
+        self.assertEqual(Client().get(fresh_verification_path).status_code, 200)
+
+    def test_second_professional_email_change_invalidates_previous_verification_link(self):
+        business_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+        self.client.force_login(self.professional)
+        edit_url = reverse(
+            "customers:professional_client_edit",
+            args=[business_client.id],
+        )
+
+        self.client.post(
+            edit_url,
+            {
+                "full_name": business_client.full_name,
+                "phone": business_client.phone,
+                "email": "primero@example.com",
+                "internal_notes": business_client.internal_notes,
+            },
+        )
+        business_client.refresh_from_db()
+        business_client.access.refresh_from_db()
+        first_verification_path = urlparse(client_verification_url(business_client.access)).path
+        self.client.post(
+            edit_url,
+            {
+                "full_name": business_client.full_name,
+                "phone": business_client.phone,
+                "email": "segundo@example.com",
+                "internal_notes": business_client.internal_notes,
+            },
+        )
+        business_client.access.refresh_from_db()
+        second_verification_path = urlparse(client_verification_url(business_client.access)).path
+
+        self.assertEqual(Client().get(first_verification_path).status_code, 410)
+        self.assertEqual(Client().get(second_verification_path).status_code, 200)
+
+    def test_professional_email_change_rejects_blank_and_duplicate_without_mutation(self):
+        maria = BusinessClient.objects.get(business=self.business, full_name="María López")
+        lucia = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
+        lucia.access.email = "lucia.canonica@example.com"
+        lucia.access.save(update_fields=["email", "email_normalized", "updated_at"])
+        lucia.email = lucia.access.email
+        lucia.save(update_fields=["email", "updated_at"])
+        old_email = maria.access.email
+        old_password_hash = maria.access.password_hash
+        old_verified_at = maria.access.email_verified_at
+        self.client.force_login(self.professional)
+        edit_url = reverse("customers:professional_client_edit", args=[maria.id])
+
+        blank = self.client.post(
+            edit_url,
+            {
+                "full_name": "María no debe cambiar",
+                "phone": maria.phone,
+                "email": "",
+                "internal_notes": "No debe persistir.",
+            },
+        )
+        duplicate = self.client.post(
+            edit_url,
+            {
+                "full_name": "María tampoco debe cambiar",
+                "phone": maria.phone,
+                "email": lucia.access.email,
+                "internal_notes": "Tampoco debe persistir.",
+            },
+        )
+
+        self.assertEqual(blank.status_code, 200)
+        self.assertContains(
+            blank,
+            "Una ficha con cuenta online debe conservar su correo electrónico.",
+        )
+        self.assertEqual(duplicate.status_code, 200)
+        self.assertContains(
+            duplicate,
+            "Ese correo ya está vinculado a otra cuenta online de este negocio.",
+        )
+        maria.refresh_from_db()
+        maria.access.refresh_from_db()
+        self.assertEqual(maria.full_name, "María López")
+        self.assertEqual(maria.access.email, old_email)
+        self.assertEqual(maria.access.password_hash, old_password_hash)
+        self.assertEqual(maria.access.email_verified_at, old_verified_at)
+        self.assertFalse(
+            OutboundEmail.objects.filter(
+                client_access=maria.access,
+                kind=OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+            ).exists()
+        )
+
+    def test_professional_email_change_requires_active_access_and_client_file(self):
+        maria = BusinessClient.objects.get(business=self.business, full_name="María López")
+        lucia = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
+        maria.access.is_active = False
+        maria.access.save(update_fields=["is_active", "updated_at"])
+        lucia.is_active = False
+        lucia.save(update_fields=["is_active", "updated_at"])
+        self.client.force_login(self.professional)
+
+        paused_access = self.client.post(
+            reverse("customers:professional_client_edit", args=[maria.id]),
+            {
+                "full_name": maria.full_name,
+                "phone": maria.phone,
+                "email": "maria.pausada@example.com",
+                "internal_notes": maria.internal_notes,
+            },
+        )
+        paused_client = self.client.post(
+            reverse("customers:professional_client_edit", args=[lucia.id]),
+            {
+                "full_name": lucia.full_name,
+                "phone": lucia.phone,
+                "email": "lucia.pausada@example.com",
+                "internal_notes": lucia.internal_notes,
+            },
+        )
+
+        self.assertEqual(paused_access.status_code, 200)
+        self.assertContains(
+            paused_access,
+            "Reactiva la ficha y la cuenta online antes de cambiar el correo.",
+        )
+        self.assertEqual(paused_client.status_code, 200)
+        self.assertContains(
+            paused_client,
+            "Reactiva la ficha y la cuenta online antes de cambiar el correo.",
+        )
+        maria.access.refresh_from_db()
+        lucia.access.refresh_from_db()
+        self.assertNotEqual(maria.access.email, "maria.pausada@example.com")
+        self.assertNotEqual(lucia.access.email, "lucia.pausada@example.com")
+        self.assertFalse(
+            OutboundEmail.objects.filter(
+                client_access__in=[maria.access, lucia.access],
+                kind=OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+            ).exists()
+        )
 
     def test_professional_can_edit_client_and_sync_online_phone(self):
         self.client.force_login(self.professional)
@@ -997,7 +2268,7 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(linked_contact.phone_normalized, "+34600333444")
         self.assertEqual(business_client.appointments.count(), appointments_before)
 
-    def test_professional_edit_rejects_phone_used_by_other_online_account(self):
+    def test_professional_edit_allows_phone_used_by_other_online_account(self):
         self.client.force_login(self.professional)
         maria = BusinessClient.objects.get(business=self.business, full_name="María López")
         lucia = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
@@ -1007,15 +2278,19 @@ class ProfessionalClientViewTests(TestCase):
             {
                 "full_name": maria.full_name,
                 "phone": lucia.phone,
-                "email": "",
+                "email": maria.access.email,
                 "internal_notes": maria.internal_notes,
             },
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "otra cuenta online")
+        self.assertRedirects(
+            response,
+            reverse("customers:professional_client_detail", args=[maria.id]),
+        )
         maria.refresh_from_db()
-        self.assertEqual(maria.phone_normalized, "+34600111201")
+        maria.access.refresh_from_db()
+        self.assertEqual(maria.phone_normalized, lucia.phone_normalized)
+        self.assertEqual(maria.access.phone_normalized, lucia.phone_normalized)
 
     def test_professional_can_pause_and_reactivate_client_without_losing_history(self):
         self.client.force_login(self.professional)
@@ -1391,5 +2666,6 @@ class ProfessionalClientViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, ">Carmen Ruiz</option>")
+
 
 # Create your tests here.

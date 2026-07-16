@@ -52,7 +52,9 @@ def platform_document(request, slug):
 
 
 def business_privacy(request, slug):
-    business = get_object_or_404(Business, slug=slug, is_active=True)
+    # La información de privacidad y el ejercicio de derechos no dependen de
+    # que el negocio esté aceptando reservas en este momento.
+    business = get_object_or_404(Business, slug=slug)
     document = get_object_or_404(
         LegalDocument,
         kind=LegalDocument.Kind.CUSTOMER_PRIVACY,

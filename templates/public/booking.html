@@ -131,6 +131,17 @@
             {% csrf_token %}
             <input type="hidden" name="action" value="confirm_booking">
             {% if bookable_clients|length == 1 %}<input type="hidden" name="business_client" value="{{ selected_business_client.id }}">{% endif %}
+            {% if privacy_acknowledgement_required %}
+              <div class="legal-consent booking-privacy-renewal">
+                <label for="privacy-acknowledged">
+                  <input id="privacy-acknowledged" type="checkbox" name="privacy_acknowledged" required>
+                  <span>
+                    He leído la <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">información vigente sobre el tratamiento de mis datos</a>{% if privacy_document %} (versión {{ privacy_document.version }}){% endif %}.
+                  </span>
+                </label>
+                <small>Esta constancia se refiere a la gestión de tu cuenta y de la cita; no autoriza publicidad.</small>
+              </div>
+            {% endif %}
             <button class="button" type="submit">Confirmar cita</button>
           </form>
         </div>

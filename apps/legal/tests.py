@@ -1,14 +1,12 @@
+from urllib.parse import urlparse
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from django.utils import timezone
 
 from apps.businesses.models import Business, BusinessMembership
 from apps.customers.models import BusinessClient, BusinessClientAccess
-from apps.customers.services import (
-    CLIENT_ACCESS_LAST_SEEN_SESSION_KEY,
-    CLIENT_ACCESS_SESSION_KEY,
-)
+from apps.customers.services import register_client_access
 from apps.legal.models import (
     BusinessLegalProfile,
     CustomerPrivacyEvidence,
@@ -16,6 +14,7 @@ from apps.legal.models import (
     LegalAcceptance,
 )
 from apps.legal.services import professional_legal_status
+from apps.notifications.services import client_verification_url
 
 
 class LegalExperienceTests(TestCase):
@@ -141,7 +140,7 @@ class LegalExperienceTests(TestCase):
         self.assertTrue(status["is_current"])
         self.assertEqual(status["label"], "Documentación vigente")
 
-    def test_customer_registration_records_versioned_privacy_evidence(self):
+    def test_customer_verification_records_versioned_privacy_evidence(self):
         self.complete_legal_onboarding()
         self.client.logout()
         test_password = "".join(("Una", "-clave-", "segura-", "2026"))
@@ -152,14 +151,29 @@ class LegalExperienceTests(TestCase):
                 "full_name": "Ana Cliente",
                 "phone": "600 555 111",
                 "email": "ana.cliente@example.com",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="ana.cliente@example.com",
+        )
+        self.assertFalse(
+            CustomerPrivacyEvidence.objects.filter(client_access=access).exists()
+        )
+
+        verify_path = urlparse(client_verification_url(access)).path
+        response = self.client.post(
+            verify_path,
+            {
                 "password": test_password,
                 "password_confirm": test_password,
                 "privacy_acknowledged": "on",
             },
-            follow=True,
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 302)
         evidence = CustomerPrivacyEvidence.objects.get(
             business=self.business,
             business_client__full_name="Ana Cliente",
@@ -229,22 +243,22 @@ class LegalExperienceTests(TestCase):
     def test_business_privacy_page_registers_a_client_rights_request(self):
         self.complete_legal_onboarding()
         self.client.logout()
-        client_record = BusinessClient.objects.create(
+        access = register_client_access(
             business=self.business,
             full_name="Ana Cliente",
             phone="600222333",
+            email="ana.derechos@example.com",
+            password="client-pass-123",
+            email_verified=True,
         )
-        access = BusinessClientAccess(
-            business=self.business,
-            business_client=client_record,
-            phone="600222333",
+        login_response = self.client.post(
+            reverse("customers:client_access", args=[self.business.slug]),
+            {
+                "identifier": access.email,
+                "password": "client-pass-123",
+            },
         )
-        access.set_password("client-pass-123")
-        access.save()
-        session = self.client.session
-        session[CLIENT_ACCESS_SESSION_KEY] = access.pk
-        session[CLIENT_ACCESS_LAST_SEEN_SESSION_KEY] = timezone.now().isoformat()
-        session.save()
+        self.assertEqual(login_response.status_code, 302)
 
         response = self.client.post(
             reverse("legal:business_privacy", args=[self.business.slug]),
@@ -260,6 +274,19 @@ class LegalExperienceTests(TestCase):
         rights_request = DataRightsRequest.objects.get(business=self.business)
         self.assertEqual(rights_request.client_access, access)
         self.assertEqual(rights_request.status, DataRightsRequest.Status.RECEIVED)
+
+    def test_business_privacy_remains_visible_when_the_business_is_paused(self):
+        self.complete_legal_onboarding()
+        self.business.is_active = False
+        self.business.public_booking_enabled = False
+        self.business.save(update_fields=["is_active", "public_booking_enabled", "updated_at"])
+
+        response = self.client.get(
+            reverse("legal:business_privacy", args=[self.business.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Privacidad")
 
     def test_professional_can_update_a_request_from_the_privacy_center(self):
         self.complete_legal_onboarding()

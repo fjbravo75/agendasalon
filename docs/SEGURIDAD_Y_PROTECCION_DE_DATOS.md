@@ -15,10 +15,16 @@ La revisión distingue tres estados:
 - **Pendiente de operación**: depende de infraestructura, automatización o
   procedimientos que no deben fingirse en el entorno local.
 
-Fecha de la evidencia: **14 de julio de 2026**.
+Fecha de la evidencia local más reciente: **16 de julio de 2026**.
 
-Código funcional revisado: commit `cba4690` de la rama principal y despliegue
-público del 14 de julio de 2026.
+La evidencia de publicación no se infiere de la fecha de este documento: debe
+comprobarse por SHA exacto, resultado de CI y registro operativo del despliegue.
+
+> **Bloque correctivo P0 verificado en local.** Las reglas descritas como P0 ya
+> superan la batería completa, cobertura, frontend, build, comprobaciones
+> estáticas y QA visual aislada sin alterar la base canónica. Estas cifras
+> describen la evidencia local; el estado publicado se acredita por separado
+> para el SHA exacto en CI y en la documentación operativa.
 
 ## Arquitectura de seguridad
 
@@ -65,20 +71,23 @@ La aplicación separa cuatro superficies:
 | Área | Control aplicado | Evidencia principal | Estado |
 | --- | --- | --- | --- |
 | Autenticación interna | Usuario Django propio con teléfono normalizado, sesión de Django y acceso condicionado por rol y pertenencia activa | `apps/accounts/`, `apps/accounts/tests.py` | Aplicado y verificado |
-| Autenticación cliente | Cuenta ligada a una ficha y a un negocio; sesión separada, rotación al entrar y salir y caducidad tras una hora de inactividad | `apps/customers/services.py`, `apps/customers/tests.py` | Aplicado y verificado |
+| Autenticación cliente | Cuenta ligada a una ficha y a un negocio; correo verificado como identidad canónica, teléfono solo como contacto o compatibilidad cuando no es ambiguo; sesión separada con rotación, caducidad y huella de contraseña | `apps/customers/services.py`, `apps/customers/views.py` | P0 verificado en local; sujeto a CI por SHA |
 | Hashing | Argon2id como algoritmo preferente; actualización transparente de hashes PBKDF2 después de un acceso correcto | `config/settings/base.py`, pruebas de `apps/customers/tests.py` | Aplicado y verificado |
 | Contraseñas | Mínimo de 12 caracteres y validadores de similitud, contraseñas comunes y valores exclusivamente numéricos | `config/settings/base.py`, formularios y pruebas de acceso | Aplicado y verificado |
 | Activación profesional | Los accesos nuevos permanecen inactivos y sin contraseña utilizable hasta que la persona abre un enlace de un solo uso, verifica su correo y crea su propia contraseña; la contraseña temporal queda limitada a compatibilidad heredada | `apps/accounts`, `apps/notifications`, middleware, formularios y pruebas | Aplicado y verificado |
-| Verificación de correo | Profesionales y clientes deben verificar una dirección normalizada y única antes de utilizar la operativa protegida o reservar; los enlaces tienen caducidad y no se almacenan en claro | `apps/accounts`, `apps/customers`, `apps/notifications` y pruebas | Aplicado y verificado |
-| Fuerza bruta | Limitación por identidad e IP; claves seudonimizadas con HMAC-SHA-256 y limpieza operativa de contadores inactivos | `apps/core/security_throttle.py`, `prune_security_throttles` | Aplicado y verificado |
-| Recuperación de acceso cliente | Invitación aleatoria de un solo uso, ligada a negocio y ficha, caducidad de 24 horas y token almacenado solo como resumen SHA-256 | `apps/customers/services.py`, `apps/customers/tests.py` | Aplicado y verificado |
-| Autorización | Decoradores de acceso, comprobación de negocio activo y filtrado de objetos por empresa | vistas, API y pruebas de aislamiento | Aplicado y verificado |
+| Verificación de correo cliente | El alta y la invitación dejan el acceso sin contraseña utilizable; GET solo valida y presenta, y POST con CSRF confirma el correo, la privacidad aplicable y la clave; el alta pública mantiene ficha inactiva y `is_pending_public_registration` hasta completar ese POST | `apps/customers`, `apps/notifications` | P0 verificado en local; sujeto a CI por SHA |
+| Fuerza bruta y enumeración | Limitación por identidad e IP con claves seudonimizadas; alta, reenvío y recuperación aplican esperas o cupos y respuestas genéricas que no confirman cuentas | `apps/core/security_throttle.py`, `apps/customers` | P0 verificado en local; sujeto a CI por SHA |
+| Invitación cliente | Token aleatorio de un solo uso, ligado a negocio y ficha, caducidad de 24 horas y almacenamiento exclusivo de su resumen SHA-256 | `apps/customers/services.py` | P0 verificado en local; sujeto a CI por SHA |
+| Recuperación de contraseña cliente | Solicitud por correo verificado con respuesta genérica; enlace firmado, ligado al negocio y a la huella de contraseña, con caducidad de 60 minutos e invalidación tras cambiar la clave | `apps/customers`, `apps/notifications` | P0 verificado en local; sujeto a CI por SHA |
+| Autorización | Decoradores de acceso, negocio activo en la operativa y filtrado de objetos por empresa; privacidad y derechos son la excepción legal explícita durante una pausa | vistas, API y pruebas de aislamiento | P0 verificado en local; sujeto a CI por SHA |
 | Aislamiento multiempresa | Los endpoints profesionales resuelven el negocio desde la sesión; no confían en un identificador de empresa enviado por el navegador | `apps/booking/api.py`, `apps/dashboards/api.py`, pruebas por negocio | Aplicado y verificado |
-| CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; pantalla de rechazo sin detalles internos | `config/settings/base.py`, plantillas y prueba CSRF real de activación | Aplicado y verificado |
+| CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; los GET de activación y verificación no cambian contraseña, correo, privacidad ni estado | `config/settings/base.py`, plantillas y vistas | P0 verificado en local; sujeto a CI por SHA |
 | XSS y contenido activo | Autoescape de plantillas, ausencia de inserciones HTML inseguras en el código de producto y CSP con scripts limitados al mismo origen | `apps/core/middleware.py`, `config/settings/base.py` | Aplicado y verificado |
 | Cabeceras de navegador | `Permissions-Policy`, CORP `same-origin`, bloqueo de marcos y objetos mediante CSP | middleware y pruebas de cabeceras | Aplicado y verificado |
-| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y 243 pruebas Django | Aplicado y verificado |
-| Integridad de citas | Revalidación del hueco antes de guardar, transacciones atómicas y bloqueo de filas en transiciones concurrentes | `apps/booking/services.py`, `test_postgres_concurrency.py` | Aplicado y verificado |
+| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y batería Django de 396 pruebas | Aplicado y verificado en local |
+| Integridad de citas | Revalidación del hueco, duraciones compatibles con el intervalo, cierre solo tras `ends_at` y bloqueos comunes entre confirmación y mutaciones profesionales de horarios, cierres, preferencia de festivos o líneas | `apps/booking/services.py`, modelos y vistas | P0 verificado en local; sujeto a CI por SHA |
+| Trazabilidad familiar | La cita distingue receptor y solicitante autorizado, regenera opciones por cliente, invalida resultados obsoletos y conserva instantáneas, línea y hora exactas | `apps/booking`, isla React y sincronización del asistente | P0 verificado en local; sujeto a CI por SHA |
+| Continuidad de privacidad | Una nueva versión exige nueva constancia; privacidad y derechos siguen accesibles con el negocio pausado sin reabrir reserva ni registro | `apps/legal`, `apps/booking`, `apps/customers` | P0 verificado en local; sujeto a CI por SHA |
 | Subida de imágenes | JPG, PNG o WebP; 5 MB y 16 millones de píxeles; orientación, reducción a 2400 px y recodificación WebP sin EXIF | `apps/businesses/images.py`, pruebas de ajustes | Aplicado y verificado |
 | Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
 | Secretos | Variables de entorno obligatorias en producción; arranque detenido si faltan secreto, hosts o PostgreSQL | `config/settings/prod.py`, `.env.example`, pruebas de producción | Aplicado y verificado |
@@ -96,19 +105,41 @@ identificar la cuenta, evitando que diferentes formatos representen identidades
 distintas.
 
 Los clientes no comparten una cuenta global entre salones. Cada acceso queda
-ligado a un negocio y a una ficha concreta. El registro público solo crea fichas
-nuevas: si el teléfono ya existe, responde con un mensaje genérico y exige una
-invitación emitida por el profesional. Así se evita que una persona se apropie
-de una ficha existente conociendo únicamente su número.
+ligado a un negocio y a una ficha concreta, y su identidad digital canónica es
+el correo verificado en ese negocio. El teléfono es un dato de contacto; solo se
+admite como compatibilidad de acceso si identifica una única cuenta verificada.
+Si hay más de una coincidencia, el sistema no escoge una cuenta por orden de base
+de datos y mantiene una respuesta genérica.
+
+El registro público siempre crea una ficha nueva y nunca reclama una ficha
+profesional a partir del nombre o del teléfono. Una coincidencia en esos datos no
+bloquea el alta ni revela pertenencia. La creación desde el panel profesional
+conserva, por separado, la unicidad/reutilización de la ficha activa con el mismo
+nombre y teléfono normalizados, y puede emitir una invitación dirigida a esa
+ficha.
+
+El alta pública y la invitación dejan la cuenta pendiente, sin contraseña
+utilizable. El GET del enlace firmado es deliberadamente no mutante: comprueba
+que el paso sigue disponible y muestra el formulario. Solo el POST protegido
+por CSRF confirma el correo, la privacidad aplicable y la contraseña elegida.
+El alta pública mantiene además la ficha inactiva y
+`is_pending_public_registration=True` hasta completar ese POST; si el negocio
+pausa entretanto las altas, no se activa. Las invitaciones
+emplean un nonce aleatorio del que solo se almacena el resumen; la verificación y
+el restablecimiento quedan ligados a la cuenta, el negocio, el correo y la
+huella de la credencial vigente. El consumo del enlace o un cambio posterior de
+credencial impiden reutilizarlo.
 
 Las contraseñas nuevas se almacenan con Argon2id. Django conserva PBKDF2 como
 algoritmo compatible para poder verificar cuentas antiguas y actualizar su hash
 después de un acceso correcto. Nunca se guardan contraseñas en claro.
 
-La contraseña creada durante el alta superadministradora es temporal. Un
-indicador persistente y un middleware situado antes del onboarding legal impiden
-entrar en agenda, clientes o configuración hasta que la persona defina una clave
-propia. `Mi cuenta` permite cambios posteriores verificando la contraseña actual
+El alta profesional normal crea una cuenta inactiva y sin contraseña utilizable;
+la persona define su clave desde el enlace de correo. La credencial temporal y
+su indicador persistente se conservan solo para cuentas heredadas o
+intervenciones administrativas controladas. En esos casos, un middleware situado
+antes del onboarding legal impide entrar en agenda, clientes o configuración
+hasta sustituirla. `Mi cuenta` permite cambios posteriores verificando la contraseña actual
 y rechazando una nueva contraseña idéntica. `update_session_auth_hash()` conserva
 la sesión presente; el cambio del hash de contraseña invalida las demás sesiones.
 Los parámetros de retorno se validan contra el host y esquema actuales para
@@ -116,7 +147,19 @@ evitar redirecciones externas.
 
 Las sesiones usan cookies `HttpOnly` y `SameSite=Lax`. En producción se marcan
 además como `Secure`. La sesión cliente rota su identificador al entrar y salir,
-y el acceso caduca tras una hora sin actividad.
+y el acceso caduca tras una hora sin actividad. También conserva una huella
+HMAC de la contraseña: si la clave cambia, las sesiones anteriores dejan de ser
+válidas. El restablecimiento cliente parte de una solicitud por correo
+verificado, no revela si existe una cuenta y genera, cuando corresponde, un
+enlace limitado al negocio con 60 minutos de vigencia.
+
+El cambio del correo canónico desde la gestión profesional invalida la
+verificación anterior, retira la contraseña vigente y, por esas dos condiciones,
+cierra las sesiones existentes. La persona debe verificar la nueva dirección y
+crear otra contraseña antes de recuperar la operativa digital. El alta, el
+reenvío de verificación y la recuperación se limitan por las claves pertinentes
+de correo, teléfono e IP y no modifican sus respuestas para confirmar la
+existencia de una cuenta.
 
 ## Autorización y aislamiento por negocio
 
@@ -139,8 +182,9 @@ permisos; solo el superusuario dispone de acceso completo.
 ## CSRF, XSS y cabeceras
 
 Todas las mutaciones construidas utilizan POST y token CSRF. El middleware de
-Django valida el origen y el token antes de ejecutar la acción. Una prueba con
-comprobación CSRF real cubre el flujo de activación por invitación.
+Django valida el origen y el token antes de ejecutar la acción. En los enlaces
+de alta, invitación, verificación y recuperación, la visita GET solo presenta y
+valida el estado del enlace; no confirma correos ni crea o cambia contraseñas.
 
 Las plantillas utilizan el escape automático de Django. La revisión del código
 no encuentra `mark_safe`, filtros `safe`, `dangerouslySetInnerHTML`, `innerHTML`,
@@ -163,11 +207,31 @@ reglas de negocio. Los números se normalizan, las citas usan fechas conscientes
 de zona horaria y las restricciones de base de datos refuerzan las invariantes
 que no deben depender solo de la interfaz.
 
+El intervalo de agenda es una regla de dominio. Cada servicio activo, suma de
+servicios y ajuste de duración debe ser compatible con él. Cambiar el intervalo
+se rechaza si deja servicios activos incompatibles, y una incoherencia heredada
+se muestra como error controlado. Las citas atendidas o no presentadas solo se
+pueden cerrar cuando ha llegado `ends_at`, nunca simplemente después de su hora
+de inicio.
+
 La disponibilidad mostrada no garantiza por sí sola una reserva. Antes de crear
 una cita, el servicio de dominio vuelve a calcular el hueco y lo bloquea dentro
-de una transacción. En PostgreSQL, las transiciones concurrentes de una cita
-usan `select_for_update()`. La prueba concurrente confirma que dos operaciones
-incompatibles no pueden cerrar la misma cita con resultados distintos.
+de una transacción. La confirmación y las mutaciones profesionales de horarios,
+cierres, líneas y preferencia de festivos adquieren los bloqueos compartidos en
+un orden estable y vuelven a consultar el estado protegido. De este modo no pueden
+confirmarse simultáneamente una cita y un cambio de capacidad que la deje sin
+línea u horario válido.
+
+La sincronización global del BOE reconcilia atómicamente el catálogo oficial,
+conserva todas las citas y contabiliza las potencialmente afectadas. No adquiere
+todavía el mutex de cada agenda ni ofrece resolución explícita por cita; queda
+registrado como P1.
+
+En los recorridos familiares se conserva por separado quién recibe el servicio
+y quién lo solicita. Las instantáneas de nombre y relación mantienen legible el
+historial, y las recomendaciones del calendario trasladan conjuntamente el
+instante y la línea seleccionados: no se reconstruye una línea distinta a partir
+de la hora.
 
 ## Gestión de secretos y configuración de producción
 
@@ -252,6 +316,14 @@ solicitud abierta y los POST se limitan por teléfono e IP mediante claves
 resumidas. Los datos recibidos solo aparecen en la zona superadministradora y no
 se copian como contacto público del negocio sin una decisión expresa.
 
+La aceptación de privacidad no se considera permanente para cualquier texto
+futuro. Si cambia la versión o la huella del documento vigente, la cuenta debe
+registrar una nueva constancia antes de confirmar otra reserva. Además, la
+política del negocio y el canal para ejercer derechos permanecen accesibles si
+el negocio o la reserva pública están pausados. Esta excepción de continuidad
+legal no vuelve a publicar servicios ni habilita la reserva o el registro de
+nuevas cuentas.
+
 Estas medidas técnicas no sustituyen las obligaciones jurídicas de una
 explotación comercial. La publicación académica no debe usarse con actividad
 comercial ni datos de clientes reales. Antes de activar ese uso deben cerrarse
@@ -261,7 +333,7 @@ procedimiento de ejercicio de derechos.
 
 ## Evidencias reproducibles
 
-Los siguientes comandos se ejecutaron sobre el código funcional el 13 de julio
+Los siguientes controles se ejecutaron sobre el bloque P0 local el 16 de julio
 de 2026:
 
 ```powershell
@@ -272,25 +344,31 @@ npm.cmd run check
 .\.venv\Scripts\python.exe manage.py check
 .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
 .\.venv\Scripts\python.exe -m pip_audit
-npm.cmd audit --audit-level=low
-gitleaks detect --source . --no-banner --redact --exit-code 1
+.\.venv\Scripts\python.exe -m pip check
+npm.cmd audit --audit-level=high
+git diff --check
 ```
 
 | Comprobación | Resultado |
 | --- | --- |
-| Suite Django en SQLite | 252 pruebas descubiertas; 5 omitidas por requerir PostgreSQL |
-| Suite Django en PostgreSQL 17 | 252 pruebas correctas, incluida concurrencia real |
-| Cobertura con ramas | 82 %; puerta mínima automatizada del 82 % |
-| Suite frontend | 21 pruebas correctas: 17 unitarias y 4 de componentes React |
-| Build Vite | Correcto; 19 módulos transformados |
+| Suite Django local | 396 pruebas en la batería; resultado correcto y 9 omitidas |
+| Cobertura con ramas | 83 %; puerta mínima automatizada del 82 % |
+| Suite frontend | 29 pruebas correctas: 17 unitarias y 12 de componentes React |
+| Build Vite | Correcto |
+| Ruff | Sin incidencias |
 | `manage.py check` | Sin incidencias |
 | Migraciones | No se detectaron cambios pendientes |
 | `pip-audit` | Sin vulnerabilidades conocidas |
 | `npm audit` | 0 vulnerabilidades conocidas |
-| Gitleaks 8.30.1 | Historial Git completo y cambios preparados revisados; sin secretos detectados |
-| PostgreSQL 17 | Suite completa de 252 pruebas correcta, incluida concurrencia real |
-| CI | GitHub Actions: Ruff, migraciones, cobertura, SQLite, PostgreSQL, frontend, auditorías y Gitleaks |
-| Copia y restauración | Restauración completa en base limpia con recuentos coincidentes |
+| `pip check` | Sin incompatibilidades conocidas |
+| `git diff --check` | Sin errores de espacios ni marcadores |
+| QA visual y funcional | Ejecutada en copia desechable; base canónica intacta |
+| CI del P0 | Debe comprobarse para el SHA exacto en GitHub Actions |
+| Despliegue del P0 | Debe comprobarse para el SHA exacto en el registro operativo |
+
+La suite PostgreSQL 17, Gitleaks sobre historial, copia/restauración y CI son
+puertas de publicación. Su resultado solo puede atribuirse al bloque cuando
+conste asociado al mismo SHA que se despliega.
 
 El chequeo de producción se ejecutó con valores locales temporales, sin
 credenciales reales y sin conectar servicios externos:
@@ -334,6 +412,10 @@ decimotercera solicitud, como corresponde al nuevo control.
 | Terminación TLS del proxy | Cerrado para la demo | Nginx sobrescribe `X-Forwarded-Proto`, Gunicorn solo escucha en socket y Django confía únicamente en el proxy local declarado |
 | Copias sin destino externo cifrado | Alta para continuidad; bloqueante para explotación comercial | La retención 7/4/6 y la vigilancia local están activas; falta elegir el destino externo y repetir una restauración desde él |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
+| Escrituras de agenda desde Django Admin | P1 alta para integridad, acotada a personal técnico | Horarios, cierres, líneas o festivos editados directamente pueden saltarse servicios y mutex del producto; restringir esos modelos o hacer que sus mutaciones pasen por dominio |
+| Verificación no ligada a la versión legal mostrada | P1 media | El POST registra el documento vigente, pero no recibe una referencia firmada a la versión y huella renderizadas en el GET; ligar ambas fases o exigir recarga si cambian |
+| Outbox sin lease ni recuperación de `processing` | P1 media operativa | Añadir reclamación con caducidad, recuperación tras caída y estrategia explícita frente al envío aceptado por SMTP antes de persistir `sent` |
+| Sincronización global BOE sin mutex por negocio | P1 media | Conserva las citas y cuenta las afectadas, pero debe coordinarse con cada agenda y presentar resolución explícita de conflictos |
 | Sin segundo factor para cuentas técnicas | Alta para explotación comercial | Incorporar MFA o proteger el acceso mediante identidad del proveedor o VPN |
 | Galería limitada a 12 archivos, pero sin límite temporal de subidas | Media | Añadir límite por cuenta o proxy; pasar el procesamiento a un worker si aumenta el volumen |
 | Sin monitorización central de toda la plataforma | Media | La vigilancia de copias y disco ya avisa localmente; falta centralizar disponibilidad, errores y logs del conjunto |
@@ -347,6 +429,10 @@ decimotercera solicitud, como corresponde al nuevo control.
 AgendaSalon supera el alcance técnico exigible para explicar autenticación,
 hashing, validación, CSRF, XSS, permisos, secretos y copias de seguridad. Los
 controles de aplicación están implementados y respaldados por pruebas.
+
+El bloque P0 queda verificado localmente con 396 pruebas Django, 29 frontend,
+83 % de cobertura y QA visual aislada. Solo debe presentarse como publicado
+cuando su SHA exacto tenga asociados CI, preflight y despliegue verificables.
 
 La aplicación está publicada como **demo académica** y HTTPS, proxy, aislamiento,
 copias locales, retención y vigilancia de frescura disponen de evidencia en el

@@ -122,9 +122,9 @@ export default function ProfessionalAgenda({ config }) {
   const dayData = dayResource.data;
   const businessName = dayData?.business?.name || config.businessName;
 
-  function chooseDate(dateValue) {
+  function chooseDate(dateValue, nextSlot = null) {
     setSelectedDate(dateValue);
-    setSelectedSlot(null);
+    setSelectedSlot(nextSlot);
     const nextMonth = monthFromDate(dateValue);
     if (!sameMonth(viewMonth, nextMonth)) {
       setViewMonth(nextMonth);
@@ -142,7 +142,7 @@ export default function ProfessionalAgenda({ config }) {
   }
 
   function chooseSuggestion(slot) {
-    chooseDate(slot.starts_at.slice(0, 10));
+    chooseDate(slot.starts_at.slice(0, 10), slot);
     setActiveLineId(slot.work_line_id);
   }
 

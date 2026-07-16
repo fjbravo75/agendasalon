@@ -17,52 +17,156 @@ from apps.legal.models import CustomerPrivacyEvidence
 from apps.legal.services import record_customer_privacy_information
 from apps.customers.models import (
     BusinessClient,
+    BusinessClientAccess,
     BusinessClientAccessGrant,
     BusinessClientAuthorizedContact,
 )
 
 
 class ClientLoginForm(forms.Form):
-    phone = forms.CharField(
-        label="Teléfono",
-        max_length=32,
-        widget=forms.TextInput(attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}),
+    identifier = forms.CharField(
+        label="Correo electrónico o teléfono",
+        max_length=254,
+        widget=forms.TextInput(
+            attrs={
+                "autocomplete": "username",
+                "inputmode": "email",
+                "placeholder": "tu@correo.es",
+            }
+        ),
     )
     password = forms.CharField(
         label="Contraseña",
-        widget=forms.PasswordInput(attrs={"autocomplete": "current-password", "placeholder": "Tu contraseña"}),
+        widget=forms.PasswordInput(
+            attrs={"autocomplete": "current-password", "placeholder": "Tu contraseña"}
+        ),
     )
 
     def __init__(self, *args, business, skip_authentication=False, **kwargs):
+        # Compatibilidad con formularios o clientes antiguos que todavía envían
+        # el campo `phone`. La interfaz nueva presenta el correo como vía principal.
+        if args and args[0] is not None and "identifier" not in args[0] and "phone" in args[0]:
+            data = args[0].copy()
+            data["identifier"] = data.get("phone", "")
+            args = (data, *args[1:])
         super().__init__(*args, **kwargs)
         self.business = business
         self.skip_authentication = skip_authentication
         self.client_access = None
 
-    def clean_phone(self):
-        phone = self.cleaned_data["phone"]
-        try:
-            normalize_phone(phone)
-        except DjangoValidationError as exc:
-            raise forms.ValidationError("Revisa el teléfono.") from exc
-        return phone
+    def clean_identifier(self):
+        return self.cleaned_data["identifier"].strip()
 
     def clean(self):
         cleaned_data = super().clean()
-        phone = cleaned_data.get("phone")
+        identifier = cleaned_data.get("identifier")
         password = cleaned_data.get("password")
-        if not phone or not password:
+        if not identifier or not password:
             return cleaned_data
         if self.skip_authentication:
             return cleaned_data
 
         self.client_access = authenticate_client_access(
             business=self.business,
-            phone=phone,
+            identifier=identifier,
             password=password,
         )
         if self.client_access is None:
-            raise forms.ValidationError("Teléfono o contraseña no válidos.")
+            raise forms.ValidationError("Correo, teléfono o contraseña no válidos.")
+        return cleaned_data
+
+
+class ClientPasswordResetRequestForm(forms.Form):
+    email = forms.EmailField(
+        label="Correo electrónico",
+        max_length=254,
+        widget=forms.EmailInput(attrs={"autocomplete": "email", "placeholder": "tu@correo.es"}),
+    )
+
+    def clean_email(self):
+        return normalize_and_validate_routable_email(self.cleaned_data["email"])
+
+
+class ClientEmailVerificationForm(forms.Form):
+    password = forms.CharField(
+        label="Nueva contraseña",
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Crea tu contraseña",
+                "aria-describedby": "password-requirements",
+            }
+        ),
+    )
+    password_confirm = forms.CharField(
+        label="Repite la contraseña",
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Repite tu contraseña",
+            }
+        ),
+    )
+    privacy_acknowledged = forms.BooleanField(
+        label="He leído la información sobre el tratamiento de mis datos.",
+        required=False,
+    )
+
+    def __init__(self, *args, business, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.business = business
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password = cleaned_data.get("password")
+        password_confirm = cleaned_data.get("password_confirm")
+        if password and password_confirm and password != password_confirm:
+            self.add_error("password_confirm", "Las contraseñas no coinciden.")
+        if password:
+            try:
+                validate_password(password)
+            except DjangoValidationError as exc:
+                self.add_error("password", exc)
+        if self.business.legal_compliance_enabled and not cleaned_data.get("privacy_acknowledged"):
+            self.add_error(
+                "privacy_acknowledged",
+                "Confirma que has recibido la información sobre el tratamiento de tus datos.",
+            )
+        return cleaned_data
+
+
+class ClientPasswordResetForm(forms.Form):
+    password = forms.CharField(
+        label="Nueva contraseña",
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Crea tu nueva contraseña",
+                "aria-describedby": "password-requirements",
+            }
+        ),
+    )
+    password_confirm = forms.CharField(
+        label="Repite la contraseña",
+        widget=forms.PasswordInput(
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Repite tu nueva contraseña",
+            }
+        ),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password = cleaned_data.get("password")
+        password_confirm = cleaned_data.get("password_confirm")
+        if password and password_confirm and password != password_confirm:
+            self.add_error("password_confirm", "Las contraseñas no coinciden.")
+        if password:
+            try:
+                validate_password(password)
+            except DjangoValidationError as exc:
+                self.add_error("password", exc)
         return cleaned_data
 
 
@@ -75,32 +179,14 @@ class ClientRegistrationForm(forms.Form):
     phone = forms.CharField(
         label="Teléfono",
         max_length=32,
-        widget=forms.TextInput(attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}),
+        widget=forms.TextInput(
+            attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}
+        ),
     )
     email = forms.EmailField(
         label="Correo electrónico",
         max_length=254,
-        widget=forms.EmailInput(
-            attrs={"autocomplete": "email", "placeholder": "tu@correo.es"}
-        ),
-    )
-    password = forms.CharField(
-        label="Contraseña",
-        widget=forms.PasswordInput(
-            attrs={
-                "autocomplete": "new-password",
-                "placeholder": "Crea tu contraseña",
-                "aria-describedby": "password-requirements",
-            }
-        ),
-    )
-    password_confirm = forms.CharField(
-        label="Repite la contraseña",
-        widget=forms.PasswordInput(attrs={"autocomplete": "new-password", "placeholder": "Repite tu contraseña"}),
-    )
-    privacy_acknowledged = forms.BooleanField(
-        label="He leído la información sobre el tratamiento de mis datos.",
-        required=False,
+        widget=forms.EmailInput(attrs={"autocomplete": "email", "placeholder": "tu@correo.es"}),
     )
 
     def __init__(self, *args, business, **kwargs):
@@ -127,22 +213,6 @@ class ClientRegistrationForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
-        password = cleaned_data.get("password")
-        password_confirm = cleaned_data.get("password_confirm")
-        if password and password_confirm and password != password_confirm:
-            self.add_error("password_confirm", "Las contraseñas no coinciden.")
-        if password:
-            try:
-                validate_password(password)
-            except DjangoValidationError as exc:
-                self.add_error("password", exc)
-        if self.business.legal_compliance_enabled and not cleaned_data.get(
-            "privacy_acknowledged"
-        ):
-            self.add_error(
-                "privacy_acknowledged",
-                "Confirma que has recibido la información sobre el tratamiento de tus datos.",
-            )
         return cleaned_data
 
     def save(self):
@@ -152,7 +222,6 @@ class ClientRegistrationForm(forms.Form):
                 full_name=self.cleaned_data["full_name"],
                 phone=self.cleaned_data["phone"],
                 email=self.cleaned_data["email"],
-                password=self.cleaned_data["password"],
             )
         except DjangoValidationError as exc:
             raise forms.ValidationError(getattr(exc, "messages", [str(exc)])) from exc
@@ -163,32 +232,7 @@ class ClientInvitationActivationForm(forms.Form):
     email = forms.EmailField(
         label="Correo electrónico",
         max_length=254,
-        widget=forms.EmailInput(
-            attrs={"autocomplete": "email", "placeholder": "tu@correo.es"}
-        ),
-    )
-    password = forms.CharField(
-        label="Contraseña",
-        widget=forms.PasswordInput(
-            attrs={
-                "autocomplete": "new-password",
-                "placeholder": "Crea tu contraseña",
-                "aria-describedby": "password-requirements",
-            }
-        ),
-    )
-    password_confirm = forms.CharField(
-        label="Repite la contraseña",
-        widget=forms.PasswordInput(
-            attrs={
-                "autocomplete": "new-password",
-                "placeholder": "Repite tu contraseña",
-            }
-        ),
-    )
-    privacy_acknowledged = forms.BooleanField(
-        label="He leído la información sobre el tratamiento de mis datos.",
-        required=False,
+        widget=forms.EmailInput(attrs={"autocomplete": "email", "placeholder": "tu@correo.es"}),
     )
 
     def __init__(self, *args, business=None, **kwargs):
@@ -200,24 +244,6 @@ class ClientInvitationActivationForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
-        password = cleaned_data.get("password")
-        password_confirm = cleaned_data.get("password_confirm")
-        if password and password_confirm and password != password_confirm:
-            self.add_error("password_confirm", "Las contraseñas no coinciden.")
-        if password:
-            try:
-                validate_password(password)
-            except DjangoValidationError as exc:
-                self.add_error("password", exc)
-        if (
-            self.business is not None
-            and self.business.legal_compliance_enabled
-            and not cleaned_data.get("privacy_acknowledged")
-        ):
-            self.add_error(
-                "privacy_acknowledged",
-                "Confirma que has recibido la información sobre el tratamiento de tus datos.",
-            )
         return cleaned_data
 
 
@@ -225,9 +251,7 @@ class ProfessionalClientQuickForm(forms.Form):
     full_name = forms.CharField(
         label="Nombre completo",
         max_length=160,
-        widget=forms.TextInput(
-            attrs={"autocomplete": "name", "placeholder": "Nombre completo"}
-        ),
+        widget=forms.TextInput(attrs={"autocomplete": "name", "placeholder": "Nombre completo"}),
     )
     phone = forms.CharField(
         label="Teléfono propio (opcional)",
@@ -244,9 +268,7 @@ class ProfessionalClientQuickForm(forms.Form):
     email = forms.EmailField(
         label="Correo electrónico (opcional)",
         required=False,
-        widget=forms.EmailInput(
-            attrs={"autocomplete": "email", "placeholder": "Email opcional"}
-        ),
+        widget=forms.EmailInput(attrs={"autocomplete": "email", "placeholder": "Email opcional"}),
     )
     internal_notes = forms.CharField(
         label="Notas internas (opcional)",
@@ -452,12 +474,16 @@ class ProfessionalClientEditForm(forms.Form):
         label="Teléfono propio (opcional)",
         required=False,
         max_length=32,
-        widget=forms.TextInput(attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}),
+        widget=forms.TextInput(
+            attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}
+        ),
     )
     email = forms.EmailField(
-        label="Email",
+        label="Correo electrónico",
         required=False,
-        widget=forms.EmailInput(attrs={"autocomplete": "email", "placeholder": "Email opcional"}),
+        widget=forms.EmailInput(
+            attrs={"autocomplete": "email", "placeholder": "correo@ejemplo.es"}
+        ),
     )
     internal_notes = forms.CharField(
         label="Notas internas",
@@ -469,11 +495,12 @@ class ProfessionalClientEditForm(forms.Form):
     )
 
     def __init__(self, *args, business, instance, **kwargs):
+        self.access = getattr(instance, "access", None)
         if (not args or args[0] is None) and "initial" not in kwargs:
             kwargs["initial"] = {
                 "full_name": instance.full_name,
                 "phone": instance.phone,
-                "email": instance.email,
+                "email": self.access.email if self.access is not None else instance.email,
                 "internal_notes": instance.internal_notes,
             }
         super().__init__(*args, **kwargs)
@@ -497,16 +524,44 @@ class ProfessionalClientEditForm(forms.Form):
         return phone
 
     def clean_email(self):
-        email = self.cleaned_data.get("email")
+        email = (self.cleaned_data.get("email") or "").strip()
+        current_email_normalized = (
+            (self.access.email_normalized or "").strip().lower() if self.access is not None else ""
+        )
         if not email:
+            if self.access is not None and current_email_normalized:
+                raise forms.ValidationError(
+                    "Una ficha con cuenta online debe conservar su correo electrónico."
+                )
             return ""
         try:
-            return normalize_and_validate_routable_email(email)
+            normalized_email = normalize_and_validate_routable_email(email)
         except DjangoValidationError:
+            if self.access is not None and email.lower() == current_email_normalized:
+                return (self.access.email or "").strip()
             existing_email = (self.instance.email or "").strip().lower()
-            if email.strip().lower() == existing_email:
-                return existing_email
+            if self.access is None and email.lower() == existing_email:
+                return (self.instance.email or "").strip()
             raise
+
+        if self.access is None or normalized_email == current_email_normalized:
+            return normalized_email
+        if not self.access.is_active or not self.instance.is_active:
+            raise forms.ValidationError(
+                "Reactiva la ficha y la cuenta online antes de cambiar el correo."
+            )
+        if (
+            BusinessClientAccess.objects.filter(
+                business=self.business,
+                email_normalized=normalized_email,
+            )
+            .exclude(pk=self.access.pk)
+            .exists()
+        ):
+            raise forms.ValidationError(
+                "Ese correo ya está vinculado a otra cuenta online de este negocio."
+            )
+        return normalized_email
 
     def clean_internal_notes(self):
         return (self.cleaned_data.get("internal_notes") or "").strip()
@@ -567,7 +622,9 @@ class ProfessionalAuthorizedContactForm(forms.Form):
         label="Teléfono",
         required=False,
         max_length=32,
-        widget=forms.TextInput(attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}),
+        widget=forms.TextInput(
+            attrs={"autocomplete": "tel", "placeholder": "Teléfono (600 000 000)"}
+        ),
     )
     relationship_label = forms.ChoiceField(
         label="Relación con el cliente",

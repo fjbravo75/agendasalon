@@ -45,12 +45,85 @@ if (formErrorSummary) {
   formErrorSummary.focus();
 }
 
-const appointmentClient = document.querySelector('[name="business_client"]');
-const appointmentRequester = document.querySelector('[name="requested_by_contact"]');
+const appointmentSearchForm = document.querySelector("[data-appointment-search]");
+const appointmentAssistantShell = appointmentSearchForm?.closest(".assistant-shell");
+const appointmentClient = appointmentSearchForm?.querySelector('[name="business_client"]');
+const appointmentRequester = appointmentSearchForm?.querySelector(
+  '[name="requested_by_contact"]',
+);
+const appointmentRequesterOptionsNode = document.getElementById(
+  "appointment-requester-options",
+);
+let appointmentRequesterOptions = {};
+if (appointmentRequesterOptionsNode) {
+  try {
+    appointmentRequesterOptions = JSON.parse(appointmentRequesterOptionsNode.textContent);
+  } catch (_error) {
+    appointmentRequesterOptions = {};
+  }
+}
+const appointmentRequesterPayloads = appointmentAssistantShell
+  ? [
+      ...appointmentAssistantShell.querySelectorAll(
+        'input[type="hidden"][name="requested_by_contact"]',
+      ),
+    ]
+  : [];
+const appointmentResultsCurrent = appointmentAssistantShell?.querySelector(
+  "[data-appointment-results-current]",
+);
+const appointmentResultsStale = appointmentAssistantShell?.querySelector(
+  "[data-appointment-results-stale]",
+);
+let appointmentResultsAreCurrent =
+  appointmentResultsCurrent?.dataset.resultsActionable === "true";
+
+const syncAppointmentRequester = () => {
+  appointmentRequesterPayloads.forEach((input) => {
+    input.value = appointmentRequester.value;
+  });
+};
+
 if (appointmentClient && appointmentRequester) {
   appointmentClient.addEventListener("change", () => {
+    const requesterChoices = appointmentRequesterOptions[appointmentClient.value] || [
+      { value: "self", label: "El propio cliente" },
+    ];
+    const requesterOptions = requesterChoices.map(({ value, label }) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      return option;
+    });
+    appointmentRequester.replaceChildren(...requesterOptions);
     appointmentRequester.value = "self";
+    syncAppointmentRequester();
   });
+  appointmentRequester.addEventListener("change", syncAppointmentRequester);
+}
+
+if (appointmentSearchForm && appointmentResultsCurrent && appointmentResultsStale) {
+  const invalidateAppointmentResults = (event) => {
+    if (
+      !appointmentResultsAreCurrent ||
+      event.target.name === "requested_by_contact"
+    ) {
+      return;
+    }
+
+    appointmentResultsAreCurrent = false;
+    appointmentResultsCurrent.hidden = true;
+    appointmentResultsCurrent.setAttribute("aria-hidden", "true");
+    appointmentResultsCurrent
+      .querySelectorAll('button[type="submit"], input[type="submit"]')
+      .forEach((control) => {
+        control.disabled = true;
+      });
+    appointmentResultsStale.hidden = false;
+  };
+
+  appointmentSearchForm.addEventListener("input", invalidateAppointmentResults);
+  appointmentSearchForm.addEventListener("change", invalidateAppointmentResults);
 }
 
 document.addEventListener("click", async (event) => {
@@ -78,8 +151,6 @@ document.addEventListener("click", async (event) => {
     }
   }
 });
-
-const appointmentSearchForm = document.querySelector("[data-appointment-search]");
 
 if (appointmentSearchForm) {
   const serviceInputs = [
