@@ -180,6 +180,30 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Recomendada")
         self.assertContains(response, "Confirmar cita")
 
+    def test_month_map_uses_real_monday_to_sunday_calendar_alignment(self):
+        self.client.force_login(self.professional)
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {
+                "business_client": client_id,
+                "manual_channel": "telefono",
+                "services": self._combined_service_ids(),
+                "target_date": "2026-07-20",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["month_leading_blanks"]), 2)
+        self.assertEqual(len(response.context["month_trailing_blanks"]), 2)
+        self.assertContains(response, 'title="Lunes">Lun</abbr>')
+        self.assertContains(response, 'title="Miércoles">Mié</abbr>')
+        self.assertContains(response, 'title="Domingo">Dom</abbr>')
+        self.assertContains(response, "month-day--leading", count=2)
+        self.assertContains(response, "month-day--trailing", count=2)
+        self.assertContains(response, 'aria-label="miércoles 1 julio')
+
     def test_holiday_explains_why_the_selected_day_is_closed(self):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
