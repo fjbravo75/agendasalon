@@ -100,7 +100,7 @@ class ProfessionalAppointmentManagementTests(TestCase):
     def test_professional_can_complete_started_appointment(self):
         self.client.force_login(self.professional)
         appointment = self._create_appointment(
-            starts_at=timezone.now() - timedelta(days=10),
+            starts_at=timezone.now() - timedelta(days=100),
         )
 
         response = self.client.post(
