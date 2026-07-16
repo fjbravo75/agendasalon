@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import StringIO
 from zoneinfo import ZoneInfo
 
@@ -166,6 +166,15 @@ class SeedDemoCommandTests(TestCase):
             self.assertTrue(user.check_password("DemoAgendaSalon2026!"))
             self.assertFalse(user.check_password("Contraseña modificada durante la prueba 2026"))
             self.assertFalse(user.password_change_required)
+
+    def test_seed_demo_never_dates_calendar_trace_in_the_future(self):
+        future_base_date = timezone.localdate() + timedelta(days=30)
+
+        call_command("seed_demo", base_date=future_base_date.isoformat(), stdout=StringIO())
+
+        run = HolidaySyncRun.objects.get(source_name="Calendario local AgendaSalon")
+        self.assertLessEqual(run.started_at, run.finished_at)
+        self.assertLessEqual(run.finished_at, timezone.now())
 
     def test_seed_demo_merges_service_names_that_only_differ_by_accents(self):
         call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
