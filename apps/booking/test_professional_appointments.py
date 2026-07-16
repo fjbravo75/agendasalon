@@ -81,6 +81,11 @@ class ProfessionalAppointmentManagementTests(TestCase):
                 actor_user=self.professional,
             ).exists()
         )
+        detail_response = self.client.get(
+            reverse("booking:professional_appointment_detail", args=[appointment.id])
+        )
+        self.assertContains(detail_response, "No hay avisos registrados para esta cita.")
+        self.assertNotContains(detail_response, "La cita sigue confirmada.")
 
     def test_cancel_requires_reason_and_keeps_confirmed_status(self):
         self.client.force_login(self.professional)

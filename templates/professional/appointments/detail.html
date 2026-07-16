@@ -125,7 +125,7 @@
             {% for email in appointment_emails %}
               <article><span>{{ email.get_kind_display }}</span><strong>{{ email.operational_status_label }}</strong><small>{{ email.recipient_email }} · {% if email.sent_at %}{{ email.sent_at|date:"j M Y H:i" }}{% else %}previsto para {{ email.scheduled_for|date:"j M Y H:i" }}{% endif %}</small>{% if email.last_error %}<small>{{ email.last_error }}</small>{% endif %}</article>
             {% empty %}
-              <div class="soft-note"><strong>No hay avisos por correo.</strong><p>La cita sigue confirmada. Los avisos solo se envían cuando la cuenta cliente tiene un correo verificado.</p></div>
+              <div class="soft-note"><strong>No hay avisos por correo.</strong><p>No hay avisos registrados para esta cita. Solo se envían cuando la cuenta cliente tiene un correo verificado.</p></div>
             {% endfor %}
           </div>
         </section>
