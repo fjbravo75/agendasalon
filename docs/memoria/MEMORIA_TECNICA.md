@@ -326,7 +326,9 @@ verificado.
 ### 12.3 CSRF, XSS y navegador
 
 - Middleware CSRF de Django y token en formularios.
-- Mutaciones mediante POST.
+- Mutaciones de formularios mediante POST; la verificación posterior del correo
+  profesional por enlace conserva una excepción GET declarada y pendiente de
+  migrar a confirmación POST con CSRF en P2.
 - Autoescape de plantillas.
 - Política CSP y bloqueo de contenido activo no autorizado.
 - `Permissions-Policy`, protección frente a marcos y política de recursos del mismo origen.
