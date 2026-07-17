@@ -97,10 +97,19 @@ referencia pública. Servicios y temporizadores quedaron activos y el correo se
 rearmó; su primera ejecución automática, a las 11:11:27 UTC, terminó
 correctamente con 0 procesados, enviados, reprogramados, fallidos y cancelados.
 
-P2 permanece como candidato local y aislado, con su validación local
-completamente cerrada. Todavía no forma parte de `main` ni de la demostración
-pública: producción continúa alineada con P1 y con el SHA final
-`1e4c6cdbeaca72ca3df4c6b5c8c0f138ef02f489`.
+P2 está publicada y aceptada en producción con el SHA funcional
+`ed07e8e1d47eb55620df297636cd26ee10fe25c3`. La PR #10 y la ejecución de CI
+`29589984747`, correcta en todas sus puertas, vinculan el código desplegado con
+la evidencia reproducible. El despliegue quedó protegido por el snapshot
+`pre-agendasalon-p2-experiencia-2026-07-17-1512Z` (ID `237312606`) y por la
+copia posterior verificada `agendasalon-20260717T153403Z`.
+
+La aceptación pública de P2 se realizó mediante GET y comprobaciones de solo
+lectura, sin crear datos de prueba. Producción conserva exactamente 2 negocios,
+3 usuarios, 8 clientes, 4 accesos y 23 citas; mantiene 2 sesiones activas y 0
+caducadas, y no contiene solicitudes de alta, mensajes en outbox ni revisiones
+de citas afectadas por festivos. P1 se conserva como antecedente publicado y
+trazable en las PR, ejecuciones de CI, copias y snapshot indicados arriba.
 
 Base Django creada con configuración separada por entorno, usuario personalizado
 interno desde el inicio, núcleo de modelos SaaS/agenda y entrada autenticada por
@@ -265,7 +274,7 @@ En una alta pública, la ficha permanece inactiva y el acceso conserva
 incompleto no contamina la reutilización de fichas del panel profesional y no se
 activa si el negocio ha pausado entretanto las nuevas reservas.
 
-En el candidato P2, cada alta pública pendiente caduca lógicamente a las 48 horas
+Desde P2, cada alta pública pendiente caduca lógicamente a las 48 horas
 de su creación o del último enlace realmente encolado que renueve el plazo. Un
 temporizador independiente intenta después su purga segura cada quince minutos y
 otro elimina las sesiones Django caducadas cada seis horas. Las 48 horas no
@@ -485,7 +494,7 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La verificación local del candidato P2 ejecutó 596 pruebas Django sobre el árbol
+La verificación de P2 ejecutó 596 pruebas Django sobre el árbol
 definitivo. SQLite terminó correctamente con 35 omisiones exclusivas de
 PostgreSQL y PostgreSQL 17 completó 596 de 596 sin omisiones. La cobertura con
 ramas alcanzó el 85 %; el frontend completó 34 de 34 pruebas y el build Vite
@@ -493,8 +502,9 @@ finalizó correctamente. Ruff, `manage.py check`, migraciones, `git diff --check
 `pip-audit`, `npm audit`, `pip check` y la revisión de secretos y seguridad
 finalizaron sin bloqueos. La QA visual y funcional resultó apta en escritorio y
 móvil sobre copias desechables, incluidos los formularios con CSRF real, y la
-base canónica permaneció intacta. Estas cifras acreditan el candidato local; no
-acreditan todavía CI ni producción, que continúan en P1.
+base canónica permaneció intacta. La PR #10 y la ejecución de CI `29589984747`
+reprodujeron las puertas automatizadas antes de publicar y aceptar en producción
+el SHA funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`.
 
 Como referencia histórica, el bloque P0 quedó validado el 16 de julio de 2026
 con 396 pruebas Django, nueve omisiones, 29 pruebas frontend y 83 % de cobertura.
@@ -625,7 +635,7 @@ una en una.
 Así, las altas concurrentes esperan al commit y la fotografía global no omite
 negocios nacidos durante la operación.
 
-En el candidato P2 local, todavía no desplegado, los contadores de cada ejecución
+Desde P2, los contadores de cada ejecución
 se presentan como una fotografía histórica. La revisión operativa se calcula, en
 cambio, desde el estado vivo: citas confirmadas futuras, festivo nacional vigente
 y preferencia actual de cada negocio. El superadministrador solo recibe
