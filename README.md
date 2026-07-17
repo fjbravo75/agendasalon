@@ -79,11 +79,23 @@ Funciona con `DEBUG=False`, PostgreSQL, Nginx, Gunicorn por socket interno y HTT
 Let's Encrypt. El entorno muestra de forma explícita que no existe actividad
 comercial y utiliza `agendasalon@brvsoftwarestudio.com` como contacto real.
 
-El entorno público continúa en P0, en el SHA
-`5c68a260d1d87ed00c908d25bf519c3f34fea712`. P1 está cerrado y verificado en
-local, pero todavía no se ha publicado: sus controles no deben atribuirse a
-producción hasta que el SHA exacto supere CI, copia, snapshot, migraciones y
-aceptación operativa.
+P1 está publicada y aceptada en producción con el SHA funcional
+`105531945452b5529be6891ee47034c164e804f3`. El cierre pasó por las PR #7
+(`c4f60c8`) y #8 (`1055319`) y por las ejecuciones de CI `29573943958` y
+`29574584566`, ambas correctas. La aceptación se realizó únicamente mediante
+GET y comprobaciones de solo lectura, sin dejar datos de prueba.
+
+El despliegue quedó protegido por la copia fría
+`agendasalon-20260717T105047Z`, el snapshot
+`pre-agendasalon-p1-robustez-2026-07-17-1051Z` (ID `237297105`, acción
+`3295909145`, creado el 17 de julio de 2026 a las 10:51:55 UTC) y la copia
+posterior `agendasalon-20260717T105901Z`. Producción conservó exactamente 2
+negocios, 3 usuarios, 8 clientes, 4 accesos, 23 citas, 5 sesiones, outbox vacío
+y ninguna solicitud de alta; los libros legales mantuvieron sus
+correspondencias 6/6 y 8/8, y las 23 citas históricas conservaron a `null` su
+referencia pública. Servicios y temporizadores quedaron activos y el correo se
+rearmó; su primera ejecución automática, a las 11:11:27 UTC, terminó
+correctamente con 0 procesados, enviados, reprogramados, fallidos y cancelados.
 
 Base Django creada con configuración separada por entorno, usuario personalizado
 interno desde el inicio, núcleo de modelos SaaS/agenda y entrada autenticada por
@@ -464,9 +476,9 @@ conocidas.
 
 Como referencia histórica, el bloque P0 quedó validado el 16 de julio de 2026
 con 396 pruebas Django, nueve omisiones, 29 pruebas frontend y 83 % de cobertura.
-La publicación no se deduce de la evidencia local: debe acreditarse para el SHA
-exacto mediante CI y el registro operativo del despliegue. La matriz de CI
-ejecuta la batería sobre SQLite y PostgreSQL 17,
+Para P1, la evidencia local quedó vinculada al SHA funcional publicado mediante
+las ejecuciones de CI `29573943958` y `29574584566` y el registro operativo del
+despliegue. La matriz de CI ejecuta la batería sobre SQLite y PostgreSQL 17,
 incluida la concurrencia real. Ruff, el build de producción, `pip-audit`,
 `npm audit` y `pip check` forman parte de esas puertas. GitHub Actions reproduce lint,
 cobertura, SQLite, PostgreSQL, frontend, auditorías y detección de secretos en
