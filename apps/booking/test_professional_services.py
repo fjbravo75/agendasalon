@@ -5,7 +5,7 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.booking.models import Service
+from apps.booking.models import Appointment, Service
 from apps.businesses.models import Business, BusinessActivityEvent
 
 
@@ -31,7 +31,7 @@ class ProfessionalServiceManagementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Servicios de Peluquería Mari")
         self.assertContains(response, "Catálogo de reserva")
-        self.assertContains(response, "Lavado")
+        self.assertContains(response, "Lavado y preparación")
         self.assertContains(response, "Pausado")
         self.assertContains(response, "data-service-color-picker")
         self.assertContains(response, "data-service-color-option", count=30)
@@ -57,6 +57,14 @@ class ProfessionalServiceManagementTests(TestCase):
         )
         self.client.force_login(secondary_professional)
 
+        Appointment.objects.filter(business=self.other_business).delete()
+        extra_service_ids = list(
+            self.other_business.services.order_by("display_order", "pk").values_list(
+                "pk", flat=True
+            )[5:]
+        )
+        self.other_business.services.filter(pk__in=extra_service_ids).delete()
+
         response = self.client.get(reverse("booking:professional_service_list"))
 
         self.assertEqual(response.status_code, 200)
@@ -64,12 +72,11 @@ class ProfessionalServiceManagementTests(TestCase):
         self.assertNotContains(response, "service-list--scrollable")
         self.assertNotContains(response, "data-service-scroll-list")
 
-        next_order = self.other_business.services.count() + 1
         Service.objects.create(
             business=self.other_business,
             name="Servicio adicional de barbería",
             duration_minutes=15,
-            display_order=next_order,
+            display_order=6,
             color_hex="#5079BD",
         )
 
@@ -193,7 +200,7 @@ class ProfessionalServiceManagementTests(TestCase):
 
     def test_professional_can_edit_service(self):
         self.client.force_login(self.professional)
-        service = self.business.services.get(name="Corte")
+        service = self.business.services.get(name="Corte mujer")
 
         response = self.client.post(
             reverse("booking:professional_service_edit", args=[service.id]),
@@ -233,7 +240,7 @@ class ProfessionalServiceManagementTests(TestCase):
 
     def test_paused_service_disappears_from_new_appointment_form(self):
         self.client.force_login(self.professional)
-        service = self.business.services.get(name="Lavado")
+        service = self.business.services.get(name="Lavado y preparación")
 
         response = self.client.post(
             reverse("booking:professional_service_toggle", args=[service.id])
@@ -253,7 +260,7 @@ class ProfessionalServiceManagementTests(TestCase):
         response = self.client.get(reverse("booking:appointment_assistant"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "Lavado - 15 min")
+        self.assertNotContains(response, "Lavado y preparación - 15 min")
 
     def test_incompatible_legacy_service_cannot_be_reactivated(self):
         self.business.calendar_settings.slot_interval_minutes = 30

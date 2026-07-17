@@ -10,6 +10,7 @@ from django.urls import reverse
 
 from apps.booking.models import Appointment
 from apps.businesses.models import Business
+from apps.holidays.models import OfficialHoliday
 
 
 class ProfessionalAgendaApiTests(TestCase):
@@ -27,7 +28,7 @@ class ProfessionalAgendaApiTests(TestCase):
         )
 
     def setUp(self):
-        self.now = datetime(2026, 7, 9, 8, 0, tzinfo=ZoneInfo("Europe/Madrid"))
+        self.now = datetime(2026, 7, 8, 8, 0, tzinfo=ZoneInfo("Europe/Madrid"))
         self.api_now_patcher = patch("apps.booking.api.timezone.now", return_value=self.now)
         self.api_now_patcher.start()
         self.addCleanup(self.api_now_patcher.stop)
@@ -58,7 +59,7 @@ class ProfessionalAgendaApiTests(TestCase):
 
         response = self.client.get(
             reverse("booking:professional_agenda_day_data"),
-            {"date": "2026-07-09", "duration": "60"},
+            {"date": "2026-07-08", "duration": "60"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -70,7 +71,7 @@ class ProfessionalAgendaApiTests(TestCase):
         self.assertEqual(payload["schema_version"], "1.0")
         self.assertEqual(payload["business"]["id"], self.business.id)
         self.assertEqual(payload["business"]["name"], "Peluquería Mari")
-        self.assertEqual(payload["query"], {"date": "2026-07-09", "duration_minutes": 60})
+        self.assertEqual(payload["query"], {"date": "2026-07-08", "duration_minutes": 60})
         self.assertEqual(payload["calendar"]["timezone"], "Europe/Madrid")
         self.assertEqual(payload["calendar"]["slot_interval_minutes"], 15)
         self.assertTrue(payload["work_lines"])
@@ -98,7 +99,7 @@ class ProfessionalAgendaApiTests(TestCase):
 
         response = self.client.get(
             reverse("booking:professional_agenda_day_data"),
-            {"date": "2026-07-09", "duration": "60"},
+            {"date": "2026-07-08", "duration": "60"},
         )
 
         payload = response.json()
@@ -116,7 +117,7 @@ class ProfessionalAgendaApiTests(TestCase):
 
         response = self.client.get(
             reverse("booking:professional_agenda_day_data"),
-            {"date": "2026-07-09", "duration": "30"},
+            {"date": "2026-07-08", "duration": "30"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -147,7 +148,7 @@ class ProfessionalAgendaApiTests(TestCase):
 
         response = self.client.get(
             reverse("booking:professional_agenda_day_data"),
-            {"date": "2026-07-09", "duration": "15"},
+            {"date": "2026-07-08", "duration": "15"},
         )
 
         self.assertEqual(response.status_code, 400)
@@ -156,6 +157,13 @@ class ProfessionalAgendaApiTests(TestCase):
 
     def test_day_endpoint_reports_closure_and_holiday_context(self):
         self.client.force_login(self.professional)
+        OfficialHoliday.objects.create(
+            date=date(2026, 7, 10),
+            name="Fiesta nacional",
+            scope=OfficialHoliday.Scope.NATIONAL,
+            year=2026,
+            source_name="Fixture de prueba",
+        )
 
         closure_response = self.client.get(
             reverse("booking:professional_agenda_day_data"),

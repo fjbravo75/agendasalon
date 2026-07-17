@@ -2160,9 +2160,16 @@ class ProfessionalClientViewTests(TestCase):
         )
 
     def test_professional_client_list_shows_business_clients(self):
+        BusinessClient.objects.create(
+            business=self.other_business,
+            full_name="María Ajena",
+        )
         self.client.force_login(self.professional)
 
-        response = self.client.get(reverse("customers:professional_client_list"))
+        response = self.client.get(
+            reverse("customers:professional_client_list"),
+            {"q": "María"},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Clientes de Peluquería Mari")
@@ -2174,6 +2181,10 @@ class ProfessionalClientViewTests(TestCase):
             reverse("legal:business_privacy", args=[self.business.slug]),
         )
         self.assertNotContains(response, "Javier Martín")
+        self.assertNotContains(response, "María Ajena")
+        self.assertTrue(
+            all(client.business_id == self.business.pk for client in response.context["clients"])
+        )
 
     def test_professional_client_list_paginates_six_at_a_time_and_preserves_filters(self):
         for index in range(7):
@@ -3449,7 +3460,7 @@ class ProfessionalClientViewTests(TestCase):
         self.client.force_login(self.professional)
         business_client = BusinessClient.objects.get(
             business=self.business,
-            full_name="Lucía Gómez",
+            full_name="Lucas López",
         )
         previous_primary = business_client.authorized_contacts.get(is_primary_contact=True)
 
@@ -3552,7 +3563,15 @@ class ProfessionalClientViewTests(TestCase):
             business=self.business,
             full_name="Lucía Gómez",
         )
-        contact = business_client.authorized_contacts.get(full_name="Ana Gómez")
+        contact = BusinessClientAuthorizedContact.objects.create(
+            business=self.business,
+            business_client=business_client,
+            full_name="Ana Gómez",
+            phone="600111254",
+            relationship_label=BusinessClientAuthorizedContact.Relationship.MOTHER,
+            is_primary_contact=True,
+            is_active=True,
+        )
         edit_url = reverse(
             "customers:professional_contact_edit",
             args=[business_client.id, contact.id],

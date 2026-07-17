@@ -174,7 +174,10 @@
               <span>Duración y precio</span>
             </div>
             {{ form.services.errors }}
-            <div class="service-choice-list public-service-list{% if available_services|length > 5 %} service-choice-list--scrollable{% endif %}" role="group" aria-labelledby="public-services-heading" data-service-count="{{ available_services|length }}"{% if available_services|length > 5 %} tabindex="0"{% endif %}>
+            {% if available_services|length > 5 %}
+              <p class="field-help" id="public-services-scroll-hint">{{ available_services|length }} servicios disponibles. Desplázate para ver el catálogo completo.</p>
+            {% endif %}
+            <div class="service-choice-list public-service-list{% if available_services|length > 5 %} service-choice-list--scrollable{% endif %}" role="group" aria-labelledby="public-services-heading" data-service-count="{{ available_services|length }}"{% if available_services|length > 5 %} tabindex="0" aria-describedby="public-services-scroll-hint"{% endif %}>
               {% for service in available_services %}
                 <label class="service-choice public-service-choice">
                   <span class="service-choice__dot" aria-hidden="true"></span>
