@@ -758,6 +758,7 @@ class SeedDemoCommandTests(TestCase):
                 "business__slug",
                 "appointment__starts_at",
                 "event_type",
+                "created_at",
             ).values_list(
                 "business__slug",
                 "appointment__starts_at",
