@@ -1,0 +1,10 @@
+[Unit]
+Description=Remove expired AgendaSalon Django sessions every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:20:00
+Persistent=true
+Unit=agendasalon-session-cleanup.service
+
+[Install]
+WantedBy=timers.target

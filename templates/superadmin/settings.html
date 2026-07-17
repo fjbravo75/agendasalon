@@ -166,7 +166,7 @@
                 </div>
                 {% if latest_holiday_run.source_url %}
                   <a href="{{ latest_holiday_run.source_url }}" target="_blank" rel="noopener noreferrer">
-                    {{ latest_holiday_run.official_reference|default:"Ver fuente oficial" }}
+                    {{ latest_holiday_run.official_reference|default:"Ver fuente oficial" }}<span class="legal-new-tab-note"> (se abre en otra pestaña)</span>
                   </a>
                 {% endif %}
               </div>
@@ -180,10 +180,12 @@
                 <div class="alert">{{ latest_holiday_run.error_detail }}</div>
               {% elif latest_holiday_run.affected_appointments %}
                 <div class="soft-note">
+                  Al terminar se detect{% if latest_holiday_run.affected_appointments == 1 %}ó{% else %}aron{% endif %}
                   {{ latest_holiday_run.affected_appointments }} cita{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %}
-                  futura{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %} coincide{% if latest_holiday_run.affected_appointments != 1 %}n{% endif %}
-                  con estas fechas en {{ latest_holiday_run.affected_businesses }} negocio{% if latest_holiday_run.affected_businesses != 1 %}s{% endif %}.
+                  futura{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %} en
+                  {{ latest_holiday_run.affected_businesses }} negocio{% if latest_holiday_run.affected_businesses != 1 %}s{% endif %}.
                   No se ha cancelado ni movido ninguna.
+                  {% if holiday_business_impact_total %}<a href="#revision-citas-festivos">Revisar negocios pendientes</a>{% endif %}
                 </div>
               {% endif %}
             {% else %}
@@ -212,6 +214,44 @@
           {% endif %}
         </div>
       </div>
+
+      <section id="revision-citas-festivos" class="holiday-sync-summary" aria-labelledby="holiday-impact-title">
+        <div class="holiday-sync-summary__header">
+          <div>
+            <span>Situación actual</span>
+            <h2 id="holiday-impact-title" class="holiday-impact-title">Negocios con citas por revisar</h2>
+          </div>
+          <span class="settings-state">
+            {{ holiday_business_impact_total }} cita{% if holiday_business_impact_total != 1 %}s{% endif %}
+          </span>
+        </div>
+        <p class="soft-note">
+          Este listado incluye todas las citas confirmadas futuras que siguen pendientes ahora mismo,
+          aunque pertenezcan a un año distinto del calendario que estás consultando.
+          El profesional de cada negocio decide con su cliente si las mantiene o las cambia.
+        </p>
+        {% if holiday_business_impacts %}
+          <div class="holiday-impact-list" role="list" aria-label="Negocios con citas pendientes de revisión">
+            {% for item in holiday_business_impacts %}
+              <div class="holiday-sync-summary__header" role="listitem">
+                <div>
+                  <strong>{{ item.business_name }}</strong>
+                  {% if not item.business_is_active %}
+                    <span>Negocio pausado · No hay acceso al panel profesional</span>
+                  {% elif not item.has_active_professional %}
+                    <span>Sin profesional activo · No hay acceso profesional disponible</span>
+                  {% else %}
+                    <span>Revisión disponible en el panel profesional</span>
+                  {% endif %}
+                </div>
+                <strong>{{ item.appointment_count }} cita{% if item.appointment_count != 1 %}s{% endif %}</strong>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty">No quedan citas pendientes de revisión en festivos nacionales.</div>
+        {% endif %}
+      </section>
 
       {% if holiday_years %}
         <nav class="holiday-year-nav" aria-label="Calendarios nacionales disponibles">

@@ -117,7 +117,7 @@ class HolidaySyncRunPresentationTests(TestCase):
                     affected_businesses=1,
                 ),
                 "Calendario BOE 2026 sincronizado: 1 creado, 1 actualizado y 1 retirado.",
-                "Hay 1 cita futura que coincide con estos festivos en 1 negocio.",
+                "Al terminar se detectó 1 cita futura en 1 negocio.",
             ),
             (
                 SimpleNamespace(
@@ -128,7 +128,7 @@ class HolidaySyncRunPresentationTests(TestCase):
                     affected_businesses=3,
                 ),
                 "Calendario BOE 2026 sincronizado: 2 creados, 3 actualizados y 4 retirados.",
-                "Hay 2 citas futuras que coinciden con estos festivos en 3 negocios.",
+                "Al terminar se detectaron 2 citas futuras en 3 negocios.",
             ),
         )
 

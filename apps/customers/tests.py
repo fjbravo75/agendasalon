@@ -50,8 +50,10 @@ from apps.legal.services import (
 )
 from apps.notifications.models import OutboundEmail
 from apps.notifications.services import (
+    client_password_reset_token,
     client_password_reset_url,
     client_verification_url,
+    reset_client_password_from_token,
 )
 
 
@@ -561,6 +563,36 @@ class ClientAccessViewTests(TestCase):
         access.refresh_from_db()
         self.assertEqual(identify_hasher(access.password_hash).algorithm, "argon2")
 
+    def test_stale_legacy_login_cannot_restore_password_after_reset(self):
+        client_file = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Cliente con cambio concurrente",
+            phone="600999019",
+            email="cambio.concurrente@example.test",
+        )
+        access = BusinessClientAccess.objects.create(
+            business=self.business,
+            business_client=client_file,
+            phone="600999019",
+            email="cambio.concurrente@example.test",
+            email_verified_at=timezone.now(),
+            password_hash=make_password("old", hasher="pbkdf2_sha256"),
+        )
+        stale_access = BusinessClientAccess.objects.get(pk=access.pk)
+        token = client_password_reset_token(access)
+
+        changed = reset_client_password_from_token(
+            token,
+            business=self.business,
+            password="new",
+        )
+
+        self.assertIsNotNone(changed)
+        self.assertFalse(stale_access.check_password("old"))
+        access.refresh_from_db()
+        self.assertFalse(access.check_password("old"))
+        self.assertTrue(access.check_password("new"))
+
     def test_client_login_rotates_the_session_identifier(self):
         register_client_access(
             business=self.business,
@@ -834,7 +866,7 @@ class ClientAccessSecurityP0Tests(TestCase):
         for response in (duplicate_pending, new_pending):
             self.assertEqual(response.status_code, 200)
             self.assertContains(response, "Un último paso")
-            self.assertContains(response, "Enviar un enlace nuevo")
+            self.assertContains(response, "Solicitar otro enlace")
             self.assertNotContains(response, "No podemos crear una cuenta")
         self.assertEqual(
             BusinessClientAccess.objects.filter(
@@ -905,7 +937,7 @@ class ClientAccessSecurityP0Tests(TestCase):
         pending_access.business_client.refresh_from_db()
         self.assertFalse(pending_access.business_client.is_active)
 
-    def test_registration_retry_from_new_browser_recovers_pending_access(self):
+    def test_registration_retry_from_new_browser_keeps_generic_response_without_access(self):
         registration_url = reverse("customers:client_register", args=[self.business.slug])
         payload = {
             "full_name": "Cliente Pendiente",
@@ -930,7 +962,10 @@ class ClientAccessSecurityP0Tests(TestCase):
             response["Location"],
             reverse("customers:client_email_pending", args=[self.business.slug]),
         )
-        queue_mock.assert_called_once_with(access)
+        queue_mock.assert_not_called()
+        self.assertIsNone(
+            retry_browser.session["client_email_verification_pending"]["access_id"]
+        )
         pending_page = retry_browser.get(response["Location"])
         self.assertContains(pending_page, "pendiente.retry@example.com")
         self.assertEqual(

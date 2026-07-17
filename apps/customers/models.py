@@ -3,6 +3,7 @@ import uuid
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
@@ -244,6 +245,12 @@ class BusinessClientAccess(models.Model):
         "alta pública pendiente de verificar",
         default=False,
     )
+    public_registration_expires_at = models.DateTimeField(
+        "caducidad del alta pública",
+        null=True,
+        blank=True,
+        db_index=True,
+    )
     last_login_at = models.DateTimeField("último acceso", null=True, blank=True)
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
     updated_at = models.DateTimeField("última actualización", auto_now=True)
@@ -268,11 +275,40 @@ class BusinessClientAccess(models.Model):
         self.password_hash = make_password(raw_password)
 
     def check_password(self, raw_password):
-        def upgrade_password(password):
-            self.set_password(password)
-            self.save(update_fields=["password_hash", "updated_at"])
+        encoded_password = self.password_hash
+        upgraded_password = None
 
-        return check_password(raw_password, self.password_hash, setter=upgrade_password)
+        def upgrade_password(password):
+            nonlocal upgraded_password
+            upgraded_password = make_password(password)
+
+        password_matches = check_password(
+            raw_password,
+            encoded_password,
+            setter=upgrade_password,
+        )
+        if not password_matches or self.pk is None:
+            return password_matches
+
+        queryset = type(self).objects.filter(
+            pk=self.pk,
+            password_hash=encoded_password,
+        )
+        if upgraded_password is None:
+            # Un reset concurrente invalida también una instancia que hubiera
+            # verificado la contraseña anterior justo antes del cambio.
+            return queryset.exists()
+
+        # El rehash es optimista: solo sustituye exactamente el hash que se
+        # verificó. Nunca puede pisar una contraseña cambiada por otro flujo.
+        updated = queryset.update(
+            password_hash=upgraded_password,
+            updated_at=timezone.now(),
+        )
+        if updated != 1:
+            return False
+        self.password_hash = upgraded_password
+        return True
 
     def clean(self):
         super().clean()

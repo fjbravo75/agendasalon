@@ -3,6 +3,7 @@ from django.utils import timezone
 
 from .models import (
     HOLIDAY_SYNC_INTERRUPTED_AFTER,
+    HolidayAppointmentReview,
     HolidaySyncRun,
     OfficialHoliday,
 )
@@ -105,5 +106,37 @@ class HolidaySyncRunAdmin(ReadOnlyHolidayAdminMixin, admin.ModelAdmin):
         if obj is None:
             return "—"
         return obj.presentation_status
+
+
+@admin.register(HolidayAppointmentReview)
+class HolidayAppointmentReviewAdmin(ReadOnlyHolidayAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "holiday_date",
+        "appointment",
+        "holiday_name",
+        "reviewed_by",
+        "reviewed_at",
+    )
+    list_filter = ("holiday_date",)
+    search_fields = (
+        "holiday_name",
+        "appointment__business__commercial_name",
+        "appointment__business_client__full_name",
+    )
+    list_select_related = (
+        "appointment",
+        "appointment__business",
+        "appointment__business_client",
+        "reviewed_by",
+    )
+    readonly_fields = (
+        "appointment",
+        "holiday",
+        "holiday_date",
+        "holiday_name",
+        "reviewed_by",
+        "reviewed_at",
+    )
+    fields = readonly_fields
 
 # Register your models here.

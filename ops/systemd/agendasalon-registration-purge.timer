@@ -1,0 +1,10 @@
+[Unit]
+Description=Purge expired AgendaSalon public registrations every fifteen minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/15:00
+Persistent=true
+Unit=agendasalon-registration-purge.service
+
+[Install]
+WantedBy=timers.target

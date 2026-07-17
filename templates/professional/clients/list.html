@@ -148,7 +148,7 @@
                 <p>
                   {{ business.commercial_name }} utilizará estos datos para crear la ficha y
                   gestionar sus citas. La persona puede consultar la
-                  <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">política de privacidad completa</a>{% if privacy_document %} (versión {{ privacy_document.version }}){% endif %}
+                  <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">política de privacidad completa<span class="legal-new-tab-note"> (se abre en otra pestaña)</span></a>{% if privacy_document %} (versión {{ privacy_document.version }}){% endif %}
                   y ejercer sus derechos mediante el contacto indicado.
                 </p>
               </div>

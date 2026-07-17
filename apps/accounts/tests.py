@@ -9,6 +9,7 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 from apps.accounts.forms import PhoneAuthenticationForm
+from apps.accounts.tokens import professional_email_verification_token_generator
 from apps.businesses.models import Business, BusinessMembership, PlatformSettings
 
 
@@ -460,10 +461,17 @@ class AccountReadinessFlowTests(TestCase):
 
         self.user.refresh_from_db()
         uid = urlsafe_base64_encode(force_bytes(self.user.pk))
-        token = default_token_generator.make_token(self.user)
-        verified = self.client.get(
-            reverse("accounts:professional_email_verify", args=[uid, token])
-        )
+        token = professional_email_verification_token_generator.make_token(self.user)
+        verification_url = reverse("accounts:professional_email_verify", args=[uid, token])
+        confirmation = self.client.get(verification_url)
+
+        self.assertEqual(confirmation.status_code, 200)
+        self.assertContains(confirmation, "Confirmar mi correo")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.email_verification_required)
+        self.assertIsNone(self.user.email_verified_at)
+
+        verified = self.client.post(verification_url)
 
         self.assertEqual(verified.status_code, 302)
         self.assertEqual(verified.url, destination)
@@ -476,7 +484,13 @@ class AccountReadinessFlowTests(TestCase):
 class ProfessionalTokenResponseSecurityTests(TestCase):
     password = "CuentaPersonal2026!Segura"
 
-    def _user_and_token_path(self, *, is_active, phone):
+    def _user_and_token_path(
+        self,
+        *,
+        is_active,
+        phone,
+        token_generator=default_token_generator,
+    ):
         user = get_user_model().objects.create_user(
             normalized_phone=phone,
             full_name="Profesional con enlace privado",
@@ -486,7 +500,7 @@ class ProfessionalTokenResponseSecurityTests(TestCase):
             email_verification_required=True,
         )
         uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
+        token = token_generator.make_token(user)
         return user, uid, token
 
     def test_activation_form_protects_token_and_accepts_real_csrf_post(self):
@@ -568,37 +582,117 @@ class ProfessionalTokenResponseSecurityTests(TestCase):
         self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
-    def test_email_verification_terminal_pages_never_send_a_referrer(self):
-        _, uid, token = self._user_and_token_path(
+    def test_email_verification_get_is_read_only_and_post_requires_csrf(self):
+        user, uid, token = self._user_and_token_path(
             is_active=True,
             phone="+34600111902",
+            token_generator=professional_email_verification_token_generator,
         )
         path = reverse("accounts:professional_email_verify", args=[uid, token])
+        csrf_client = Client(enforce_csrf_checks=True)
 
-        verified = self.client.get(path)
-        expired = self.client.get(path)
+        page = csrf_client.get(path, secure=True)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Confirmar mi correo")
+        self.assertEqual(page.headers["Referrer-Policy"], "strict-origin")
+        self.assertEqual(page.headers["Cache-Control"], "no-store")
+        user.refresh_from_db()
+        self.assertIsNone(user.email_verified_at)
+        self.assertTrue(user.email_verification_required)
+
+        rejected = csrf_client.post(
+            path,
+            secure=True,
+            HTTP_ORIGIN="https://testserver",
+        )
+
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(rejected.headers["Referrer-Policy"], "no-referrer")
+        self.assertEqual(rejected.headers["Cache-Control"], "no-store")
+        user.refresh_from_db()
+        self.assertIsNone(user.email_verified_at)
+
+        csrf_token = csrf_client.cookies["csrftoken"].value
+        verified = csrf_client.post(
+            path,
+            {"csrfmiddlewaretoken": csrf_token},
+            secure=True,
+            HTTP_ORIGIN="https://testserver",
+        )
 
         self.assertEqual(verified.status_code, 200)
+        self.assertContains(verified, "Correo verificado")
         self.assertEqual(verified.headers["Referrer-Policy"], "no-referrer")
         self.assertEqual(verified.headers["Cache-Control"], "no-store")
-        self.assertEqual(expired.status_code, 410)
-        self.assertEqual(expired.headers["Referrer-Policy"], "no-referrer")
-        self.assertEqual(expired.headers["Cache-Control"], "no-store")
+        user.refresh_from_db()
+        self.assertIsNotNone(user.email_verified_at)
+        self.assertFalse(user.email_verification_required)
 
-    def test_authenticated_email_verification_redirect_is_not_cached_or_referred(self):
-        user, uid, _ = self._user_and_token_path(
+        replay = csrf_client.get(path)
+
+        self.assertEqual(replay.status_code, 410)
+        self.assertEqual(replay.headers["Referrer-Policy"], "no-referrer")
+        self.assertEqual(replay.headers["Cache-Control"], "no-store")
+
+    def test_email_verification_token_survives_login_and_redirect_is_protected(self):
+        user, uid, token = self._user_and_token_path(
             is_active=True,
             phone="+34600111903",
+            token_generator=professional_email_verification_token_generator,
         )
         self.client.force_login(user)
-        token = default_token_generator.make_token(user)
         path = reverse("accounts:professional_email_verify", args=[uid, token])
 
-        response = self.client.get(path)
+        page = self.client.get(path)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.headers["Referrer-Policy"], "strict-origin")
+        self.assertEqual(page.headers["Cache-Control"], "no-store")
+        user.refresh_from_db()
+        self.assertIsNone(user.email_verified_at)
+
+        response = self.client.post(path)
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
         self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_email_verification_head_is_read_only_and_protected(self):
+        user, uid, token = self._user_and_token_path(
+            is_active=True,
+            phone="+34600111905",
+            token_generator=professional_email_verification_token_generator,
+        )
+        path = reverse("accounts:professional_email_verify", args=[uid, token])
+
+        response = self.client.head(path)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Referrer-Policy"], "strict-origin")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.content, b"")
+        user.refresh_from_db()
+        self.assertIsNone(user.email_verified_at)
+        self.assertTrue(user.email_verification_required)
+
+    def test_email_verification_rejects_other_methods_without_exposing_the_token_path(self):
+        user, uid, token = self._user_and_token_path(
+            is_active=True,
+            phone="+34600111906",
+            token_generator=professional_email_verification_token_generator,
+        )
+        path = reverse("accounts:professional_email_verify", args=[uid, token])
+
+        response = self.client.put(path)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers["Allow"], "GET, HEAD, POST")
+        self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        user.refresh_from_db()
+        self.assertIsNone(user.email_verified_at)
+        self.assertTrue(user.email_verification_required)
 
 
 class LogoutFlowTests(TestCase):

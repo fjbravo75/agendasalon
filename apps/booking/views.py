@@ -15,7 +15,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.views.decorators.http import require_POST
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_POST, require_safe
 
 from apps.booking.calendar_locking import lock_business_calendar
 from apps.booking.forms import (
@@ -85,6 +86,11 @@ from apps.customers.services import (
     get_bookable_client,
     get_bookable_clients,
     get_session_client_access,
+)
+from apps.holidays.appointment_reviews import (
+    acknowledge_holiday_appointment,
+    current_holiday_impact_for_appointment,
+    pending_holiday_appointments,
 )
 from apps.holidays.models import OfficialHoliday
 from apps.legal.models import LegalAcceptance, LegalDocument
@@ -454,6 +460,50 @@ def professional_appointment_detail(request, appointment_id):
         cancel_form=AppointmentCancelForm(),
     )
     return render(request, "professional/appointments/detail.html", context)
+
+
+@never_cache
+@login_required
+@require_safe
+def professional_holiday_appointments(request):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+
+    impacts = pending_holiday_appointments(business=business)
+    return render(
+        request,
+        "professional/appointments/holiday_review.html",
+        {"business": business, "holiday_impacts": impacts},
+    )
+
+
+@login_required
+@require_POST
+def professional_holiday_appointment_acknowledge(request, appointment_id):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+
+    appointment = _get_professional_appointment(business, appointment_id)
+    detail_url = reverse("booking:professional_appointment_detail", args=[appointment.id])
+    try:
+        result = acknowledge_holiday_appointment(
+            business=business,
+            appointment_id=appointment.id,
+            reviewed_by=request.user,
+        )
+    except ValidationError as exc:
+        messages.error(request, _validation_message(exc))
+    else:
+        if result.created:
+            messages.success(
+                request,
+                "La cita queda revisada y continúa confirmada en ese festivo.",
+            )
+        else:
+            messages.info(request, "Esta cita ya constaba como revisada.")
+    return redirect(detail_url)
 
 
 @login_required
@@ -1769,6 +1819,7 @@ def _get_professional_appointment(business, appointment_id):
 
 def _appointment_detail_context(business, appointment, cancel_form):
     is_confirmed = appointment.status == Appointment.Status.CONFIRMED
+    holiday_impact = current_holiday_impact_for_appointment(appointment)
     now = timezone.now()
     has_started = appointment.starts_at <= now
     has_ended = appointment.ends_at <= now
@@ -1789,6 +1840,10 @@ def _appointment_detail_context(business, appointment, cancel_form):
         "appointment": appointment,
         "appointment_services": tuple(appointment.appointment_services.all()),
         "appointment_emails": tuple(appointment.outbound_emails.order_by("scheduled_for", "pk")),
+        "holiday_impact": holiday_impact,
+        "holiday_rebook_url": (
+            _holiday_rebook_url(appointment) if holiday_impact is not None else ""
+        ),
         "cancel_form": cancel_form,
         "can_cancel": is_confirmed,
         "can_complete": can_close,
@@ -1797,6 +1852,18 @@ def _appointment_detail_context(business, appointment, cancel_form):
         "complete_blocked_reason": complete_blocked_reason,
         "closure_blocked_label": closure_blocked_label,
     }
+
+
+def _holiday_rebook_url(appointment):
+    params = [("prefill_from_agenda", "1")]
+    if appointment.business_client.is_active:
+        params.append(("business_client", appointment.business_client_id))
+    active_service_ids = appointment.appointment_services.filter(
+        service__business_id=appointment.business_id,
+        service__is_active=True,
+    ).values_list("service_id", flat=True)
+    params.extend(("services", service_id) for service_id in active_service_ids)
+    return f"{reverse('booking:appointment_assistant')}?{urlencode(params)}"
 
 
 def _service_management_context(business, service_form, editing_service):
@@ -2056,9 +2123,7 @@ def _line_boards(active_lines, appointments_by_line, slots_by_line):
 
 def _confirm_professional_appointment(request, business, form):
     starts_at = _selected_starts_at(request.POST)
-    work_line_id = request.POST.get("selected_work_line_id")
-    if not work_line_id:
-        raise ValidationError("Elige un hueco para confirmar la cita.")
+    work_line_id = _selected_work_line_id(request.POST)
 
     requested_by_contact = form.cleaned_data.get("requested_by_contact")
     return confirm_appointment(
@@ -2066,7 +2131,7 @@ def _confirm_professional_appointment(request, business, form):
             business=business,
             business_client=form.cleaned_data["business_client"],
             services=tuple(form.cleaned_data["services"]),
-            work_line_id=int(work_line_id),
+            work_line_id=work_line_id,
             starts_at=starts_at,
             duration_minutes=form.cleaned_data["final_duration_minutes"],
             duration_adjustment_reason=(
@@ -2132,6 +2197,23 @@ def _selected_starts_at(data):
     if starts_at is None:
         raise ValidationError("El hueco seleccionado no es válido.")
     return starts_at
+
+
+def _selected_work_line_id(data):
+    value = str(data.get("selected_work_line_id") or "").strip()
+    if not value:
+        raise ValidationError("Elige un hueco para confirmar la cita.")
+    try:
+        work_line_id = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(
+            "El hueco seleccionado no es válido. Vuelve a elegir una hora."
+        ) from exc
+    if work_line_id <= 0:
+        raise ValidationError(
+            "El hueco seleccionado no es válido. Vuelve a elegir una hora."
+        )
+    return work_line_id
 
 
 def _selected_available_slot(data, day_availability):

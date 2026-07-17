@@ -75,10 +75,14 @@
               {% if privacy_document %}
                 <div class="business-signup-privacy{% if form.privacy_acknowledged.errors %} is-error{% endif %}">
                   {{ form.privacy_acknowledged }}
-                  <label for="{{ form.privacy_acknowledged.id_for_label }}">
-                    He leído la
-                    <a href="{% url 'legal:platform_document' privacy_document.slug %}" target="_blank" rel="noopener">información sobre el tratamiento de mis datos</a> (versión {{ privacy_document.version }}).
-                  </label>
+                  <div class="business-signup-privacy__body">
+                    <label for="{{ form.privacy_acknowledged.id_for_label }}">
+                      He leído la información sobre el tratamiento de mis datos (versión {{ privacy_document.version }}).
+                    </label>
+                    <a href="{% url 'legal:platform_document' privacy_document.slug %}" target="_blank" rel="noopener">
+                      Consultar la información de privacidad<span class="legal-new-tab-note"> (se abre en otra pestaña)</span>
+                    </a>
+                  </div>
                   {% if form.privacy_acknowledged.errors %}
                     <div class="business-signup-field__error" id="{{ form.privacy_acknowledged.id_for_label }}-error">
                       {% for error in form.privacy_acknowledged.errors %}<span>{{ error }}</span>{% endfor %}

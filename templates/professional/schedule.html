@@ -196,6 +196,25 @@
             </form>
           </div>
 
+          {% if holiday_appointments_pending_count %}
+            <div class="holiday-sync-summary" aria-labelledby="professional-holiday-impact-title">
+              <div class="holiday-sync-summary__header">
+                <div>
+                  <span>Necesita tu revisión</span>
+                  <strong id="professional-holiday-impact-title">
+                    {{ holiday_appointments_pending_count }} cita{% if holiday_appointments_pending_count != 1 %}s{% endif %}
+                    en festivo{% if holiday_appointments_pending_count != 1 %}s{% endif %}
+                  </strong>
+                </div>
+                <span class="settings-state">Pendiente{% if holiday_appointments_pending_count != 1 %}s{% endif %}</span>
+              </div>
+              <p class="soft-note">
+                AgendaSalon no las ha cancelado ni movido. Confirma la decisión con cada cliente antes de hacer cambios.
+              </p>
+              <a class="button button--secondary" href="{% url 'booking:professional_holiday_appointments' %}">Revisar citas</a>
+            </div>
+          {% endif %}
+
           {% if latest_holiday_sync %}
             <p class="holiday-source-note">
               Calendario actualizado el {{ latest_holiday_sync.finished_at|date:"d/m/Y H:i" }}

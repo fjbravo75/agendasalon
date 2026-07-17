@@ -5,7 +5,8 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.http import require_POST
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from apps.businesses.activity import record_business_activity
 from apps.businesses.models import Business, BusinessActivityEvent
@@ -60,6 +61,8 @@ def platform_document(request, slug):
     )
 
 
+@never_cache
+@require_http_methods(["GET", "HEAD", "POST"])
 def business_privacy(request, slug):
     # La información de privacidad y el ejercicio de derechos no dependen de
     # que el negocio esté aceptando reservas en este momento.
@@ -121,7 +124,9 @@ def _safe_professional_onboarding_next_url(request):
     return ""
 
 
+@never_cache
 @login_required
+@require_http_methods(["GET", "HEAD", "POST"])
 def professional_onboarding(request):
     if request.user.is_superuser:
         raise PermissionDenied
@@ -266,7 +271,9 @@ def professional_onboarding(request):
     )
 
 
+@never_cache
 @login_required
+@require_safe
 def professional_center(request):
     if request.user.is_superuser:
         raise PermissionDenied

@@ -596,7 +596,21 @@ class BusinessClosureForm(forms.ModelForm):
 
 
 class SlotSelectionMixin(forms.Form):
-    selected_work_line_id = forms.IntegerField(required=False, widget=forms.HiddenInput)
+    MISSING_SLOT_MESSAGE = "Elige un hueco para confirmar la cita."
+    INVALID_SLOT_MESSAGE = (
+        "El hueco seleccionado no es válido. Vuelve a elegir una hora."
+    )
+    SLOT_FIELD_NAMES = ("selected_work_line_id", "selected_starts_at")
+
+    selected_work_line_id = forms.IntegerField(
+        required=False,
+        min_value=1,
+        widget=forms.HiddenInput,
+        error_messages={
+            "invalid": INVALID_SLOT_MESSAGE,
+            "min_value": INVALID_SLOT_MESSAGE,
+        },
+    )
     selected_starts_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
     def __init__(self, *args, require_slot=False, **kwargs):
@@ -607,17 +621,43 @@ class SlotSelectionMixin(forms.Form):
         value = (self.cleaned_data.get("selected_starts_at") or "").strip()
         if not value:
             if self.require_slot:
-                raise forms.ValidationError("Elige un hueco para confirmar la cita.")
+                raise forms.ValidationError(
+                    self.MISSING_SLOT_MESSAGE,
+                    code="missing_slot",
+                )
             return None
         parsed = parse_datetime(value)
         if parsed is None:
-            raise forms.ValidationError("El hueco seleccionado no es válido.")
+            raise forms.ValidationError(
+                self.INVALID_SLOT_MESSAGE,
+                code="invalid_slot",
+            )
         return parsed
 
     def clean(self):
         cleaned_data = super().clean()
         if self.require_slot and not cleaned_data.get("selected_work_line_id"):
-            self.add_error("selected_work_line_id", "Elige una línea para confirmar la cita.")
+            if not self.has_error("selected_work_line_id"):
+                self.add_error(
+                    "selected_work_line_id",
+                    forms.ValidationError(
+                        self.MISSING_SLOT_MESSAGE,
+                        code="missing_slot",
+                    ),
+                )
+
+        slot_errors = [
+            error
+            for field_name in self.SLOT_FIELD_NAMES
+            for error in self.errors.as_data().get(field_name, ())
+        ]
+        if slot_errors:
+            message = (
+                self.MISSING_SLOT_MESSAGE
+                if all(error.code == "missing_slot" for error in slot_errors)
+                else self.INVALID_SLOT_MESSAGE
+            )
+            self.add_error(None, message)
         return cleaned_data
 
 

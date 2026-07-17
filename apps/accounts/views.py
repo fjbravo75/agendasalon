@@ -5,6 +5,8 @@ from django.contrib.auth import get_user_model, login, logout, update_session_au
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
+from django.db import transaction
+from django.http import HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -18,6 +20,7 @@ from apps.accounts.forms import (
     PhoneAuthenticationForm,
     ProfessionalActivationForm,
 )
+from apps.accounts.tokens import professional_email_verification_token_generator
 from apps.businesses.models import PlatformSettings
 from apps.businesses.services import (
     get_platform_login_image_url,
@@ -159,13 +162,36 @@ def account_security(request):
     )
 
 
-def _user_from_token(uidb64, token):
+def _user_from_token(uidb64, token, *, lock=False, token_generators=None):
+    queryset = get_user_model().objects
+    if lock:
+        queryset = queryset.select_for_update()
     try:
-        user = get_user_model().objects.get(pk=force_str(urlsafe_base64_decode(uidb64)))
+        user = queryset.get(pk=force_str(urlsafe_base64_decode(uidb64)))
     except (TypeError, ValueError, OverflowError, get_user_model().DoesNotExist):
         return None
-    if not default_token_generator.check_token(user, token):
+    token_generators = token_generators or (default_token_generator,)
+    if not any(generator.check_token(user, token) for generator in token_generators):
         return None
+    return user
+
+
+@transaction.atomic
+def _verify_professional_email_from_token(uidb64, token):
+    user = _user_from_token(
+        uidb64,
+        token,
+        lock=True,
+        token_generators=(
+            professional_email_verification_token_generator,
+            default_token_generator,
+        ),
+    )
+    if user is None or not user.is_active or user.email_verified_at is not None:
+        return None
+    user.email_verified_at = timezone.now()
+    user.email_verification_required = False
+    user.save(update_fields=["email_verified_at", "email_verification_required"])
     return user
 
 
@@ -241,8 +267,29 @@ def account_email(request):
 
 
 def professional_email_verify(request, uidb64, token):
-    user = _user_from_token(uidb64, token)
-    if user is None or not user.is_active or user.email_verified_at is not None:
+    allowed_methods = ("GET", "HEAD", "POST")
+    if request.method not in allowed_methods:
+        response = HttpResponseNotAllowed(allowed_methods)
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "no-store"
+        return response
+
+    if request.method == "POST":
+        user = _verify_professional_email_from_token(uidb64, token)
+    else:
+        user = _user_from_token(
+            uidb64,
+            token,
+            token_generators=(
+                professional_email_verification_token_generator,
+                default_token_generator,
+            ),
+        )
+        if user is not None and (
+            not user.is_active or user.email_verified_at is not None
+        ):
+            user = None
+    if user is None:
         response = render(
             request,
             "accounts/email_verified.html",
@@ -252,9 +299,19 @@ def professional_email_verify(request, uidb64, token):
         response["Referrer-Policy"] = "no-referrer"
         response["Cache-Control"] = "no-store"
         return response
-    user.email_verified_at = timezone.now()
-    user.email_verification_required = False
-    user.save(update_fields=["email_verified_at", "email_verification_required"])
+    if request.method in {"GET", "HEAD"}:
+        response = render(
+            request,
+            "accounts/email_verified.html",
+            {
+                "verification_valid": True,
+                "verification_pending": True,
+                "verification_email": user.email,
+            },
+        )
+        response["Referrer-Policy"] = "strict-origin"
+        response["Cache-Control"] = "no-store"
+        return response
     if request.user.is_authenticated and request.user.pk == user.pk:
         next_url = request.session.pop(ACCOUNT_EMAIL_NEXT_SESSION_KEY, "")
         messages.success(request, "Correo verificado. Ya puedes continuar en AgendaSalon.")
