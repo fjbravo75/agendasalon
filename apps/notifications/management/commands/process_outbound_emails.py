@@ -11,6 +11,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         delivered = dispatch_due_emails(limit=max(1, options["limit"]))
-        sent = sum(email.status == email.Status.SENT for email in delivered)
-        failed = sum(email.status in {email.Status.PENDING, email.Status.FAILED} for email in delivered)
-        self.stdout.write(self.style.SUCCESS(f"Procesados: {len(delivered)}. Enviados: {sent}. Pendientes o fallidos: {failed}."))
+        accepted = sum(email.status == email.Status.SENT for email in delivered)
+        rescheduled = sum(email.status == email.Status.PENDING for email in delivered)
+        failed = sum(email.status == email.Status.FAILED for email in delivered)
+        cancelled = sum(email.status == email.Status.CANCELLED for email in delivered)
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Procesados: {len(delivered)}. "
+                f"Aceptados por el servicio de correo: {accepted}. "
+                f"Reprogramados: {rescheduled}. Fallidos: {failed}. "
+                f"Cancelados: {cancelled}."
+            )
+        )

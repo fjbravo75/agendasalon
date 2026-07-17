@@ -59,14 +59,15 @@
 
     <section class="saas-side-panel" aria-labelledby="acceptance-history-title">
       <div class="ops-section-head ops-section-head--compact">
-        <div><span>Histórico inmutable</span><h2 id="acceptance-history-title">Constancias conservadas</h2></div>
+        <div><span>Historial protegido</span><h2 id="acceptance-history-title">Constancias conservadas</h2></div>
       </div>
+      <p class="soft-note">Estas constancias no se pueden modificar ni borrar desde la aplicación.</p>
       <div class="legal-evidence-history">
         {% for acceptance in acceptance_history %}
           <article>
             <div><strong>{{ acceptance.document.get_kind_display }}</strong><small>Versión {{ acceptance.document.version }} · {{ acceptance.get_action_display }}</small></div>
-            <div><strong>{{ acceptance.actor_user.full_name }}</strong><small>{{ acceptance.accepted_at|date:"d/m/Y · H:i" }}{% if acceptance.authority_declared %} · autoridad declarada{% endif %}</small></div>
-            <code title="Huella completa del documento">{{ acceptance.document_hash_snapshot }}</code>
+            <div><strong>{{ acceptance.actor_user.full_name }}</strong><small>{{ acceptance.accepted_at|date:"d/m/Y · H:i" }}{% if acceptance.authority_declared %} · declaró tener autorización para aceptar en nombre del negocio{% endif %}</small></div>
+            <code title="Huella digital completa del documento">{{ acceptance.document_hash_snapshot }}</code>
           </article>
         {% empty %}
           <p class="soft-note">Todavía no existe ninguna constancia de aceptación.</p>

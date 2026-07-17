@@ -111,11 +111,13 @@
           el teléfono puede quedar en la ficha de una persona autorizada.
         </p>
 
-        <form class="quick-client-card quick-client-card--flat" method="post" data-authorized-person-form data-client-search-url="{{ client_search_url }}">
+        {% if privacy_document_available %}
+          <form class="quick-client-card quick-client-card--flat" method="post" data-authorized-person-form data-client-search-url="{{ client_search_url }}">
           {% csrf_token %}
+          <input type="hidden" name="legal_presentation_token" value="{{ legal_presentation_token }}">
           {{ quick_form.authorized_business_client }}
           {% if quick_form.non_field_errors %}
-            <div class="alert">{{ quick_form.non_field_errors }}</div>
+            <div class="alert" role="alert" tabindex="-1" data-error-summary>{{ quick_form.non_field_errors }}</div>
           {% endif %}
 
           <div class="field">
@@ -139,14 +141,14 @@
             {{ quick_form.internal_notes.errors }}
           </div>
 
-          {% if business.legal_compliance_enabled %}
+          {% if business.legal_compliance_enabled and privacy_document_available %}
             <section class="quick-client-privacy" aria-labelledby="quick-client-privacy-title">
               <div class="quick-client-privacy__copy">
                 <span id="quick-client-privacy-title">Información al cliente</span>
                 <p>
                   {{ business.commercial_name }} utilizará estos datos para crear la ficha y
                   gestionar sus citas. La persona puede consultar la
-                  <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">política de privacidad completa</a>
+                  <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">política de privacidad completa</a>{% if privacy_document %} (versión {{ privacy_document.version }}){% endif %}
                   y ejercer sus derechos mediante el contacto indicado.
                 </p>
               </div>
@@ -211,8 +213,11 @@
             </div>
           </details>
 
-          <button class="button button--wide" type="submit">Guardar cliente</button>
-        </form>
+            <button class="button button--wide" type="submit">Guardar cliente</button>
+          </form>
+        {% else %}
+          {% include "legal/_customer_privacy_unavailable.html" %}
+        {% endif %}
       </aside>
     </div>
   </section>

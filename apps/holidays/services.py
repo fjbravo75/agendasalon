@@ -2,19 +2,34 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
+from threading import Lock
 
 import requests
 from bs4 import BeautifulSoup
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 
 
 BOE_NATIONAL_SOURCE_NAME = "BOE - calendario laboral nacional"
+BOE_ADVISORY_LOCK_NAMESPACE = 0x4147424F
+BOE_INTERRUPTED_RUN_ERROR = (
+    "La sincronización anterior se interrumpió antes de terminar. "
+    "No se aplicó un resultado completo."
+)
+BOE_NETWORK_ERROR = (
+    "No hemos podido consultar el BOE. Comprueba la conexión y vuelve a intentarlo."
+)
+BOE_INTERNAL_RUN_ERROR = (
+    "La sincronización se interrumpió por un error interno. "
+    "No se aplicó un resultado completo."
+)
+_BOE_LOCAL_YEAR_LOCKS = {}
+_BOE_LOCAL_YEAR_LOCKS_GUARD = Lock()
 
 
 class BoeSyncError(Exception):
@@ -141,34 +156,45 @@ class BoeNationalHolidaySyncService:
         )
 
     def _get_boe_text(self, url, *, response_label, **kwargs):
-        response = self.session.get(
-            url,
-            timeout=(5, 20),
-            allow_redirects=False,
-            stream=True,
-            **kwargs,
-        )
-        if 300 <= response.status_code < 400:
-            raise BoeSyncError(f"{response_label} ha intentado redirigir la descarga.")
-        if response.status_code != 200:
-            raise BoeSyncError(f"{response_label} ha devuelto {response.status_code}.")
+        try:
+            response = self.session.get(
+                url,
+                timeout=(5, 20),
+                allow_redirects=False,
+                stream=True,
+                **kwargs,
+            )
+            if 300 <= response.status_code < 400:
+                raise BoeSyncError(
+                    f"{response_label} ha intentado redirigir la descarga."
+                )
+            if response.status_code != 200:
+                raise BoeSyncError(
+                    f"{response_label} ha devuelto {response.status_code}."
+                )
 
-        content_length = response.headers.get("Content-Length")
-        if content_length:
-            try:
-                declared_size = int(content_length)
-            except ValueError:
-                declared_size = 0
-            if declared_size > self.MAX_RESPONSE_BYTES:
-                raise BoeSyncError(f"{response_label} supera el tamaño máximo permitido.")
+            content_length = response.headers.get("Content-Length")
+            if content_length:
+                try:
+                    declared_size = int(content_length)
+                except ValueError:
+                    declared_size = 0
+                if declared_size > self.MAX_RESPONSE_BYTES:
+                    raise BoeSyncError(
+                        f"{response_label} supera el tamaño máximo permitido."
+                    )
 
-        body = bytearray()
-        for chunk in response.iter_content(chunk_size=self.RESPONSE_CHUNK_BYTES):
-            if not chunk:
-                continue
-            body.extend(chunk)
-            if len(body) > self.MAX_RESPONSE_BYTES:
-                raise BoeSyncError(f"{response_label} supera el tamaño máximo permitido.")
+            body = bytearray()
+            for chunk in response.iter_content(chunk_size=self.RESPONSE_CHUNK_BYTES):
+                if not chunk:
+                    continue
+                body.extend(chunk)
+                if len(body) > self.MAX_RESPONSE_BYTES:
+                    raise BoeSyncError(
+                        f"{response_label} supera el tamaño máximo permitido."
+                    )
+        except requests.RequestException as error:
+            raise BoeSyncError(BOE_NETWORK_ERROR) from error
         encoding = response.encoding or "utf-8"
         return bytes(body).decode(encoding, errors="replace")
 
@@ -228,53 +254,91 @@ def sync_boe_national_holidays(
     service: BoeNationalHolidaySyncService | None = None,
 ) -> OfficialHolidaySyncResult:
     sync_service = service or BoeNationalHolidaySyncService()
-    run = HolidaySyncRun.objects.create(
+    with _boe_year_sync_guard(target_year):
+        _mark_interrupted_boe_runs(target_year, at=timezone.now())
+        run = HolidaySyncRun.objects.create(
+            year=target_year,
+            source_name=BOE_NATIONAL_SOURCE_NAME,
+            status=HolidaySyncRun.Status.FAILED,
+            started_at=timezone.now(),
+            created_by=created_by,
+        )
+
+        try:
+            resolution, holidays = sync_service.fetch_national_holidays(target_year)
+            with transaction.atomic():
+                locked_calendars = _lock_all_business_calendars()
+                counts = _reconcile_national_holidays(
+                    target_year,
+                    resolution,
+                    holidays,
+                )
+                affected_appointments, affected_businesses = (
+                    _locked_affected_future_appointments(
+                        holidays,
+                        locked_calendars=locked_calendars,
+                        at=timezone.now(),
+                    )
+                )
+
+                run.source_url = resolution.url_html
+                run.official_reference = resolution.identifier
+                run.status = HolidaySyncRun.Status.SUCCESS
+                run.finished_at = timezone.now()
+                run.items_loaded = len(holidays)
+                run.items_created = counts["created"]
+                run.items_updated = counts["updated"]
+                run.items_removed = counts["removed"]
+                run.items_skipped = counts["skipped"]
+                run.affected_appointments = affected_appointments
+                run.affected_businesses = affected_businesses
+                run.error_detail = ""
+                run.save(
+                    update_fields=[
+                        "source_url",
+                        "official_reference",
+                        "status",
+                        "finished_at",
+                        "items_loaded",
+                        "items_created",
+                        "items_updated",
+                        "items_removed",
+                        "items_skipped",
+                        "affected_appointments",
+                        "affected_businesses",
+                        "error_detail",
+                    ]
+                )
+        except requests.RequestException as error:
+            _finish_failed_boe_run(run, error_detail=BOE_NETWORK_ERROR)
+            raise BoeSyncError(BOE_NETWORK_ERROR) from error
+        except BoeSyncError as error:
+            _finish_failed_boe_run(run, error_detail=str(error))
+            raise
+        except Exception:
+            _finish_failed_boe_run(run, error_detail=BOE_INTERNAL_RUN_ERROR)
+            raise
+
+    return OfficialHolidaySyncResult(run=run, resolution=resolution)
+
+
+def _mark_interrupted_boe_runs(target_year, *, at):
+    return HolidaySyncRun.objects.filter(
         year=target_year,
         source_name=BOE_NATIONAL_SOURCE_NAME,
+        finished_at__isnull=True,
+    ).update(
         status=HolidaySyncRun.Status.FAILED,
-        started_at=timezone.now(),
-        created_by=created_by,
+        finished_at=at,
+        error_detail=BOE_INTERRUPTED_RUN_ERROR,
     )
 
-    try:
-        resolution, holidays = sync_service.fetch_national_holidays(target_year)
-        counts = _reconcile_national_holidays(target_year, resolution, holidays)
-        affected_appointments, affected_businesses = _affected_future_appointments(holidays)
-    except Exception as error:
-        run.finished_at = timezone.now()
-        run.error_detail = str(error) or "Error desconocido durante la sincronización con BOE."
-        run.save(update_fields=["finished_at", "error_detail"])
-        raise
 
-    run.source_url = resolution.url_html
-    run.official_reference = resolution.identifier
-    run.status = HolidaySyncRun.Status.SUCCESS
+def _finish_failed_boe_run(run, *, error_detail):
+    run.status = HolidaySyncRun.Status.FAILED
     run.finished_at = timezone.now()
-    run.items_loaded = len(holidays)
-    run.items_created = counts["created"]
-    run.items_updated = counts["updated"]
-    run.items_removed = counts["removed"]
-    run.items_skipped = counts["skipped"]
-    run.affected_appointments = affected_appointments
-    run.affected_businesses = affected_businesses
-    run.error_detail = ""
-    run.save(
-        update_fields=[
-            "source_url",
-            "official_reference",
-            "status",
-            "finished_at",
-            "items_loaded",
-            "items_created",
-            "items_updated",
-            "items_removed",
-            "items_skipped",
-            "affected_appointments",
-            "affected_businesses",
-            "error_detail",
-        ]
-    )
-    return OfficialHolidaySyncResult(run=run, resolution=resolution)
+    run.error_detail = error_detail
+    run.save(update_fields=["status", "finished_at", "error_detail"])
 
 
 def latest_boe_national_holiday_run(*, year: int | None = None, at=None):
@@ -290,94 +354,199 @@ def latest_boe_national_holiday_run(*, year: int | None = None, at=None):
     return runs.first()
 
 
+@contextmanager
+def _boe_year_sync_guard(target_year):
+    """Reject overlapping downloads for one year and always release the mutex."""
+    database_connection = transaction.get_connection()
+    conflict_message = (
+        f"Ya hay una sincronización del BOE en curso para {target_year}. "
+        "Espera a que termine antes de volver a intentarlo."
+    )
+
+    if database_connection.vendor == "postgresql":
+        if database_connection.in_atomic_block:
+            raise BoeSyncError(
+                "La sincronización del BOE debe iniciarse fuera de una transacción."
+            )
+
+        with database_connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s, %s)",
+                [BOE_ADVISORY_LOCK_NAMESPACE, target_year],
+            )
+            acquired = cursor.fetchone()[0]
+        if not acquired:
+            raise BoeSyncError(conflict_message)
+
+        try:
+            yield
+        finally:
+            released = False
+            try:
+                if database_connection.is_usable():
+                    with database_connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT pg_advisory_unlock(%s, %s)",
+                            [BOE_ADVISORY_LOCK_NAMESPACE, target_year],
+                        )
+                        released = cursor.fetchone()[0]
+            except Exception:
+                released = False
+            if not released:
+                database_connection.close()
+        return
+
+    with _BOE_LOCAL_YEAR_LOCKS_GUARD:
+        local_lock = _BOE_LOCAL_YEAR_LOCKS.setdefault(target_year, Lock())
+    if not local_lock.acquire(blocking=False):
+        raise BoeSyncError(conflict_message)
+    try:
+        yield
+    finally:
+        local_lock.release()
+
+
+def _lock_all_business_calendars():
+    """Lock every business calendar in one deterministic global order."""
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError("El bloqueo global de agendas requiere una transacción atómica.")
+
+    from apps.booking.calendar_locking import lock_business_calendar
+    from apps.businesses.models import Business
+
+    database_connection = transaction.get_connection()
+    if database_connection.vendor == "postgresql":
+        table_name = database_connection.ops.quote_name(Business._meta.db_table)
+        with database_connection.cursor() as cursor:
+            cursor.execute(f"LOCK TABLE {table_name} IN SHARE MODE")
+
+    businesses = tuple(Business.objects.only("pk").order_by("pk"))
+    return tuple(lock_business_calendar(business) for business in businesses)
+
+
 def _reconcile_national_holidays(target_year, resolution, holidays):
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError("La reconciliación BOE requiere una transacción atómica.")
+
     authoritative_by_date = {holiday.day: holiday for holiday in holidays}
     authoritative_dates = set(authoritative_by_date)
     counts = {"created": 0, "updated": 0, "removed": 0, "skipped": 0}
 
-    with transaction.atomic():
-        legacy_demo_holidays = OfficialHoliday.objects.select_for_update().filter(
+    legacy_demo_holidays = tuple(
+        OfficialHoliday.objects.select_for_update()
+        .filter(
             year=target_year,
             scope=OfficialHoliday.Scope.NATIONAL,
             source_name="Calendario local AgendaSalon",
             official_reference="PFM-LOCAL",
         )
-        counts["removed"] += legacy_demo_holidays.count()
-        legacy_demo_holidays.delete()
+        .order_by("date", "pk")
+    )
+    counts["removed"] += len(legacy_demo_holidays)
+    if legacy_demo_holidays:
+        OfficialHoliday.objects.filter(
+            pk__in=[holiday.pk for holiday in legacy_demo_holidays]
+        ).delete()
 
-        boe_holidays = OfficialHoliday.objects.select_for_update().filter(
+    boe_holidays = tuple(
+        OfficialHoliday.objects.select_for_update()
+        .filter(
             year=target_year,
             scope=OfficialHoliday.Scope.NATIONAL,
             source_name="BOE - calendario laboral nacional",
         )
-        outdated = boe_holidays.exclude(date__in=authoritative_dates)
-        counts["removed"] += outdated.count()
-        outdated.delete()
+        .order_by("date", "pk")
+    )
+    outdated = tuple(
+        holiday for holiday in boe_holidays if holiday.date not in authoritative_dates
+    )
+    counts["removed"] += len(outdated)
+    if outdated:
+        OfficialHoliday.objects.filter(
+            pk__in=[holiday.pk for holiday in outdated]
+        ).delete()
 
-        existing_by_date = {
-            holiday.date: holiday
-            for holiday in OfficialHoliday.objects.select_for_update().filter(
-                date__in=authoritative_dates,
+    existing_by_date = {
+        holiday.date: holiday
+        for holiday in OfficialHoliday.objects.select_for_update()
+        .filter(
+            date__in=authoritative_dates,
+            scope=OfficialHoliday.Scope.NATIONAL,
+        )
+        .order_by("date", "pk")
+    }
+    for holiday_import in holidays:
+        existing = existing_by_date.get(holiday_import.day)
+        if existing is None:
+            existing_by_date[holiday_import.day] = OfficialHoliday.objects.create(
+                date=holiday_import.day,
+                name=holiday_import.name,
                 scope=OfficialHoliday.Scope.NATIONAL,
+                year=target_year,
+                source_name="BOE - calendario laboral nacional",
+                source_url=resolution.url_html,
+                official_reference=resolution.identifier,
             )
-        }
-        for holiday_import in holidays:
-            existing = existing_by_date.get(holiday_import.day)
-            if existing is None:
-                existing_by_date[holiday_import.day] = OfficialHoliday.objects.create(
-                    date=holiday_import.day,
-                    name=holiday_import.name,
-                    scope=OfficialHoliday.Scope.NATIONAL,
-                    year=target_year,
-                    source_name="BOE - calendario laboral nacional",
-                    source_url=resolution.url_html,
-                    official_reference=resolution.identifier,
-                )
-                counts["created"] += 1
-                continue
+            counts["created"] += 1
+            continue
 
-            if existing.source_name != "BOE - calendario laboral nacional":
-                counts["skipped"] += 1
-                continue
+        if existing.source_name != "BOE - calendario laboral nacional":
+            counts["skipped"] += 1
+            continue
 
-            changed = (
-                existing.name != holiday_import.name
-                or existing.year != target_year
-                or existing.source_url != resolution.url_html
-                or existing.official_reference != resolution.identifier
-            )
-            if not changed:
-                counts["skipped"] += 1
-                continue
+        changed = (
+            existing.name != holiday_import.name
+            or existing.year != target_year
+            or existing.source_url != resolution.url_html
+            or existing.official_reference != resolution.identifier
+        )
+        if not changed:
+            counts["skipped"] += 1
+            continue
 
-            existing.name = holiday_import.name
-            existing.year = target_year
-            existing.source_url = resolution.url_html
-            existing.official_reference = resolution.identifier
-            existing.save(
-                update_fields=[
-                    "name",
-                    "year",
-                    "source_url",
-                    "official_reference",
-                    "updated_at",
-                ]
-            )
-            counts["updated"] += 1
+        existing.name = holiday_import.name
+        existing.year = target_year
+        existing.source_url = resolution.url_html
+        existing.official_reference = resolution.identifier
+        existing.save(
+            update_fields=[
+                "name",
+                "year",
+                "source_url",
+                "official_reference",
+                "updated_at",
+            ]
+        )
+        counts["updated"] += 1
 
     return counts
 
 
-def _affected_future_appointments(holidays):
+def _locked_affected_future_appointments(holidays, *, locked_calendars, at):
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError("El resumen de impacto BOE requiere una transacción atómica.")
+
     from apps.booking.models import Appointment
 
-    holiday_dates = [holiday.day for holiday in holidays]
-    appointments = Appointment.objects.filter(
-        status=Appointment.Status.CONFIRMED,
-        starts_at__gte=timezone.now(),
-        starts_at__date__in=holiday_dates,
-    ).filter(
-        Q(business__calendar_settings__apply_national_holidays=True)
-        | Q(business__calendar_settings__isnull=True)
+    holiday_dates = tuple(sorted(holiday.day for holiday in holidays))
+    enabled_business_ids = tuple(
+        locked_calendar.business.pk
+        for locked_calendar in locked_calendars
+        if locked_calendar.settings.apply_national_holidays
     )
-    return appointments.count(), appointments.values("business_id").distinct().count()
+    if not holiday_dates or not enabled_business_ids:
+        return 0, 0
+
+    affected_rows = tuple(
+        Appointment.objects.select_for_update(of=("self",))
+        .filter(
+            business_id__in=enabled_business_ids,
+            status=Appointment.Status.CONFIRMED,
+            starts_at__gte=at,
+            starts_at__date__in=holiday_dates,
+        )
+        .order_by("business_id", "pk")
+        .values_list("pk", "business_id")
+    )
+    affected_business_ids = {business_id for _pk, business_id in affected_rows}
+    return len(affected_rows), len(affected_business_ids)

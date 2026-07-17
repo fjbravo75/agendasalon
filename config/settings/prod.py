@@ -95,6 +95,24 @@ if AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = _required_environment_value("EMAIL_HOST")
     EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+    try:
+        EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", str(EMAIL_TIMEOUT)))  # noqa: F405
+        AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS = int(
+            os.environ.get(
+                "AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS",
+                str(AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS),  # noqa: F405
+            )
+        )
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            "EMAIL_TIMEOUT and AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS must be integers."
+        ) from exc
+    if EMAIL_TIMEOUT <= 0:
+        raise ImproperlyConfigured("EMAIL_TIMEOUT must be greater than zero.")
+    if AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS <= EMAIL_TIMEOUT:
+        raise ImproperlyConfigured(
+            "AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS must be greater than EMAIL_TIMEOUT."
+        )
     EMAIL_HOST_USER = _required_environment_value("EMAIL_HOST_USER")
     EMAIL_HOST_PASSWORD = _required_environment_value("EMAIL_HOST_PASSWORD")
     DEFAULT_FROM_EMAIL = _required_environment_value("DEFAULT_FROM_EMAIL")

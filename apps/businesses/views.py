@@ -37,11 +37,12 @@ from apps.businesses.services import (
 from apps.holidays.forms import NationalHolidaySyncForm
 from apps.holidays.models import OfficialHoliday
 from apps.holidays.services import (
+    BOE_NETWORK_ERROR,
     BoeSyncError,
     latest_boe_national_holiday_run,
     sync_boe_national_holidays,
 )
-from apps.legal.models import LegalAcceptance
+from apps.legal.models import LegalAcceptance, LegalAcceptanceEvent
 from apps.notifications.services import queue_and_dispatch, queue_professional_activation
 from apps.legal.services import business_legal_status
 
@@ -354,7 +355,7 @@ def superadmin_business_legal_evidence(request, business_id):
     business = get_object_or_404(Business, pk=business_id)
     legal_status = business_legal_status(business)
     acceptance_history = (
-        LegalAcceptance.objects.filter(
+        LegalAcceptanceEvent.objects.filter(
             business=business,
             actor_user__isnull=False,
             context=LegalAcceptance.Context.PROFESSIONAL_ONBOARDING,
@@ -653,26 +654,48 @@ def superadmin_holiday_sync(request):
     target_year = form.cleaned_data["year"]
     try:
         result = sync_boe_national_holidays(target_year, created_by=request.user)
-    except (requests.RequestException, BoeSyncError) as error:
+    except requests.RequestException:
+        messages.error(
+            request,
+            f"No se pudo sincronizar el calendario BOE de {target_year}: "
+            f"{BOE_NETWORK_ERROR}",
+        )
+    except BoeSyncError as error:
         messages.error(
             request,
             f"No se pudo sincronizar el calendario BOE de {target_year}: {error}",
         )
     else:
         run = result.run
+        created_label = "creado" if run.items_created == 1 else "creados"
+        updated_label = "actualizado" if run.items_updated == 1 else "actualizados"
+        removed_label = "retirado" if run.items_removed == 1 else "retirados"
         messages.success(
             request,
             (
-                f"Calendario BOE {target_year} sincronizado: {run.items_created} creados, "
-                f"{run.items_updated} actualizados y {run.items_removed} retirados."
+                f"Calendario BOE {target_year} sincronizado: "
+                f"{run.items_created} {created_label}, "
+                f"{run.items_updated} {updated_label} y "
+                f"{run.items_removed} {removed_label}."
             ),
         )
         if run.affected_appointments:
+            appointment_text = (
+                "1 cita futura"
+                if run.affected_appointments == 1
+                else f"{run.affected_appointments} citas futuras"
+            )
+            business_text = (
+                "1 negocio"
+                if run.affected_businesses == 1
+                else f"{run.affected_businesses} negocios"
+            )
+            agreement = "coincide" if run.affected_appointments == 1 else "coinciden"
             messages.warning(
                 request,
                 (
-                    f"Hay {run.affected_appointments} cita(s) futura(s) en festivos dentro de "
-                    f"{run.affected_businesses} negocio(s). No se ha cancelado ni movido ninguna."
+                    f"Hay {appointment_text} que {agreement} con estos festivos en "
+                    f"{business_text}. No se ha cancelado ni movido ninguna."
                 ),
             )
     return redirect(

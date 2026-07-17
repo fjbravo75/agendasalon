@@ -5,6 +5,10 @@ demo académica quedó publicada el 14 de julio de 2026 en
 `https://agendasalon.brvsoftwarestudio.com`; los comandos siguen requiriendo una
 ejecución deliberada y no se activan por leer este documento.
 
+Estado al cierre local de P1: producción continúa en P0, SHA
+`5c68a260d1d87ed00c908d25bf519c3f34fea712`. P1 todavía no está publicada. La
+validación local no autoriza a describir como desplegado ningún control de P1.
+
 ## Perfil de producción
 
 La aplicación debe arrancar con `config.settings.prod`. WSGI y ASGI usan ese
@@ -111,7 +115,25 @@ EMAIL_HOST_PASSWORD=secreto-fuera-de-git
 DEFAULT_FROM_EMAIL=AgendaSalon <agendasalon@brvsoftwarestudio.com>
 EMAIL_USE_TLS=1
 EMAIL_USE_SSL=0
+EMAIL_TIMEOUT=20
+AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS=120
 ```
+
+`EMAIL_TIMEOUT` acota cada operación del backend SMTP. La reserva del worker
+debe durar más que ese valor; producción rechaza el arranque si
+`AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS` no lo supera. Mientras el proveedor sigue
+procesando el mensaje, el worker renueva esa reserva con una conexión separada y
+solo el propietario vigente puede cerrar el intento. Una referencia estable
+permite correlacionar reintentos, pero no promete entrega exactamente una vez:
+si el proveedor acepta el mensaje y el proceso cae antes de guardar el resultado,
+el siguiente intento puede repetirlo.
+
+La cancelación coordina el mismo estado. Un correo todavía pendiente se cancela
+sin envío; si un worker ya lo reclama, la solicitud de cancelación queda
+registrada sin robarle el `lease`. Una aceptación SMTP posterior se conserva como
+enviada y un fallo posterior queda cancelado sin reintento. El latido reduce las
+recuperaciones prematuras, pero SMTP mantiene un riesgo residual de entrega **al
+menos una vez** ante una aceptación seguida de timeout o caída antes del commit.
 
 La clave SMTP y la clave API se conservan en Windows Credential Manager bajo
 los destinos `AgendaSalonBrevoSmtpKey` y `AgendaSalonBrevoApiKey`. El script
@@ -322,6 +344,67 @@ python manage.py shell -c "from apps.businesses.models import Business; print(Bu
 
 También deben compararse los recuentos principales, abrir una imagen restaurada
 y recorrer acceso, agenda y reserva pública antes de reabrir el servicio.
+
+## Migraciones aditivas del P1
+
+Antes de publicar P1, el plan de migración desde el P0 actualmente desplegado
+debe contener únicamente estas cuatro operaciones y en este orden exacto:
+
+1. `booking.0007_appointment_public_confirmation_reference`;
+2. `businesses.0012`;
+3. `legal.0007`;
+4. `notifications.0004`.
+
+Si aparece cualquier migración adicional, falta alguna, el orden difiere o una
+parte de P1 ya figura aplicada, se aborta el despliegue sin ejecutar `migrate`.
+No se corrige un estado parcial con `--fake`, SQL manual ni migraciones por
+aplicación: primero se diagnostica y, si procede, se restaura de forma completa.
+
+En particular, `booking.0007_appointment_public_confirmation_reference` añade a
+las citas una referencia UUID única y anulable para hacer idempotente la
+confirmación pública. La operación no reescribe las citas existentes: las
+reservas profesionales y todo el histórico conservan `NULL`.
+
+Los borradores de sesión creados con P0 carecen de esa referencia: después del
+despliegue se descartan de forma segura y vuelven a la búsqueda de hora. No deben
+completarse, reconstruirse ni reproducirse manualmente.
+
+Tras migrar y antes de reabrir los servicios se comprueba mediante consultas de
+solo lectura que no cambian los recuentos de negocios, usuarios, clientes,
+accesos ni citas; que no existen referencias públicas duplicadas; que los libros
+legales y la outbox presentan recuentos y estados coherentes; y que el plan queda
+completamente aplicado. En producción no se crea una cita de prueba, no se repite
+un POST, no se fuerza un replay y no se altera ningún dato para «probar» P1.
+
+La aceptación pública se limita a peticiones GET y superficies de solo lectura,
+cabeceras, salud, estáticos y comparación de los recuentos tomados antes del
+despliegue. Si una comprobación exigiera escribir, se realiza en una copia
+desechable, nunca sobre la base canónica de producción.
+
+## Reversión que cruce `booking.0006`
+
+`booking.0006_enforce_appointment_outcomes` no dispone de una operación inversa
+segura. Si una vuelta de versión debe cruzar ese límite, no se ejecuta
+`migrate booking 0005` ni se marca la migración como `fake` para aparentar una
+reversión.
+
+El procedimiento autorizado es una restauración completa y coherente:
+
+1. detener Gunicorn y todos los temporizadores o procesos que puedan escribir;
+2. verificar autenticidad, integridad y fecha de la copia o snapshot elegido;
+3. restaurar PostgreSQL y `media` como una sola unidad;
+4. desplegar el SHA que corresponda exactamente a ese esquema y esos datos;
+5. comprobar migraciones sin usar `fake`, recopilar estáticos y arrancar los
+   servicios;
+6. contrastar recuentos, sesiones, outbox, logs, salud y rutas HTTPS antes de
+   reabrir escrituras.
+
+Las migraciones P1, incluida `booking.0007`, son aditivas. `legal.0007` está
+marcada expresamente como irreversible para impedir que una marcha atrás elimine
+los libros de eventos y su histórico posterior al despliegue. No se debe intentar
+sortear esa protección con `--fake` ni revertir P1 por aplicaciones sueltas: ante
+una incidencia se restaura de forma completa y verificable la copia o el snapshot
+previo.
 
 ## Ensayo realizado
 

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID, uuid4
 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -13,6 +14,7 @@ PUBLIC_BOOKING_RECEIPT_TTL = timedelta(hours=1)
 def save_public_booking_draft(request, business, cleaned_data):
     drafts = dict(request.session.get(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, {}))
     drafts[str(business.id)] = {
+        "confirmation_reference": str(uuid4()),
         "service_ids": [service.id for service in cleaned_data["services"]],
         "target_date": cleaned_data["target_date"].isoformat(),
         "selected_work_line_id": cleaned_data["selected_work_line_id"],
@@ -40,6 +42,7 @@ def get_public_booking_draft(request, business):
         return None
 
     required_fields = {
+        "confirmation_reference",
         "service_ids",
         "target_date",
         "selected_work_line_id",
@@ -48,6 +51,12 @@ def get_public_booking_draft(request, business):
     if not required_fields.issubset(draft):
         clear_public_booking_draft(request, business)
         return None
+    try:
+        confirmation_reference = UUID(str(draft["confirmation_reference"]))
+    except (TypeError, ValueError, AttributeError):
+        clear_public_booking_draft(request, business)
+        return None
+    draft["confirmation_reference"] = str(confirmation_reference)
     return dict(draft)
 
 

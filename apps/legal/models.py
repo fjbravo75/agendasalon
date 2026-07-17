@@ -8,8 +8,112 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+IMMUTABLE_LEGAL_EVENT_MESSAGE = (
+    "Las constancias históricas no se pueden modificar ni borrar."
+)
+IMMUTABLE_LEGAL_DOCUMENT_MESSAGE = (
+    "Una versión publicada es inmutable. Crea una versión nueva para cambiar su contenido."
+)
+
+
+class AppendOnlyLegalEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise TypeError(IMMUTABLE_LEGAL_EVENT_MESSAGE)
+
+    def delete(self):
+        raise TypeError(IMMUTABLE_LEGAL_EVENT_MESSAGE)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise TypeError(IMMUTABLE_LEGAL_EVENT_MESSAGE)
+
+    def bulk_create(
+        self,
+        objs,
+        batch_size=None,
+        ignore_conflicts=False,
+        update_conflicts=False,
+        update_fields=None,
+        unique_fields=None,
+    ):
+        if ignore_conflicts or update_conflicts:
+            raise TypeError(IMMUTABLE_LEGAL_EVENT_MESSAGE)
+        objs = list(objs)
+        for obj in objs:
+            obj.full_clean(validate_unique=False)
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=False,
+            update_conflicts=False,
+            update_fields=update_fields,
+            unique_fields=unique_fields,
+        )
+
+
+class AppendOnlyLegalEvent(models.Model):
+    objects = AppendOnlyLegalEventQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if (
+            not self._state.adding
+            or kwargs.get("force_update")
+            or kwargs.get("update_fields") is not None
+        ):
+            raise ValidationError(IMMUTABLE_LEGAL_EVENT_MESSAGE)
+        self.full_clean(validate_unique=False)
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise TypeError(IMMUTABLE_LEGAL_EVENT_MESSAGE)
+
+
+class LegalDocumentQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if set(kwargs) - {"is_active"}:
+            raise TypeError(IMMUTABLE_LEGAL_DOCUMENT_MESSAGE)
+        return super().update(**kwargs)
+
+    def delete(self):
+        raise TypeError(IMMUTABLE_LEGAL_DOCUMENT_MESSAGE)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        if set(fields) - {"is_active"}:
+            raise TypeError(IMMUTABLE_LEGAL_DOCUMENT_MESSAGE)
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+    def bulk_create(
+        self,
+        objs,
+        batch_size=None,
+        ignore_conflicts=False,
+        update_conflicts=False,
+        update_fields=None,
+        unique_fields=None,
+    ):
+        if ignore_conflicts or update_conflicts:
+            raise TypeError(IMMUTABLE_LEGAL_DOCUMENT_MESSAGE)
+        objs = list(objs)
+        for obj in objs:
+            obj.content_hash = obj.calculate_hash()
+            obj.full_clean(validate_unique=False, validate_constraints=False)
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=False,
+            update_conflicts=False,
+            update_fields=update_fields,
+            unique_fields=unique_fields,
+        )
+
+
 class LegalDocument(models.Model):
     """Versión publicada e inmutable de un documento legal de AgendaSalon."""
+
+    objects = LegalDocumentQuerySet.as_manager()
 
     class Kind(models.TextChoices):
         LEGAL_NOTICE = "legal_notice", "Aviso legal"
@@ -72,16 +176,38 @@ class LegalDocument(models.Model):
             if not isinstance(section, dict) or not section.get("heading"):
                 raise ValidationError({"sections": "Cada sección debe tener un encabezado."})
 
-        if self.pk:
-            previous = LegalDocument.objects.filter(pk=self.pk).first()
-            if previous and previous.content_hash and previous.content_hash != self.calculate_hash():
-                raise ValidationError(
-                    "Una versión publicada es inmutable. Crea una versión nueva para cambiar su contenido."
-                )
-
     def save(self, *args, **kwargs):
-        self.content_hash = self.calculate_hash()
-        super().save(*args, **kwargs)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and set(update_fields) - {"is_active"}:
+            raise ValidationError(IMMUTABLE_LEGAL_DOCUMENT_MESSAGE)
+        previous = (
+            type(self).objects.filter(pk=self.pk).first()
+            if self.pk
+            else None
+        )
+        if previous is not None:
+            immutable_fields = (
+                "kind",
+                "slug",
+                "version",
+                "title",
+                "lead",
+                "sections",
+                "content_hash",
+                "published_at",
+            )
+            if any(
+                getattr(previous, field_name) != getattr(self, field_name)
+                for field_name in immutable_fields
+            ):
+                raise ValidationError(IMMUTABLE_LEGAL_DOCUMENT_MESSAGE)
+        else:
+            self.content_hash = self.calculate_hash()
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise TypeError(IMMUTABLE_LEGAL_DOCUMENT_MESSAGE)
 
     def __str__(self):
         return f"{self.get_kind_display()} · {self.version}"
@@ -140,7 +266,7 @@ class BusinessLegalProfile(models.Model):
 
 
 class LegalAcceptance(models.Model):
-    """Evidencia mínima de información, aceptación contractual o autorización."""
+    """Snapshot actual compatible de una aceptación o información legal."""
 
     class Action(models.TextChoices):
         ACKNOWLEDGED = "acknowledged", "Información recibida"
@@ -226,6 +352,100 @@ class LegalAcceptance(models.Model):
 
     def __str__(self):
         return f"{self.document} · {self.business}"
+
+
+class LegalAcceptanceEvent(AppendOnlyLegalEvent):
+    """Evento inmutable que conserva cada acción legal realizada."""
+
+    document = models.ForeignKey(
+        LegalDocument,
+        on_delete=models.PROTECT,
+        related_name="acceptance_events",
+        verbose_name="documento",
+    )
+    business = models.ForeignKey(
+        "businesses.Business",
+        on_delete=models.PROTECT,
+        related_name="legal_acceptance_events",
+        verbose_name="negocio",
+    )
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="legal_acceptance_events",
+        verbose_name="profesional",
+    )
+    client_access = models.ForeignKey(
+        "customers.BusinessClientAccess",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="legal_acceptance_events",
+        verbose_name="cuenta cliente",
+    )
+    action = models.CharField(
+        "acción",
+        max_length=20,
+        choices=LegalAcceptance.Action.choices,
+    )
+    context = models.CharField(
+        "contexto",
+        max_length=32,
+        choices=LegalAcceptance.Context.choices,
+    )
+    document_hash_snapshot = models.CharField("huella aceptada", max_length=64)
+    legal_context_snapshot = models.JSONField("contexto legal mostrado", default=dict)
+    authority_declared = models.BooleanField("declaró tener autorización", default=False)
+    accepted_at = models.DateTimeField("fecha y hora", default=timezone.now)
+    recorded_at = models.DateTimeField(
+        "registrado el",
+        default=timezone.now,
+        editable=False,
+    )
+    action_fingerprint = models.CharField(
+        "identificador único de la acción",
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
+
+    class Meta:
+        verbose_name = "evento de aceptación legal"
+        verbose_name_plural = "eventos de aceptación legal"
+        ordering = ["-accepted_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(actor_user__isnull=False, client_access__isnull=True)
+                    | Q(actor_user__isnull=True, client_access__isnull=False)
+                ),
+                name="legal_event_exactly_one_actor",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["business", "context", "-accepted_at"],
+                name="legal_event_business_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.document_id and self.document_hash_snapshot != self.document.content_hash:
+            raise ValidationError(
+                {"document_hash_snapshot": "La huella no coincide con el documento."}
+            )
+        if self.client_access_id and self.client_access.business_id != self.business_id:
+            raise ValidationError(
+                {"client_access": "La cuenta debe pertenecer al mismo negocio."}
+            )
+
+    def __str__(self):
+        return f"{self.document} · {self.business} · {self.accepted_at:%Y-%m-%d %H:%M}"
 
 
 class CustomerPrivacyEvidence(models.Model):
@@ -336,6 +556,117 @@ class CustomerPrivacyEvidence(models.Model):
             raise ValidationError(
                 {"informed_party_name_snapshot": "Debe identificarse a la persona informada."}
             )
+
+    def __str__(self):
+        return f"{self.business_client} · {self.get_channel_display()} · {self.document.version}"
+
+
+class CustomerPrivacyEvidenceEvent(AppendOnlyLegalEvent):
+    """Evento inmutable de información de privacidad facilitada a un cliente."""
+
+    document = models.ForeignKey(
+        LegalDocument,
+        on_delete=models.PROTECT,
+        related_name="customer_privacy_evidence_events",
+        verbose_name="documento",
+    )
+    business = models.ForeignKey(
+        "businesses.Business",
+        on_delete=models.PROTECT,
+        related_name="customer_privacy_evidence_events",
+        verbose_name="negocio",
+    )
+    business_client = models.ForeignKey(
+        "customers.BusinessClient",
+        on_delete=models.PROTECT,
+        related_name="privacy_evidence_events",
+        verbose_name="cliente",
+    )
+    client_access = models.ForeignKey(
+        "customers.BusinessClientAccess",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="privacy_evidence_events",
+        verbose_name="cuenta cliente",
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="recorded_customer_privacy_evidence_events",
+        verbose_name="registrado por",
+    )
+    event_type = models.CharField(
+        "tipo de constancia",
+        max_length=24,
+        choices=CustomerPrivacyEvidence.EventType.choices,
+    )
+    channel = models.CharField(
+        "canal",
+        max_length=24,
+        choices=CustomerPrivacyEvidence.Channel.choices,
+    )
+    informed_party_type = models.CharField(
+        "persona informada",
+        max_length=24,
+        choices=CustomerPrivacyEvidence.InformedParty.choices,
+        default=CustomerPrivacyEvidence.InformedParty.CLIENT,
+    )
+    informed_party_name_snapshot = models.CharField(
+        "nombre de la persona informada",
+        max_length=160,
+    )
+    document_hash_snapshot = models.CharField("huella mostrada", max_length=64)
+    legal_context_snapshot = models.JSONField("contexto legal mostrado", default=dict)
+    occurred_at = models.DateTimeField("fecha y hora del hecho", default=timezone.now)
+    recorded_at = models.DateTimeField(
+        "registrado el",
+        default=timezone.now,
+        editable=False,
+    )
+    action_fingerprint = models.CharField(
+        "identificador único de la acción",
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
+
+    class Meta:
+        verbose_name = "evento de privacidad de cliente"
+        verbose_name_plural = "eventos de privacidad de clientes"
+        ordering = ["-occurred_at", "-pk"]
+        indexes = [
+            models.Index(
+                fields=["business_client", "document", "-occurred_at"],
+                name="privacy_event_client_idx",
+            ),
+            models.Index(
+                fields=["business", "document", "-occurred_at"],
+                name="privacy_event_business_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        projection = CustomerPrivacyEvidence(
+            document=self.document,
+            business=self.business,
+            business_client=self.business_client,
+            client_access=self.client_access,
+            recorded_by=self.recorded_by,
+            event_type=self.event_type,
+            channel=self.channel,
+            informed_party_type=self.informed_party_type,
+            informed_party_name_snapshot=self.informed_party_name_snapshot,
+            document_hash_snapshot=self.document_hash_snapshot,
+            legal_context_snapshot=self.legal_context_snapshot,
+            occurred_at=self.occurred_at,
+        )
+        projection.full_clean(exclude={"id"})
 
     def __str__(self):
         return f"{self.business_client} · {self.get_channel_display()} · {self.document.version}"

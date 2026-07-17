@@ -25,6 +25,8 @@ class ProductionEntrypointTests(SimpleTestCase):
         "EMAIL_HOST_USER",
         "EMAIL_HOST_PASSWORD",
         "DEFAULT_FROM_EMAIL",
+        "EMAIL_TIMEOUT",
+        "AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS",
         "EMAIL_USE_TLS",
         "EMAIL_USE_SSL",
     )
@@ -174,6 +176,8 @@ assert prod.AGENDA_TRANSACTIONAL_EMAIL_ENABLED is True
 assert prod.EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
 assert prod.EMAIL_USE_TLS is True
 assert prod.EMAIL_USE_SSL is False
+assert prod.EMAIL_TIMEOUT == 20
+assert prod.AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS == 120
 """,
             **self._base_environment(
                 AGENDA_TRANSACTIONAL_EMAIL_ENABLED="1",
@@ -188,6 +192,29 @@ assert prod.EMAIL_USE_SSL is False
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_transactional_email_requires_a_lease_longer_than_its_timeout(self):
+        result = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(
+                AGENDA_TRANSACTIONAL_EMAIL_ENABLED="1",
+                EMAIL_HOST="smtp.example.test",
+                EMAIL_PORT="587",
+                EMAIL_HOST_USER="agenda@example.test",
+                EMAIL_HOST_PASSWORD="test-only-password",
+                DEFAULT_FROM_EMAIL="AgendaSalon <agenda@example.test>",
+                EMAIL_TIMEOUT="20",
+                AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS="20",
+                EMAIL_USE_TLS="1",
+                EMAIL_USE_SSL="0",
+            ),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS must be greater than EMAIL_TIMEOUT",
+            result.stderr,
+        )
 
 
 class PostgreSQLConfigurationTests(SimpleTestCase):

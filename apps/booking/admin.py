@@ -11,21 +11,36 @@ from .models import (
 )
 
 
+class ReadOnlyOperationalAdminMixin:
+    """Keep operational calendar data visible without bypassing domain services."""
+
+    actions = None
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(BusinessCalendarSettings)
-class BusinessCalendarSettingsAdmin(admin.ModelAdmin):
+class BusinessCalendarSettingsAdmin(ReadOnlyOperationalAdminMixin, admin.ModelAdmin):
     list_display = ("business", "slot_interval_minutes", "apply_national_holidays")
     autocomplete_fields = ("business",)
 
 
 @admin.register(AvailabilityRule)
-class AvailabilityRuleAdmin(admin.ModelAdmin):
+class AvailabilityRuleAdmin(ReadOnlyOperationalAdminMixin, admin.ModelAdmin):
     list_display = ("business", "weekday", "start_time", "end_time", "is_active")
     list_filter = ("weekday", "is_active", "business")
     autocomplete_fields = ("business",)
 
 
 @admin.register(WorkLine)
-class WorkLineAdmin(admin.ModelAdmin):
+class WorkLineAdmin(ReadOnlyOperationalAdminMixin, admin.ModelAdmin):
     list_display = ("business", "line_number", "name", "is_active", "display_order")
     list_filter = ("is_active", "business")
     search_fields = ("name", "business__commercial_name")
@@ -33,7 +48,7 @@ class WorkLineAdmin(admin.ModelAdmin):
 
 
 @admin.register(Service)
-class ServiceAdmin(admin.ModelAdmin):
+class ServiceAdmin(ReadOnlyOperationalAdminMixin, admin.ModelAdmin):
     list_display = (
         "name",
         "business",
@@ -49,7 +64,7 @@ class ServiceAdmin(admin.ModelAdmin):
 
 
 @admin.register(BusinessClosure)
-class BusinessClosureAdmin(admin.ModelAdmin):
+class BusinessClosureAdmin(ReadOnlyOperationalAdminMixin, admin.ModelAdmin):
     list_display = (
         "business",
         "work_line",
@@ -66,14 +81,15 @@ class BusinessClosureAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
 
-class AppointmentServiceInline(admin.TabularInline):
+class AppointmentServiceInline(ReadOnlyOperationalAdminMixin, admin.TabularInline):
     model = AppointmentService
     extra = 0
+    can_delete = False
     autocomplete_fields = ("service",)
 
 
 @admin.register(Appointment)
-class AppointmentAdmin(admin.ModelAdmin):
+class AppointmentAdmin(ReadOnlyOperationalAdminMixin, admin.ModelAdmin):
     list_display = (
         "business_client",
         "business",
@@ -106,7 +122,7 @@ class AppointmentAdmin(admin.ModelAdmin):
 
 
 @admin.register(AppointmentService)
-class AppointmentServiceAdmin(admin.ModelAdmin):
+class AppointmentServiceAdmin(ReadOnlyOperationalAdminMixin, admin.ModelAdmin):
     list_display = (
         "appointment",
         "service_name_snapshot",

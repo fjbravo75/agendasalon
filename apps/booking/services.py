@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -29,6 +30,7 @@ class AppointmentDraft:
     requested_by_client_access: object | None = None
     requested_by_name: str = ""
     requested_by_relationship: str = ""
+    public_confirmation_reference: UUID | str | None = None
 
 
 @transaction.atomic
@@ -63,6 +65,8 @@ def confirm_appointment(
     if not isinstance(draft.starts_at, datetime) or timezone.is_naive(draft.starts_at):
         raise ValidationError("La hora seleccionada no es válida.")
 
+    confirmation_reference = _public_confirmation_reference(draft)
+
     requested_work_line = locked_calendar.work_lines_by_id.get(draft.work_line_id)
     if (
         not allow_line_reassignment
@@ -75,6 +79,27 @@ def confirm_appointment(
     service_ids = [service.id for service in services]
     if None in service_ids or len(service_ids) != len(set(service_ids)):
         raise ValidationError("La selección de servicios no es válida.")
+
+    starts_at = timezone.localtime(draft.starts_at)
+    if confirmation_reference is not None:
+        existing_appointment = (
+            Appointment.objects.filter(
+                public_confirmation_reference=confirmation_reference,
+            )
+            .prefetch_related("appointment_services")
+            .first()
+        )
+        if existing_appointment is not None:
+            _validate_public_confirmation_replay(
+                existing_appointment,
+                draft=draft,
+                business=business,
+                service_ids=service_ids,
+                starts_at=starts_at,
+                duration_minutes=duration_minutes,
+            )
+            return existing_appointment
+
     active_services = tuple(
         Service.objects.filter(
             business=business,
@@ -106,7 +131,6 @@ def confirm_appointment(
             "con la suma de los servicios."
         )
 
-    starts_at = timezone.localtime(draft.starts_at)
     ends_at = starts_at + timedelta(minutes=duration_minutes)
 
     try:
@@ -157,6 +181,7 @@ def confirm_appointment(
         requested_by_client_access=draft.requested_by_client_access,
         requested_by_name_snapshot=draft.requested_by_name,
         requested_by_relationship_snapshot=draft.requested_by_relationship,
+        public_confirmation_reference=confirmation_reference,
         service_summary_snapshot=" + ".join(service.name for service in active_services),
     )
     appointment.full_clean()
@@ -207,9 +232,54 @@ def confirm_appointment(
     return appointment
 
 
+def _public_confirmation_reference(draft: AppointmentDraft) -> UUID | None:
+    value = draft.public_confirmation_reference
+    if value in (None, ""):
+        return None
+    if draft.channel != Appointment.ManualChannel.PUBLIC_WEB:
+        raise ValidationError(
+            "La referencia de confirmación solo puede usarse en una reserva online."
+        )
+    try:
+        return value if isinstance(value, UUID) else UUID(str(value))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValidationError("La referencia de confirmación no es válida.") from exc
+
+
+def _validate_public_confirmation_replay(
+    appointment: Appointment,
+    *,
+    draft: AppointmentDraft,
+    business,
+    service_ids,
+    starts_at,
+    duration_minutes,
+) -> None:
+    """Return an existing booking only when it belongs to the exact same draft."""
+
+    requested_access_id = getattr(draft.requested_by_client_access, "pk", None)
+    stored_service_ids = {
+        item.service_id for item in appointment.appointment_services.all()
+    }
+    same_draft = (
+        appointment.business_id == business.pk
+        and appointment.business_client_id == draft.business_client.pk
+        and appointment.manual_channel == Appointment.ManualChannel.PUBLIC_WEB
+        and appointment.status == Appointment.Status.CONFIRMED
+        and appointment.requested_by_client_access_id == requested_access_id
+        and appointment.starts_at == starts_at
+        and appointment.total_duration_minutes == duration_minutes
+        and stored_service_ids == set(service_ids)
+    )
+    if not same_draft:
+        raise ValidationError(
+            "No se ha podido verificar esta confirmación. Vuelve a elegir la hora."
+        )
+
+
 @transaction.atomic
 def cancel_appointment(appointment: Appointment, *, cancelled_by, reason: str) -> Appointment:
-    appointment = _locked_appointment(appointment)
+    appointment = _locked_appointment_with_calendar(appointment)
     if appointment.status != Appointment.Status.CONFIRMED:
         raise ValidationError("Solo se puede cancelar una cita confirmada.")
 
@@ -250,7 +320,7 @@ def cancel_appointment(appointment: Appointment, *, cancelled_by, reason: str) -
 
 @transaction.atomic
 def complete_appointment(appointment: Appointment, *, completed_by, at=None) -> Appointment:
-    appointment = _locked_appointment(appointment)
+    appointment = _locked_appointment_with_calendar(appointment)
     at = at or timezone.now()
     if appointment.status != Appointment.Status.CONFIRMED:
         raise ValidationError("Solo se puede completar una cita confirmada.")
@@ -287,7 +357,7 @@ def complete_appointment(appointment: Appointment, *, completed_by, at=None) -> 
 
 @transaction.atomic
 def mark_appointment_no_show(appointment: Appointment, *, marked_by, at=None) -> Appointment:
-    appointment = _locked_appointment(appointment)
+    appointment = _locked_appointment_with_calendar(appointment)
     at = at or timezone.now()
     if appointment.status != Appointment.Status.CONFIRMED:
         raise ValidationError("Solo se puede registrar la ausencia de una cita confirmada.")
@@ -325,9 +395,23 @@ def mark_appointment_no_show(appointment: Appointment, *, marked_by, at=None) ->
 @transaction.atomic
 def close_appointments(appointments, *, outcome, closed_by, at=None) -> int:
     at = at or timezone.now()
-    appointments = tuple(sorted(appointments, key=lambda appointment: appointment.pk))
+    appointments = tuple(appointments)
+    if any(appointment.pk is None for appointment in appointments):
+        raise ValidationError("La cita debe estar guardada antes de actualizar su estado.")
+    appointments = tuple(
+        sorted(
+            appointments,
+            key=lambda appointment: (appointment.business_id, appointment.pk),
+        )
+    )
     if outcome not in {Appointment.Status.COMPLETED, Appointment.Status.NO_SHOW}:
         raise ValidationError("El resultado elegido no es válido.")
+
+    businesses_by_id = {}
+    for appointment in appointments:
+        businesses_by_id.setdefault(appointment.business_id, appointment.business)
+    for business_id in sorted(businesses_by_id):
+        lock_business_calendar(businesses_by_id[business_id])
 
     for appointment in appointments:
         if outcome == Appointment.Status.COMPLETED:
@@ -335,6 +419,18 @@ def close_appointments(appointments, *, outcome, closed_by, at=None) -> int:
         else:
             mark_appointment_no_show(appointment, marked_by=closed_by, at=at)
     return len(appointments)
+
+
+def _locked_appointment_with_calendar(appointment: Appointment) -> Appointment:
+    """Apply the global calendar-before-appointment lock order."""
+    if appointment.pk is None:
+        raise ValidationError("La cita debe estar guardada antes de actualizar su estado.")
+
+    locked_calendar = lock_business_calendar(appointment.business)
+    locked_appointment = _locked_appointment(appointment)
+    if locked_appointment.business_id != locked_calendar.business.pk:
+        raise ValidationError("La cita ya no pertenece a la agenda esperada.")
+    return locked_appointment
 
 
 def _locked_appointment(appointment: Appointment) -> Appointment:
