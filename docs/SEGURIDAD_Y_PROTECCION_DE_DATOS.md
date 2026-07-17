@@ -20,18 +20,24 @@ Fecha de la evidencia local más reciente: **17 de julio de 2026**.
 La evidencia de publicación no se infiere de la fecha de este documento: debe
 comprobarse por SHA exacto, resultado de CI y registro operativo del despliegue.
 
-> **Bloque correctivo P0 verificado en local.** Las reglas descritas como P0 ya
-> superan la batería completa, cobertura, frontend, build, comprobaciones
-> estáticas y QA visual aislada sin alterar la base canónica. Estas cifras
-> describen la evidencia local; el estado publicado se acredita por separado
-> para el SHA exacto en CI y en la documentación operativa.
+> **Bloque P1 verificado en despliegue.** El SHA funcional
+> `105531945452b5529be6891ee47034c164e804f3` está publicado y aceptado. Las PR
+> #7 (merge `c4f60c8`) y #8 (merge `1055319`) y las ejecuciones de CI
+> `29573943958` y `29574584566`, ambas correctas, vinculan la implementación con
+> la evidencia reproducible. La aceptación de producción fue de solo lectura y
+> no dejó datos de prueba.
 
-> **Bloque P1 verificado en local.** Recibos legales exactos, libros de eventos,
-> administración técnica de solo lectura, idempotencia UUID, `lease` con latido
-> de correo, exclusión mutua BOE y formularios CSRF con política de referencia
-> diferenciada superan la matriz local completa. P1 todavía no está publicada:
-> producción continúa en P0, SHA
-> `5c68a260d1d87ed00c908d25bf519c3f34fea712`.
+El cierre quedó protegido por la copia fría
+`agendasalon-20260717T105047Z`, el snapshot
+`pre-agendasalon-p1-robustez-2026-07-17-1051Z` (ID `237297105`, acción
+`3295909145`, creado el 17 de julio de 2026 a las 10:51:55 UTC) y la copia
+posterior `agendasalon-20260717T105901Z`. Se conservaron exactamente 2 negocios,
+3 usuarios, 8 clientes, 4 accesos, 23 citas, 5 sesiones, outbox vacío y ninguna
+solicitud de alta; los libros legales mantuvieron sus correspondencias 6/6 y
+8/8 y las 23 citas históricas conservaron a `null` su referencia pública.
+Servicios y temporizadores quedaron activos y el correo se rearmó con una
+primera ejecución automática correcta a las 11:11:27 UTC: 0 procesados,
+enviados, reprogramados, fallidos y cancelados.
 
 ## Arquitectura de seguridad
 
@@ -78,28 +84,28 @@ La aplicación separa cuatro superficies:
 | Área | Control aplicado | Evidencia principal | Estado |
 | --- | --- | --- | --- |
 | Autenticación interna | Usuario Django propio con teléfono normalizado, sesión de Django y acceso condicionado por rol y pertenencia activa | `apps/accounts/`, `apps/accounts/tests.py` | Aplicado y verificado |
-| Autenticación cliente | Cuenta ligada a una ficha y a un negocio; correo verificado como identidad canónica, teléfono solo como contacto o compatibilidad cuando no es ambiguo; sesión separada con rotación, caducidad y huella de contraseña | `apps/customers/services.py`, `apps/customers/views.py` | P0 verificado en local; sujeto a CI por SHA |
+| Autenticación cliente | Cuenta ligada a una ficha y a un negocio; correo verificado como identidad canónica, teléfono solo como contacto o compatibilidad cuando no es ambiguo; sesión separada con rotación, caducidad y huella de contraseña | `apps/customers/services.py`, `apps/customers/views.py` | Verificado en despliegue P1 |
 | Hashing | Argon2id como algoritmo preferente; actualización transparente de hashes PBKDF2 después de un acceso correcto | `config/settings/base.py`, pruebas de `apps/customers/tests.py` | Aplicado y verificado |
 | Contraseñas | Mínimo de 12 caracteres y validadores de similitud, contraseñas comunes y valores exclusivamente numéricos | `config/settings/base.py`, formularios y pruebas de acceso | Aplicado y verificado |
 | Activación profesional | Los accesos nuevos permanecen inactivos y sin contraseña utilizable hasta que la persona abre un enlace de un solo uso, verifica su correo y crea su propia contraseña; la contraseña temporal queda limitada a compatibilidad heredada | `apps/accounts`, `apps/notifications`, middleware, formularios y pruebas | Aplicado y verificado |
-| Verificación de correo cliente | El alta y la invitación dejan el acceso sin contraseña utilizable; GET solo valida y presenta, y POST con CSRF confirma el correo, la privacidad aplicable y la clave; el alta pública mantiene ficha inactiva y `is_pending_public_registration` hasta completar ese POST | `apps/customers`, `apps/notifications` | P0 verificado en local; sujeto a CI por SHA |
-| Fuerza bruta y enumeración | Limitación por identidad e IP con claves seudonimizadas; alta, reenvío y recuperación aplican esperas o cupos y respuestas genéricas que no confirman cuentas | `apps/core/security_throttle.py`, `apps/customers` | P0 verificado en local; sujeto a CI por SHA |
-| Invitación cliente | Token aleatorio de un solo uso, ligado a negocio y ficha, caducidad de 24 horas y almacenamiento exclusivo de su resumen SHA-256 | `apps/customers/services.py` | P0 verificado en local; sujeto a CI por SHA |
-| Recuperación de contraseña cliente | Solicitud por correo verificado con respuesta genérica; enlace firmado, ligado al negocio y a la huella de contraseña, con caducidad de 60 minutos e invalidación tras cambiar la clave | `apps/customers`, `apps/notifications` | P0 verificado en local; sujeto a CI por SHA |
-| Autorización | Decoradores de acceso, negocio activo en la operativa y filtrado de objetos por empresa; privacidad y derechos son la excepción legal explícita durante una pausa | vistas, API y pruebas de aislamiento | P0 verificado en local; sujeto a CI por SHA |
+| Verificación de correo cliente | El alta y la invitación dejan el acceso sin contraseña utilizable; GET solo valida y presenta, y POST con CSRF confirma el correo, la privacidad aplicable y la clave; el alta pública mantiene ficha inactiva y `is_pending_public_registration` hasta completar ese POST | `apps/customers`, `apps/notifications` | Verificado en despliegue P1 |
+| Fuerza bruta y enumeración | Limitación por identidad e IP con claves seudonimizadas; alta, reenvío y recuperación aplican esperas o cupos y respuestas genéricas que no confirman cuentas | `apps/core/security_throttle.py`, `apps/customers` | Verificado en despliegue P1 |
+| Invitación cliente | Token aleatorio de un solo uso, ligado a negocio y ficha, caducidad de 24 horas y almacenamiento exclusivo de su resumen SHA-256 | `apps/customers/services.py` | Verificado en despliegue P1 |
+| Recuperación de contraseña cliente | Solicitud por correo verificado con respuesta genérica; enlace firmado, ligado al negocio y a la huella de contraseña, con caducidad de 60 minutos e invalidación tras cambiar la clave | `apps/customers`, `apps/notifications` | Verificado en despliegue P1 |
+| Autorización | Decoradores de acceso, negocio activo en la operativa y filtrado de objetos por empresa; privacidad y derechos son la excepción legal explícita durante una pausa | vistas, API y pruebas de aislamiento | Verificado en despliegue P1 |
 | Aislamiento multiempresa | Los endpoints profesionales resuelven el negocio desde la sesión; no confían en un identificador de empresa enviado por el navegador | `apps/booking/api.py`, `apps/dashboards/api.py`, pruebas por negocio | Aplicado y verificado |
-| CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; los GET de activación profesional y de alta, invitación o recuperación cliente solo validan o presentan. La verificación de correo profesional aún consume el token mediante GET y queda registrada para migrarla a POST con CSRF en P2. Las respuestas con POST usan `same-origin` o, si la URL contiene un token, `strict-origin`, para conservar un `Origin` válido sin filtrar esa ruta | `config/settings/base.py`, plantillas, vistas y pruebas con CSRF real | P1 verificado en local con la excepción profesional declarada; sujeto a CI por SHA |
+| CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; los GET de activación profesional y de alta, invitación o recuperación cliente solo validan o presentan. La verificación de correo profesional aún consume el token mediante GET y queda registrada para migrarla a POST con CSRF en P2. Las respuestas con POST usan `same-origin` o, si la URL contiene un token, `strict-origin`, para conservar un `Origin` válido sin filtrar esa ruta | `config/settings/base.py`, plantillas, vistas y pruebas con CSRF real | P1 verificado en despliegue, con la excepción profesional declarada para P2 |
 | XSS y contenido activo | Autoescape de plantillas, ausencia de inserciones HTML inseguras en el código de producto y CSP con scripts limitados al mismo origen | `apps/core/middleware.py`, `config/settings/base.py` | Aplicado y verificado |
 | Cabeceras de navegador | `Permissions-Policy`, CORP `same-origin`, bloqueo de marcos y objetos mediante CSP y política de referencia diferenciada entre formularios POST y respuestas de token sin formulario | middleware, vistas y pruebas de cabeceras | Aplicado y verificado |
 | Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y batería Django de 534 pruebas | Aplicado y verificado en local |
-| Integridad de citas | Revalidación del hueco, duraciones compatibles con el intervalo, cierre solo tras `ends_at` y bloqueos comunes entre confirmación y mutaciones profesionales de horarios, cierres, preferencia de festivos o líneas | `apps/booking/services.py`, modelos y vistas | P0 verificado en local; sujeto a CI por SHA |
-| Idempotencia de reserva pública | Cada borrador nuevo lleva una referencia UUID única y anulable en la cita; el replay se resuelve bajo el mutex del calendario y devuelve la cita ya creada sin repetir actividad ni outbox. Los borradores heredados de P0, sin referencia, se descartan y obligan a elegir de nuevo | `apps/booking/public_booking_drafts.py`, `Appointment.public_confirmation_reference`, migración `booking.0007` y pruebas SQLite/PostgreSQL | P1 verificado en local; sujeto a CI por SHA |
-| Trazabilidad familiar | La cita distingue receptor y solicitante autorizado, regenera opciones por cliente, invalida resultados obsoletos y conserva instantáneas, línea y hora exactas | `apps/booking`, isla React y sincronización del asistente | P0 verificado en local; sujeto a CI por SHA |
-| Continuidad de privacidad | Una nueva versión exige nueva constancia; privacidad y derechos siguen accesibles con el negocio pausado sin reabrir reserva ni registro | `apps/legal`, `apps/booking`, `apps/customers` | P0 verificado en local; sujeto a CI por SHA |
-| Evidencia legal exacta | Recibo firmado y temporal con finalidad, audiencia, documento, versión, huella y contexto; proyección vigente más libros de eventos de solo adición y escritura transaccional | `apps/legal/presentations.py`, modelos, migraciones y pruebas | P1 verificado en local; sujeto a CI por SHA |
-| Administración técnica | Agenda, calendario, festivos, evidencias legales y correo se muestran en Django Admin como solo lectura, sin altas, ediciones, borrados ni acciones masivas; las solicitudes de derechos solo admiten seguimiento de estado y nota, sin alta ni borrado | módulos `admin.py` y pruebas de permisos | P1 verificado en local; sujeto a CI por SHA |
-| Outbox concurrente | Reclamación mediante `lease` temporal, recuperación de trabajos caducados, latido continuo durante SMTP, cancelación coordinada y cierre exclusivo por el propietario vigente; se documenta el residual SMTP de entrega al menos una vez | `apps/notifications` y pruebas PostgreSQL | P1 verificado en local; sujeto a CI por SHA |
-| Sincronización BOE | Exclusión mutua por año antes de la consulta externa; después de la descarga, `SHARE` sobre el registro de negocios, cooperación `ROW EXCLUSIVE` de las mutaciones, agendas en orden estable, reconciliación atómica, fotografía de impacto y altas concurrentes incluidas | `apps/holidays`, mutex de calendario y pruebas PostgreSQL/BOE | P1 verificado en local; sujeto a CI por SHA |
+| Integridad de citas | Revalidación del hueco, duraciones compatibles con el intervalo, cierre solo tras `ends_at` y bloqueos comunes entre confirmación y mutaciones profesionales de horarios, cierres, preferencia de festivos o líneas | `apps/booking/services.py`, modelos y vistas | Verificado en despliegue P1 |
+| Idempotencia de reserva pública | Cada borrador nuevo lleva una referencia UUID única y anulable en la cita; el replay se resuelve bajo el mutex del calendario y devuelve la cita ya creada sin repetir actividad ni outbox. Los borradores heredados de P0, sin referencia, se descartan y obligan a elegir de nuevo | `apps/booking/public_booking_drafts.py`, `Appointment.public_confirmation_reference`, migración `booking.0007` y pruebas SQLite/PostgreSQL | Verificado en despliegue P1 |
+| Trazabilidad familiar | La cita distingue receptor y solicitante autorizado, regenera opciones por cliente, invalida resultados obsoletos y conserva instantáneas, línea y hora exactas | `apps/booking`, isla React y sincronización del asistente | Verificado en despliegue P1 |
+| Continuidad de privacidad | Una nueva versión exige nueva constancia; privacidad y derechos siguen accesibles con el negocio pausado sin reabrir reserva ni registro | `apps/legal`, `apps/booking`, `apps/customers` | Verificado en despliegue P1 |
+| Evidencia legal exacta | Recibo firmado y temporal con finalidad, audiencia, documento, versión, huella y contexto; proyección vigente más libros de eventos de solo adición y escritura transaccional | `apps/legal/presentations.py`, modelos, migraciones y pruebas | Verificado en despliegue P1 |
+| Administración técnica | Agenda, calendario, festivos, evidencias legales y correo se muestran en Django Admin como solo lectura, sin altas, ediciones, borrados ni acciones masivas; las solicitudes de derechos solo admiten seguimiento de estado y nota, sin alta ni borrado | módulos `admin.py` y pruebas de permisos | Verificado en despliegue P1 |
+| Outbox concurrente | Reclamación mediante `lease` temporal, recuperación de trabajos caducados, latido continuo durante SMTP, cancelación coordinada y cierre exclusivo por el propietario vigente; se documenta el residual SMTP de entrega al menos una vez | `apps/notifications` y pruebas PostgreSQL | Verificado en despliegue P1; residual SMTP conservado |
+| Sincronización BOE | Exclusión mutua por año antes de la consulta externa; después de la descarga, `SHARE` sobre el registro de negocios, cooperación `ROW EXCLUSIVE` de las mutaciones, agendas en orden estable, reconciliación atómica, fotografía de impacto y altas concurrentes incluidas | `apps/holidays`, mutex de calendario y pruebas PostgreSQL/BOE | Verificado en despliegue P1 |
 | Subida de imágenes | JPG, PNG o WebP; 5 MB y 16 millones de píxeles; orientación, reducción a 2400 px y recodificación WebP sin EXIF | `apps/businesses/images.py`, pruebas de ajustes | Aplicado y verificado |
 | Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
 | Secretos | Variables de entorno obligatorias en producción; arranque detenido si faltan secreto, hosts o PostgreSQL | `config/settings/prod.py`, `.env.example`, pruebas de producción | Aplicado y verificado |
@@ -393,8 +399,8 @@ procedimiento de ejercicio de derechos.
 
 ## Evidencias reproducibles
 
-Los siguientes controles se ejecutaron sobre el bloque P1 local el 17 de julio
-de 2026:
+Los siguientes controles se ejecutaron y quedaron vinculados al bloque
+funcional P1 publicado el 17 de julio de 2026:
 
 ```powershell
 .\.venv\Scripts\coverage.exe run manage.py test
@@ -426,14 +432,14 @@ git diff --check
 | BOE real | Dos ejecuciones idempotentes en entorno efímero, sin alterar citas |
 | QA visual y funcional | Apta en escritorio y móvil sobre copia desechable, incluidos recorridos CSRF reales; base canónica intacta |
 | Limpieza QA | Sin bases, contenedores, procesos, puertos ni temporales del bloque |
-| CI del P1 | Pendiente de comprobar para el SHA exacto en GitHub Actions |
-| Despliegue del P1 | Pendiente de comprobar para el SHA exacto en el registro operativo |
+| CI del P1 | Ejecuciones `29573943958` y `29574584566` correctas |
+| Despliegue del P1 | SHA funcional `105531945452b5529be6891ee47034c164e804f3` aceptado mediante GET y solo lectura, sin residuo |
 
 Como referencia histórica, P0 quedó validado con 396 pruebas Django, nueve
 omisiones, 29 frontend y 83 % de cobertura antes de su publicación. En P1,
-Gitleaks sobre el alcance completo no detectó secretos y PostgreSQL 17 ya forma
-parte de la evidencia local; CI, copia, snapshot y despliegue solo pueden
-atribuirse al bloque cuando consten asociados al mismo SHA.
+Gitleaks sobre el alcance completo no detectó secretos y PostgreSQL 17 forma
+parte de la evidencia reproducible. CI, copia, snapshot y despliegue constan
+asociados al SHA funcional publicado en el cierre operativo.
 
 El chequeo de producción se ejecutó con valores locales temporales, sin
 credenciales reales y sin conectar servicios externos:

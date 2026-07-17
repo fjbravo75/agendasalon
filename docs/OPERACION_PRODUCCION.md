@@ -5,9 +5,26 @@ demo académica quedó publicada el 14 de julio de 2026 en
 `https://agendasalon.brvsoftwarestudio.com`; los comandos siguen requiriendo una
 ejecución deliberada y no se activan por leer este documento.
 
-Estado al cierre local de P1: producción continúa en P0, SHA
-`5c68a260d1d87ed00c908d25bf519c3f34fea712`. P1 todavía no está publicada. La
-validación local no autoriza a describir como desplegado ningún control de P1.
+Estado al cierre operativo de P1: el SHA funcional
+`105531945452b5529be6891ee47034c164e804f3` está desplegado y aceptado en
+producción. La integración pasó por las PR #7 (merge `c4f60c8`) y #8 (merge
+`1055319`); las ejecuciones de CI `29573943958` y `29574584566` finalizaron
+correctamente.
+
+El despliegue se protegió con la copia fría
+`agendasalon-20260717T105047Z` y el snapshot
+`pre-agendasalon-p1-robustez-2026-07-17-1051Z`, ID `237297105`, acción
+`3295909145`, creado el 17 de julio de 2026 a las 10:51:55 UTC. La copia
+posterior verificada es `agendasalon-20260717T105901Z`.
+
+La comprobación posterior conservó exactamente 2 negocios, 3 usuarios, 8
+clientes, 4 accesos, 23 citas, 5 sesiones, outbox vacío y ninguna solicitud de
+alta. Los libros legales mantuvieron sus correspondencias 6/6 y 8/8; las 23
+citas históricas conservaron a `null` su referencia pública. Servicios y
+temporizadores quedaron activos; la primera ejecución automática del correo
+tras el rearme, a las 11:11:27 UTC, terminó correctamente con 0 procesados,
+enviados, reprogramados, fallidos y cancelados. La aceptación pública se limitó
+a GET y consultas de solo lectura, sin crear datos ni dejar residuo.
 
 ## Perfil de producción
 
@@ -345,18 +362,19 @@ python manage.py shell -c "from apps.businesses.models import Business; print(Bu
 También deben compararse los recuentos principales, abrir una imagen restaurada
 y recorrer acceso, agenda y reserva pública antes de reabrir el servicio.
 
-## Migraciones aditivas del P1
+## Migraciones aditivas aplicadas en P1
 
-Antes de publicar P1, el plan de migración desde el P0 actualmente desplegado
-debe contener únicamente estas cuatro operaciones y en este orden exacto:
+El despliegue de P1 desde P0 aplicó únicamente estas cuatro operaciones y en
+este orden exacto:
 
 1. `booking.0007_appointment_public_confirmation_reference`;
-2. `businesses.0012`;
-3. `legal.0007`;
-4. `notifications.0004`.
+2. `businesses.0012_businesssignuprequest_privacy_legal_context_snapshot`;
+3. `legal.0007_legalacceptanceevent`;
+4. `notifications.0004_outboundemail_delivery_lease`.
 
-Si aparece cualquier migración adicional, falta alguna, el orden difiere o una
-parte de P1 ya figura aplicada, se aborta el despliegue sin ejecutar `migrate`.
+En una reproducción o recuperación, si aparece cualquier migración adicional,
+falta alguna, el orden difiere o una parte de P1 ya figura aplicada, se aborta
+la operación sin ejecutar `migrate`.
 No se corrige un estado parcial con `--fake`, SQL manual ni migraciones por
 aplicación: primero se diagnostica y, si procede, se restaura de forma completa.
 
