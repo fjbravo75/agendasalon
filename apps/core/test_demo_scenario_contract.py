@@ -78,6 +78,23 @@ EXPECTED_CHANNELS = {
 
 
 class DemoScenarioPureContractTests(SimpleTestCase):
+    def test_visual_and_concurrency_contract_is_explicit_and_stable(self):
+        self.assertEqual(
+            demo_scenario.CANONICAL_PROFESSIONAL_THEMES,
+            {
+                demo_scenario.BUSINESS_MARI: "dark",
+                demo_scenario.BUSINESS_NORTE: "light",
+            },
+        )
+        self.assertEqual(
+            demo_scenario.CANONICAL_PLATFORM_SETTINGS,
+            {
+                "admin_theme": "light",
+                "login_image_preset": "agendasalon",
+            },
+        )
+        self.assertEqual(demo_scenario.DEMO_ADVISORY_LOCK_ID, 4_147_326_341_001)
+
     def test_resolve_day_token_accepts_only_available_canonical_tokens(self):
         past_days = (date(2026, 7, 15), date(2026, 7, 14))
         future_days = (date(2026, 7, 17), date(2026, 7, 20))
@@ -261,7 +278,7 @@ class DemoScenarioContractTests(TestCase):
     def setUpTestData(cls):
         cls.reference_date = timezone.localdate()
         cls.reference_now = timezone.make_aware(
-            datetime.combine(cls.reference_date, time(2, 5)),
+            datetime.combine(cls.reference_date, time(4, 5)),
             timezone.get_current_timezone(),
         )
         cls.base_date = cls.reference_date
@@ -368,7 +385,7 @@ class DemoScenarioContractTests(TestCase):
                 self.assertEqual(
                     confirmed.count(),
                     overdue_confirmed.count() + future_confirmed.count(),
-                    "No debe haber citas confirmadas en curso a las 02:05.",
+                    "No debe haber citas confirmadas en curso a las 04:05.",
                 )
 
             for status in (

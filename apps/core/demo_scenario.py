@@ -17,6 +17,19 @@ from typing import Iterable
 BUSINESS_MARI = "mari"
 BUSINESS_NORTE = "norte"
 DEMO_PASSWORD = "DemoAgendaSalon2026!"
+DEMO_ADVISORY_LOCK_ID = 4_147_326_341_001
+
+# Valores persistidos por los ``TextChoices`` de Django. Se mantienen en este
+# módulo puro para que tanto el seed manual como el refresco automático partan
+# de la misma apariencia canónica sin importar el estado previo de la demo.
+CANONICAL_PROFESSIONAL_THEMES = {
+    BUSINESS_MARI: "dark",
+    BUSINESS_NORTE: "light",
+}
+CANONICAL_PLATFORM_SETTINGS = {
+    "admin_theme": "light",
+    "login_image_preset": "agendasalon",
+}
 
 STATUS_CONFIRMED = "confirmada"
 STATUS_CANCELLED = "cancelada"
@@ -1767,7 +1780,7 @@ def future_business_days(
 ) -> tuple[date, ...]:
     """Devuelve F0..Fn manteniendo todas las citas por delante de ``now``.
 
-    El reset de las 02:05 puede usar hoy como F0. Una ejecución manual una vez
+    El reset de las 04:05 puede usar hoy como F0. Una ejecución manual una vez
     iniciada la jornada comienza en el siguiente día hábil para que los conteos
     de citas futuras sigan siendo deterministas.
     """

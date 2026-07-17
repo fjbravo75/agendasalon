@@ -80,7 +80,7 @@
               <article>
                 <div><strong>{{ membership.user.full_name }}</strong><small>{{ membership.user.normalized_phone|format_phone }} · {{ membership.user.email }}</small><small>{% if not membership.user.is_active %}Pendiente de activación{% elif membership.user.email_verified_at %}Correo verificado{% else %}Correo pendiente de verificar{% endif %} · {% if membership.is_active %}Acceso habilitado{% else %}Acceso pausado{% endif %}</small></div>
                 <div class="saas-membership-list__actions">
-                  {% if not membership.user.is_active %}<form method="post" action="{% url 'businesses:superadmin_professional_activation_resend' business.id membership.id %}">{% csrf_token %}<button class="button button--secondary" type="submit">Reenviar enlace</button></form>{% endif %}
+                  {% if not membership.user.is_active %}<form method="post" action="{% url 'businesses:superadmin_professional_activation_resend' business.id membership.id %}">{% csrf_token %}<button class="button button--secondary" type="submit">{% if transactional_email_enabled %}Reenviar enlace{% else %}Preparar otro enlace (sin envío){% endif %}</button></form>{% endif %}
                   <form method="post" action="{% url 'businesses:superadmin_membership_toggle' business.id membership.id %}" data-confirm-message="Vas a cambiar el acceso de este profesional. ¿Quieres continuar?">{% csrf_token %}<button class="button button--secondary" type="submit">{% if membership.is_active %}Pausar{% else %}Reactivar{% endif %}</button></form>
                 </div>
               </article>

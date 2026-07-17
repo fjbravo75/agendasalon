@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from apps.businesses.models import Business, BusinessSignupRequest
@@ -259,6 +259,67 @@ class BusinessSignupRequestPublicTests(TestCase):
         self.assertContains(response, "Usa un correo real que pueda recibir mensajes")
         self.assertNotContains(response, "Indica un correo para poder contactar por este canal")
         self.assertFalse(BusinessSignupRequest.objects.exists())
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_demo_email_validation_does_not_claim_that_messages_can_be_received(self):
+        response = self.client.post(
+            self.url,
+            {**self.valid_data, "email": "maria@agenda.invalid"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Usa una dirección de correo con formato y dominio válidos")
+        self.assertContains(response, "no se entregan mensajes externos")
+        self.assertNotContains(response, "correo real que pueda recibir mensajes")
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_demo_signup_form_explains_the_email_field_without_promising_delivery(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["form"].fields["email"].help_text,
+            "Lo guardaremos como dato de contacto. En esta demostración académica "
+            "no se entregan mensajes externos.",
+        )
+        self.assertContains(response, "Registra una solicitud de prueba")
+        self.assertContains(response, "ni inicia contactos externos")
+        self.assertContains(response, "Registrar solicitud de prueba")
+        self.assertContains(response, "no se realizará ningún contacto externo")
+        self.assertNotContains(response, "Contactamos por el canal que elijas")
+        self.assertNotContains(response, "necesarios para poder responderte")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
+    def test_signup_form_keeps_normal_contact_copy_when_delivery_is_enabled(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cuéntanos lo esencial de tu negocio")
+        self.assertContains(response, "Contactamos por el canal que elijas")
+        self.assertContains(response, "necesarios para poder responderte")
+        self.assertContains(response, "Enviar solicitud")
+        self.assertNotContains(response, "Registra una solicitud de prueba")
+        self.assertNotContains(response, "ningún contacto externo")
+
+    def test_signup_success_copy_distinguishes_demo_from_real_contact(self):
+        success_url = reverse("business_signup_request_success")
+
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
+            demo_page = self.client.get(success_url)
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
+            delivery_page = self.client.get(success_url)
+
+        self.assertContains(demo_page, "Flujo académico completado")
+        self.assertContains(demo_page, "La solicitud ha quedado registrada")
+        self.assertContains(demo_page, "No se enviará correo")
+        self.assertContains(demo_page, "ni se entregarán mensajes externos")
+        self.assertNotContains(demo_page, "contactaremos contigo")
+        self.assertContains(delivery_page, "Solicitud completada")
+        self.assertContains(delivery_page, "Ya tenemos lo necesario para empezar")
+        self.assertContains(delivery_page, "contactaremos contigo")
+        self.assertNotContains(delivery_page, "Flujo académico completado")
+        self.assertNotContains(delivery_page, "No se enviará correo")
 
     def test_repeated_identical_request_is_idempotent_for_the_professional(self):
         first_response = self.client.post(self.url, self.valid_data)

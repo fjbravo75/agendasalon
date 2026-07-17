@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from django import forms
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -24,6 +25,21 @@ from apps.businesses.models import (
 )
 from apps.core.email import normalize_and_validate_routable_email
 from apps.core.phone import normalize_phone
+
+
+DEMO_EMAIL_VALIDATION_MESSAGE = (
+    "Usa una dirección de correo con formato y dominio válidos. En esta "
+    "demostración académica no se entregan mensajes externos."
+)
+
+
+def _normalize_routable_email(value):
+    try:
+        return normalize_and_validate_routable_email(value)
+    except ValidationError as exc:
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            raise forms.ValidationError(DEMO_EMAIL_VALIDATION_MESSAGE) from exc
+        raise
 
 
 def _sanitize_visual_image(image):
@@ -135,7 +151,7 @@ class BusinessForm(forms.ModelForm):
         if not email:
             return ""
         try:
-            return normalize_and_validate_routable_email(email)
+            return _normalize_routable_email(email)
         except ValidationError:
             existing_email = (self.instance.public_email or "").strip().lower()
             if self.instance.pk and email.strip().lower() == existing_email:
@@ -192,6 +208,11 @@ class ProfessionalCreateForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            self.fields["email"].help_text = (
+                "Se guardará como dato del acceso. En esta demostración académica "
+                "no se entregan correos externos."
+            )
         for field_name in ("phone", "email"):
             self.fields[field_name].widget.attrs["aria-describedby"] = (
                 "professional-access-guidance"
@@ -209,7 +230,7 @@ class ProfessionalCreateForm(forms.Form):
         return phone
 
     def clean_email(self):
-        email = normalize_and_validate_routable_email(self.cleaned_data["email"])
+        email = _normalize_routable_email(self.cleaned_data["email"])
         if get_user_model().objects.filter(email_normalized=email).exists():
             raise forms.ValidationError("Ya existe una cuenta interna con este correo.")
         return email
@@ -313,6 +334,18 @@ class BusinessSignupRequestForm(forms.ModelForm):
             ),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            self.fields["email"].help_text = (
+                "Lo guardaremos como dato de contacto. En esta demostración "
+                "académica no se entregan mensajes externos."
+            )
+            self.fields["email"].error_messages["required"] = (
+                "Indica un correo válido como dato de contacto. En esta demostración "
+                "académica no se entregan mensajes externos."
+            )
+
     def clean_phone(self):
         phone = self.cleaned_data["phone"]
         try:
@@ -322,10 +355,13 @@ class BusinessSignupRequestForm(forms.ModelForm):
         return phone
 
     def clean_email(self):
-        email = normalize_and_validate_routable_email(
-            self.cleaned_data.get("email", "")
-        )
+        email = _normalize_routable_email(self.cleaned_data.get("email", ""))
         if not email:
+            if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+                raise forms.ValidationError(
+                    "Indica un correo válido como dato de contacto. En esta "
+                    "demostración académica no se entregan mensajes externos."
+                )
             raise forms.ValidationError(
                 "Indica un correo para recibir la respuesta y activar el acceso."
             )

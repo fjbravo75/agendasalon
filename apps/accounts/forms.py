@@ -1,10 +1,26 @@
 from django import forms
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm, SetPasswordForm
 
 from apps.core.email import normalize_and_validate_routable_email
 from apps.core.phone import normalize_phone
+
+
+DEMO_EMAIL_VALIDATION_MESSAGE = (
+    "Usa una dirección de correo con formato y dominio válidos. En esta "
+    "demostración académica no se entregan mensajes externos."
+)
+
+
+def _normalize_routable_email(value):
+    try:
+        return normalize_and_validate_routable_email(value)
+    except forms.ValidationError as exc:
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            raise forms.ValidationError(DEMO_EMAIL_VALIDATION_MESSAGE) from exc
+        raise
 
 
 class PhoneAuthenticationForm(AuthenticationForm):
@@ -153,7 +169,7 @@ class AccountEmailForm(forms.Form):
         self.user = user
 
     def clean_email(self):
-        email = normalize_and_validate_routable_email(self.cleaned_data["email"])
+        email = _normalize_routable_email(self.cleaned_data["email"])
         if get_user_model().objects.exclude(pk=self.user.pk).filter(
             email_normalized=email
         ).exists():

@@ -1344,6 +1344,7 @@ def public_booking_receipt(request, slug):
             "appointment": appointment,
             "appointment_services": appointment_services,
             "confirmation_email": confirmation_email,
+            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
             "total_price": sum(
                 (item.price_amount_snapshot for item in priced_services),
                 Decimal("0.00"),
@@ -1840,6 +1841,7 @@ def _appointment_detail_context(business, appointment, cancel_form):
         "appointment": appointment,
         "appointment_services": tuple(appointment.appointment_services.all()),
         "appointment_emails": tuple(appointment.outbound_emails.order_by("scheduled_for", "pk")),
+        "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
         "holiday_impact": holiday_impact,
         "holiday_rebook_url": (
             _holiday_rebook_url(appointment) if holiday_impact is not None else ""
