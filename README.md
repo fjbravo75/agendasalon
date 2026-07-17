@@ -27,7 +27,7 @@ disponibilidad, puntuación y revalidación.
 ## Evidencias destacadas
 
 - [Benchmark reproducible del motor de huecos](docs/evidence/slot-engine/README.md): en cuatro escenarios deterministas, mantiene 31 solicitudes aceptadas y reduce de 120 a 0 los minutos atrapados en restos menores de 30 minutos.
-- [Índice de evidencias para evaluación](docs/EVIDENCIAS_CANDIDATA_10.md): seguridad, escalabilidad, límites y pruebas que todavía necesitan despliegue o participantes reales.
+- [Índice de evidencias para evaluación](docs/EVIDENCIAS_CANDIDATA_10.md): seguridad, escalabilidad, evidencia ya comprobada en producción y límites que todavía requieren infraestructura externa, carga o participantes reales.
 - [Protocolo de validación con profesionales](docs/validation-professionals/README.md): preparado, pero expresamente marcado como pendiente hasta realizar sesiones reales.
 
 ## Puesta en marcha local
