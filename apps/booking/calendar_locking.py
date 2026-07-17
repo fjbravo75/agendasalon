@@ -15,8 +15,18 @@ class LockedBusinessCalendar:
 
 def lock_business_calendar(business) -> LockedBusinessCalendar:
     """Bloquea una agenda completa con un orden único para evitar carreras."""
-    if not transaction.get_connection().in_atomic_block:
+    database_connection = transaction.get_connection()
+    if not database_connection.in_atomic_block:
         raise RuntimeError("El bloqueo de calendario requiere una transacción atómica.")
+
+    # La sincronización BOE toma SHARE sobre este registro antes de enumerar
+    # negocios. Declarar ROW EXCLUSIVE al inicio mantiene el mismo orden global:
+    # las mutaciones en curso terminan antes del snapshot y las nuevas esperan.
+    # Es compatible entre operaciones ordinarias y no afecta a SQLite.
+    if database_connection.vendor == "postgresql":
+        table_name = database_connection.ops.quote_name(Business._meta.db_table)
+        with database_connection.cursor() as cursor:
+            cursor.execute(f"LOCK TABLE {table_name} IN ROW EXCLUSIVE MODE")
 
     work_lines_by_id = {
         line.pk: line

@@ -125,25 +125,49 @@
         <section class="client-privacy-control" aria-labelledby="client-privacy-title">
           <span>Privacidad</span>
           <h3 id="client-privacy-title">{{ privacy_status.label }}</h3>
-          {% if privacy_status.evidence %}
+          {% if not business.legal_compliance_enabled %}
+            {% if privacy_status.latest_evidence %}
+              <p>Última constancia conservada: versión {{ privacy_status.latest_evidence.document.version }} · {{ privacy_status.latest_evidence.occurred_at|date:"d/m/Y · H:i" }}</p>
+              <small>La constancia anterior se conserva en el historial. Mientras el control legal esté desactivado, AgendaSalon no te pedirá registrar una nueva.</small>
+            {% else %}
+              <p>Mientras el control legal esté desactivado, AgendaSalon no te pedirá registrar una constancia en esta ficha.</p>
+            {% endif %}
+          {% elif privacy_status.evidence %}
             <p>Versión {{ privacy_status.evidence.document.version }} · {{ privacy_status.evidence.occurred_at|date:"d/m/Y · H:i" }}</p>
             <small>
               {{ privacy_status.evidence.get_event_type_display }} · {{ privacy_status.evidence.get_channel_display }}
               {% if privacy_status.evidence.informed_party_name_snapshot %} · {{ privacy_status.evidence.get_informed_party_type_display }}: {{ privacy_status.evidence.informed_party_name_snapshot }}{% endif %}
               {% if privacy_status.evidence.recorded_by %} · {{ privacy_status.evidence.recorded_by.full_name }}{% endif %}
             </small>
+          {% elif privacy_status.latest_evidence %}
+            <p>Última constancia conservada: versión {{ privacy_status.latest_evidence.document.version }} · {{ privacy_status.latest_evidence.occurred_at|date:"d/m/Y · H:i" }}</p>
+            {% if privacy_status.document %}
+              <small>Se conserva en el historial, pero ya no corresponde a la versión vigente.</small>
+            {% else %}
+              <small>Se conserva en el historial, aunque ahora no hay una política vigente disponible.</small>
+            {% endif %}
           {% else %}
-            <p>No consta todavía la entrega de la información vigente.</p>
+            {% if privacy_status.document %}
+              <p>No consta todavía la entrega de la información vigente.</p>
+            {% else %}
+              <p>No hay una constancia vigente porque la política no está disponible.</p>
+            {% endif %}
           {% endif %}
-          {% if business.legal_compliance_enabled %}
+          {% if business.legal_compliance_enabled and privacy_document_available %}
             <form method="post" action="{% url 'customers:professional_client_privacy_record' business_client.id %}">
               {% csrf_token %}
+              <input type="hidden" name="legal_presentation_token" value="{{ legal_presentation_token }}">
               <label for="{{ privacy_evidence_form.channel.id_for_label }}">Registrar información facilitada</label>
               {{ privacy_evidence_form.channel }}
+              {% if privacy_status.document %}<small>Se registrará la versión {{ privacy_status.document.version }}.</small>{% endif %}
               <button class="text-action" type="submit">Guardar constancia</button>
             </form>
+          {% elif business.legal_compliance_enabled %}
+            {% include "legal/_customer_privacy_unavailable.html" %}
           {% endif %}
-          <a class="appointment-inline-link" href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">Consultar el texto vigente</a>
+          {% if privacy_status.document %}
+            <a class="appointment-inline-link" href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">Consultar el texto vigente</a>
+          {% endif %}
         </section>
 
         {% if business_client.is_active %}

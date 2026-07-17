@@ -38,6 +38,7 @@
 
           <form method="post" class="business-signup-form" novalidate>
             {% csrf_token %}
+            <input type="hidden" name="legal_presentation_token" value="{{ legal_presentation_token }}">
             {% if form.errors %}
               <div class="business-signup-error-summary" role="alert" tabindex="-1" data-error-summary>
                 <strong>Revisa los campos indicados</strong>
@@ -49,40 +50,47 @@
                 </ul>
               </div>
             {% endif %}
+            {% if legal_unavailable_message %}
+              <div class="business-signup-error-summary" role="status">{{ legal_unavailable_message }}</div>
+            {% endif %}
 
-            <div class="business-signup-grid">
-              {% for field in form %}
-                {% if field.name != "privacy_acknowledged" %}
-                  <div class="business-signup-field{% if field.name == 'need_text' or field.name == 'preferred_channel' %} business-signup-field--wide{% endif %}{% if field.errors %} is-error{% endif %}">
-                    <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
-                    {{ field }}
-                    {% if field.name == "need_text" %}<small>Máximo 300 caracteres.</small>{% endif %}
-                    {% if field.errors %}
-                      <div class="business-signup-field__error" id="{{ field.id_for_label }}-error">
-                        {% for error in field.errors %}<span>{{ error }}</span>{% endfor %}
-                      </div>
-                    {% endif %}
-                  </div>
-                {% endif %}
-              {% endfor %}
-            </div>
+            <fieldset class="business-signup-form__fields"{% if not privacy_document %} disabled{% endif %}>
+              <div class="business-signup-grid">
+                {% for field in form %}
+                  {% if field.name != "privacy_acknowledged" %}
+                    <div class="business-signup-field{% if field.name == 'need_text' or field.name == 'preferred_channel' %} business-signup-field--wide{% endif %}{% if field.errors %} is-error{% endif %}">
+                      <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+                      {{ field }}
+                      {% if field.name == "need_text" %}<small>Máximo 300 caracteres.</small>{% endif %}
+                      {% if field.errors %}
+                        <div class="business-signup-field__error" id="{{ field.id_for_label }}-error">
+                          {% for error in field.errors %}<span>{{ error }}</span>{% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                {% endfor %}
+              </div>
 
-            <div class="business-signup-privacy{% if form.privacy_acknowledged.errors %} is-error{% endif %}">
-              {{ form.privacy_acknowledged }}
-              <label for="{{ form.privacy_acknowledged.id_for_label }}">
-                He leído la
-                <a href="{% url 'legal:platform_document' 'privacidad-plataforma' %}" target="_blank" rel="noopener">información sobre el tratamiento de mis datos</a>.
-              </label>
-              {% if form.privacy_acknowledged.errors %}
-                <div class="business-signup-field__error" id="{{ form.privacy_acknowledged.id_for_label }}-error">
-                  {% for error in form.privacy_acknowledged.errors %}<span>{{ error }}</span>{% endfor %}
+              {% if privacy_document %}
+                <div class="business-signup-privacy{% if form.privacy_acknowledged.errors %} is-error{% endif %}">
+                  {{ form.privacy_acknowledged }}
+                  <label for="{{ form.privacy_acknowledged.id_for_label }}">
+                    He leído la
+                    <a href="{% url 'legal:platform_document' privacy_document.slug %}" target="_blank" rel="noopener">información sobre el tratamiento de mis datos</a> (versión {{ privacy_document.version }}).
+                  </label>
+                  {% if form.privacy_acknowledged.errors %}
+                    <div class="business-signup-field__error" id="{{ form.privacy_acknowledged.id_for_label }}-error">
+                      {% for error in form.privacy_acknowledged.errors %}<span>{{ error }}</span>{% endfor %}
+                    </div>
+                  {% endif %}
                 </div>
               {% endif %}
-            </div>
+            </fieldset>
 
             <div class="business-signup-actions">
               <a href="{% url 'accounts:login' %}">Volver al acceso profesional</a>
-              <button class="login-button" type="submit">Enviar solicitud</button>
+              {% if privacy_document %}<button class="login-button" type="submit">Enviar solicitud</button>{% endif %}
             </div>
           </form>
         </div>

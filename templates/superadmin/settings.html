@@ -131,8 +131,8 @@
           <h2 id="holiday-settings-title">Festivos nacionales</h2>
         </div>
         {% if latest_holiday_run %}
-          <span class="settings-state{% if latest_holiday_run.status == 'failed' %} settings-state--danger{% endif %}">
-            {{ latest_holiday_run.get_status_display }}
+          <span class="settings-state{% if latest_holiday_run.presentation_is_danger %} settings-state--danger{% endif %}">
+            {{ latest_holiday_run.presentation_status }}
           </span>
         {% else %}
           <span class="settings-state">Sin sincronizar</span>
@@ -145,7 +145,7 @@
       </p>
 
       <div class="holiday-settings-layout">
-        <form class="holiday-sync-form" method="post" action="{% url 'platform_settings:superadmin_holiday_sync' %}" data-confirm-message="Se consultará el BOE y se reconciliará el calendario nacional del año indicado. Las citas existentes no se cancelarán ni se moverán. ¿Quieres continuar?">
+        <form class="holiday-sync-form" method="post" action="{% url 'platform_settings:superadmin_holiday_sync' %}" data-confirm-message="Se consultará el BOE y se actualizará el calendario nacional del año indicado. Las citas existentes no se cancelarán ni se moverán. ¿Quieres continuar?" data-submit-busy data-submit-busy-label="Sincronizando…">
           {% csrf_token %}
           <div class="field">
             {{ holiday_sync_form.year.label_tag }}
@@ -156,33 +156,55 @@
           <button class="button" type="submit">Sincronizar con BOE</button>
         </form>
 
-        <div class="holiday-sync-summary" aria-label="Resultado de la última sincronización con el BOE de {{ holiday_year }}">
+        <div class="holiday-sync-summary" aria-label="Estado de la sincronización con el BOE de {{ holiday_year }}">
           {% if latest_holiday_run %}
-            <div class="holiday-sync-summary__header">
-              <div>
-                <span>Última sincronización con el BOE de {{ holiday_year }}</span>
-                <strong>{{ latest_holiday_run.finished_at|default:latest_holiday_run.started_at|date:"d/m/Y H:i" }}</strong>
+            {% if latest_holiday_run.finished_at %}
+              <div class="holiday-sync-summary__header">
+                <div>
+                  <span>Última sincronización con el BOE de {{ holiday_year }}</span>
+                  <strong>{{ latest_holiday_run.finished_at|date:"d/m/Y H:i" }}</strong>
+                </div>
+                {% if latest_holiday_run.source_url %}
+                  <a href="{{ latest_holiday_run.source_url }}" target="_blank" rel="noopener noreferrer">
+                    {{ latest_holiday_run.official_reference|default:"Ver fuente oficial" }}
+                  </a>
+                {% endif %}
               </div>
-              {% if latest_holiday_run.source_url %}
-                <a href="{{ latest_holiday_run.source_url }}" target="_blank" rel="noopener noreferrer">
-                  {{ latest_holiday_run.official_reference|default:"Ver fuente oficial" }}
-                </a>
+              <div class="holiday-sync-metrics">
+                <div><strong>{{ latest_holiday_run.items_loaded }}</strong><span>Cargados</span></div>
+                <div><strong>{{ latest_holiday_run.items_created }}</strong><span>Creados</span></div>
+                <div><strong>{{ latest_holiday_run.items_updated }}</strong><span>Actualizados</span></div>
+                <div><strong>{{ latest_holiday_run.items_removed }}</strong><span>Retirados</span></div>
+              </div>
+              {% if latest_holiday_run.error_detail %}
+                <div class="alert">{{ latest_holiday_run.error_detail }}</div>
+              {% elif latest_holiday_run.affected_appointments %}
+                <div class="soft-note">
+                  {{ latest_holiday_run.affected_appointments }} cita{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %}
+                  futura{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %} coincide{% if latest_holiday_run.affected_appointments != 1 %}n{% endif %}
+                  con estas fechas en {{ latest_holiday_run.affected_businesses }} negocio{% if latest_holiday_run.affected_businesses != 1 %}s{% endif %}.
+                  No se ha cancelado ni movido ninguna.
+                </div>
               {% endif %}
-            </div>
-            <div class="holiday-sync-metrics">
-              <div><strong>{{ latest_holiday_run.items_loaded }}</strong><span>Cargados</span></div>
-              <div><strong>{{ latest_holiday_run.items_created }}</strong><span>Creados</span></div>
-              <div><strong>{{ latest_holiday_run.items_updated }}</strong><span>Actualizados</span></div>
-              <div><strong>{{ latest_holiday_run.items_removed }}</strong><span>Retirados</span></div>
-            </div>
-            {% if latest_holiday_run.error_detail %}
-              <div class="alert">{{ latest_holiday_run.error_detail }}</div>
-            {% elif latest_holiday_run.affected_appointments %}
+            {% else %}
+              <div class="holiday-sync-summary__header">
+                <div>
+                  {% if latest_holiday_run.presentation_is_interrupted %}
+                    <span>Sincronización con el BOE de {{ holiday_year }} interrumpida</span>
+                  {% else %}
+                    <span>Sincronización con el BOE de {{ holiday_year }} en curso</span>
+                  {% endif %}
+                  <strong>Iniciada el {{ latest_holiday_run.started_at|date:"d/m/Y H:i" }}</strong>
+                </div>
+              </div>
               <div class="soft-note">
-                {{ latest_holiday_run.affected_appointments }} cita{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %}
-                futura{% if latest_holiday_run.affected_appointments != 1 %}s{% endif %} coincide{% if latest_holiday_run.affected_appointments != 1 %}n{% endif %}
-                con estas fechas en {{ latest_holiday_run.affected_businesses }} negocio{% if latest_holiday_run.affected_businesses != 1 %}s{% endif %}.
-                No se ha cancelado ni movido ninguna.
+                {% if latest_holiday_run.presentation_is_interrupted %}
+                  La sincronización no terminó correctamente y no dejó un resultado completo.
+                  Puedes volver a iniciarla con seguridad.
+                {% else %}
+                  AgendaSalon está consultando el BOE y preparando la actualización del calendario.
+                  Al terminar verás aquí el resultado y las citas que requieren revisión.
+                {% endif %}
               </div>
             {% endif %}
           {% else %}

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+import hmac
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -69,18 +70,47 @@ from apps.businesses.services import (
     get_business_visual_theme,
     get_primary_business_for_user,
 )
-from apps.customers.forms import ProfessionalClientQuickForm
+from apps.customers.forms import (
+    CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE,
+    ProfessionalClientQuickForm,
+)
+from apps.customers.models import (
+    BusinessClient,
+    BusinessClientAccess,
+    BusinessClientAccessGrant,
+    BusinessClientAuthorizedContact,
+)
 from apps.customers.services import (
+    client_password_fingerprint,
     get_bookable_client,
     get_bookable_clients,
     get_session_client_access,
 )
 from apps.holidays.models import OfficialHoliday
-from apps.legal.models import LegalAcceptance
-from apps.legal.services import (
-    acknowledge_customer_privacy,
-    customer_privacy_status,
+from apps.legal.models import LegalAcceptance, LegalDocument
+from apps.legal.presentations import (
+    LEGAL_PRESENTATION_CHANGED_MESSAGE,
+    LegalPresentationError,
+    LegalPresentationScope,
+    clear_legal_confirmation_fields,
+    issue_legal_presentation,
+    resolve_legal_presentation,
 )
+from apps.legal.services import (
+    EVENT_FINGERPRINT_COLLISION_MESSAGE,
+    acknowledge_customer_privacy,
+    business_legal_snapshot,
+    customer_privacy_status,
+    get_active_document,
+)
+
+
+class _BeneficiaryPrivacyNotCurrent(ValidationError):
+    """Impide aceptar en nombre de otra persona sin constancia vigente."""
+
+
+class _CustomerPrivacyDocumentUnavailable(Exception):
+    """Detiene una confirmación si no puede mostrarse la política vigente."""
 
 
 @login_required
@@ -144,21 +174,47 @@ def appointment_assistant(request):
         return redirect("accounts:no_business")
 
     quick_client_form = ProfessionalClientQuickForm(business=business)
+    quick_client_receipt = None
     is_quick_client_post = request.method == "POST" and request.POST.get("action") == "quick_client"
 
     if is_quick_client_post:
         quick_client_form = ProfessionalClientQuickForm(request.POST, business=business)
-        if quick_client_form.is_valid():
-            try:
-                business_client, created = quick_client_form.save(recorded_by=request.user)
-            except ValidationError as exc:
-                quick_client_form.add_error(None, exc)
-            else:
+        quick_client_form_is_valid = quick_client_form.is_valid()
+        try:
+            quick_client_receipt = quick_client_form.validate_legal_presentation(
+                recorded_by=request.user,
+                legal_presentation_token=request.POST.get(
+                    "legal_presentation_token",
+                    "",
+                ),
+            )
+            if quick_client_form_is_valid:
+                business_client, created = quick_client_form.save(
+                    recorded_by=request.user,
+                    legal_presentation_token=request.POST.get(
+                        "legal_presentation_token",
+                        "",
+                    ),
+                )
+        except ValidationError as exc:
+            if {
+                LEGAL_PRESENTATION_CHANGED_MESSAGE,
+                EVENT_FINGERPRINT_COLLISION_MESSAGE,
+            }.intersection(getattr(exc, "messages", ())):
+                clear_legal_confirmation_fields(
+                    quick_client_form,
+                    ("privacy_information_provided",),
+                )
+                quick_client_receipt = None
+            quick_client_form.add_error(None, exc)
+        else:
+            if quick_client_form_is_valid:
                 if created:
                     messages.success(request, f"Ficha creada para {business_client.full_name}.")
                 else:
                     messages.success(request, f"{business_client.full_name} ya estaba en clientes.")
                 return redirect(_appointment_assistant_url_with_client(request.POST, business_client.id))
+        business = quick_client_form.business
         form = None
     elif request.method == "POST":
         form = AppointmentSearchForm(request.POST, business=business)
@@ -179,6 +235,10 @@ def appointment_assistant(request):
     else:
         form = None
 
+    agenda_prefill = (
+        request.method == "GET"
+        and request.GET.get("prefill_from_agenda") == "1"
+    )
     if is_quick_client_post:
         search_data = request.GET
     else:
@@ -193,27 +253,107 @@ def appointment_assistant(request):
         "target_date": timezone.localdate(),
         "manual_channel": Appointment.ManualChannel.PHONE,
     }
-    if request.method == "GET" and search_data:
+    prefill_data = None
+    if agenda_prefill:
+        prefill_data = request.GET.copy()
+        prefill_data.pop("prefill_from_agenda", None)
+        for field_name in (
+            "business_client",
+            "manual_channel",
+            "requested_by_contact",
+            "target_date",
+            "adjusted_duration_minutes",
+            "duration_adjustment_reason",
+        ):
+            value = prefill_data.get(field_name)
+            if value:
+                initial[field_name] = value
+        service_ids = prefill_data.getlist("services")
+        if service_ids:
+            initial["services"] = service_ids
+    if request.method == "GET" and search_data and not agenda_prefill:
         search_data = search_data.copy()
         search_data.setdefault("manual_channel", initial["manual_channel"])
         search_data.setdefault("target_date", initial["target_date"].isoformat())
     if form is None:
         form = AppointmentSearchForm(
-            search_data or None,
+            None if agenda_prefill else search_data or None,
             business=business,
             initial=initial,
         )
+
+    has_search = bool(search_data) and not agenda_prefill
+    selected_service_data = (
+        prefill_data
+        if agenda_prefill
+        else form.data if form.is_bound else None
+    )
+    if is_quick_client_post and quick_client_receipt is not None:
+        try:
+            quick_client_receipt = quick_client_form.validate_legal_presentation(
+                recorded_by=request.user,
+                legal_presentation_token=request.POST.get(
+                    "legal_presentation_token",
+                    "",
+                ),
+            )
+        except ValidationError as exc:
+            if {
+                LEGAL_PRESENTATION_CHANGED_MESSAGE,
+                EVENT_FINGERPRINT_COLLISION_MESSAGE,
+            }.intersection(getattr(exc, "messages", ())):
+                clear_legal_confirmation_fields(
+                    quick_client_form,
+                    ("privacy_information_provided",),
+                )
+            quick_client_form.add_error(None, exc)
+            quick_client_receipt = None
+
+    quick_privacy_document = None
+    quick_privacy_legal_context = None
+    if quick_client_receipt is not None:
+        quick_privacy_document = quick_client_receipt.document(
+            LegalDocument.Kind.CUSTOMER_PRIVACY
+        )
+        quick_privacy_legal_context = quick_client_receipt.legal_context
+    elif business.legal_compliance_enabled:
+        quick_privacy_document = get_active_document(
+            LegalDocument.Kind.CUSTOMER_PRIVACY
+        )
+        quick_privacy_legal_context = business_legal_snapshot(business)
+    quick_legal_presentation_token = (
+        issue_legal_presentation(
+            scope=LegalPresentationScope.PROFESSIONAL_CLIENT_QUICK,
+            audience={"business_id": business.pk, "user_id": request.user.pk},
+            documents=(quick_privacy_document,),
+            legal_context=quick_privacy_legal_context,
+        )
+        if quick_privacy_document is not None
+        else ""
+    )
+    quick_privacy_document_available = (
+        not business.legal_compliance_enabled
+        or quick_privacy_document is not None
+    )
 
     context = {
         "business": business,
         "form": form,
         "available_services": tuple(form.fields["services"].queryset),
-        "selected_service_ids": _selected_service_ids(form.data if form.is_bound else None),
+        "selected_service_ids": _selected_service_ids(selected_service_data),
         "active_lines": active_lines,
-        "has_search": bool(search_data),
+        "has_search": has_search,
+        "agenda_prefill": agenda_prefill,
+        "agenda_prefill_has_time": bool(request.GET.get("selected_starts_at")),
         "search_is_valid": False,
         "line_boards": _line_boards(active_lines, {}, {}),
         "quick_client_form": quick_client_form,
+        "quick_privacy_document": quick_privacy_document,
+        "quick_privacy_document_available": quick_privacy_document_available,
+        "customer_privacy_unavailable_message": (
+            CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE
+        ),
+        "quick_legal_presentation_token": quick_legal_presentation_token,
         "requester_choices_by_client": form.requester_choices_by_client,
         "selected_work_line_id": (
             request.POST.get("selected_work_line_id")
@@ -227,7 +367,7 @@ def appointment_assistant(request):
         ),
     }
 
-    if search_data and form.is_valid():
+    if has_search and form.is_valid():
         target_date = form.cleaned_data["target_date"]
         duration_minutes = form.cleaned_data["final_duration_minutes"]
         day_availability = get_day_availability(
@@ -1092,7 +1232,10 @@ def public_booking(request, slug):
                 return redirect(f"{login_url}?{urlencode({'next': confirmation_url})}")
             return redirect(confirmation_url)
 
-    return render(request, "public/booking.html", context)
+    response = render(request, "public/booking.html", context)
+    if client_access is not None:
+        return _protect_personal_booking_response(response)
+    return response
 
 
 def public_booking_receipt(request, slug):
@@ -1140,7 +1283,7 @@ def public_booking_receipt(request, slug):
         ),
         None,
     )
-    return render(
+    response = render(
         request,
         "public/booking_receipt.html",
         {
@@ -1159,6 +1302,7 @@ def public_booking_receipt(request, slug):
             "has_unpriced_services": len(priced_services) != len(appointment_services),
         },
     )
+    return _protect_personal_booking_response(response)
 
 
 def _confirm_public_booking_draft(request, business, client_access):
@@ -1171,6 +1315,14 @@ def _confirm_public_booking_draft(request, business, client_access):
         confirmation_url = _public_booking_confirmation_url(business)
         login_url = reverse("customers:client_access", args=[business.slug])
         return redirect(f"{login_url}?{urlencode({'next': confirmation_url})}")
+
+    if (
+        business.legal_compliance_enabled
+        and get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY) is None
+    ):
+        return _public_booking_privacy_unavailable_response(
+            request, business, client_access
+        )
 
     form = PublicBookingForm(
         public_booking_draft_form_data(draft),
@@ -1193,24 +1345,87 @@ def _confirm_public_booking_draft(request, business, client_access):
     try:
         with transaction.atomic():
             locked_calendar = lock_business_calendar(business)
-            beneficiary = get_bookable_client(
+            # Orden global del flujo público: calendario -> documento legal ->
+            # identidad cliente. La verificación de correo también bloquea el
+            # documento antes que la cuenta, evitando un ciclo entre ambos flujos.
+            locked_privacy_document = (
+                LegalDocument.objects.select_for_update()
+                .filter(
+                    kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+                    is_active=True,
+                )
+                .first()
+            )
+            if (
+                locked_calendar.business.legal_compliance_enabled
+                and locked_privacy_document is None
+            ):
+                raise _CustomerPrivacyDocumentUnavailable
+            locked_client_access, beneficiary = _lock_public_booking_identity(
+                locked_calendar.business,
                 client_access,
                 request.POST.get("business_client") or client_access.business_client_id,
             )
-            if beneficiary is None:
-                raise ValidationError("Ya no tienes permiso para reservar para esa persona.")
-            if not privacy_status["is_current"]:
+            beneficiary_privacy_status = customer_privacy_status(
+                beneficiary,
+                document=locked_privacy_document,
+            )
+            if (
+                beneficiary.pk != locked_client_access.business_client_id
+                and not beneficiary_privacy_status["is_current"]
+            ):
+                raise _BeneficiaryPrivacyNotCurrent(
+                    "Antes de reservar para esta persona, pide al salón que "
+                    "actualice su información de privacidad."
+                )
+            locked_privacy_status = customer_privacy_status(
+                locked_client_access.business_client,
+                document=locked_privacy_document,
+            )
+            if not locked_privacy_status["is_current"]:
+                if request.POST.get("privacy_acknowledged") != "on":
+                    raise LegalPresentationError(
+                        LEGAL_PRESENTATION_CHANGED_MESSAGE
+                    )
+                receipt = resolve_legal_presentation(
+                    request.POST.get("legal_presentation_token", ""),
+                    scope=LegalPresentationScope.PUBLIC_BOOKING,
+                    audience=_public_booking_legal_audience(
+                        locked_calendar.business,
+                        locked_client_access,
+                    ),
+                    required_kinds=(LegalDocument.Kind.CUSTOMER_PRIVACY,),
+                    legal_context=business_legal_snapshot(
+                        locked_calendar.business
+                    ),
+                )
                 acknowledge_customer_privacy(
-                    client_access=client_access,
+                    client_access=locked_client_access,
                     context=LegalAcceptance.Context.BOOKING_CONFIRMATION,
+                    document=receipt.document(
+                        LegalDocument.Kind.CUSTOMER_PRIVACY
+                    ),
+                    legal_context_snapshot=receipt.legal_context,
+                    action_fingerprint_source=receipt.receipt_id,
                 )
             appointment = _confirm_public_appointment(
                 business,
-                client_access,
+                locked_client_access,
                 beneficiary,
                 form,
                 locked_calendar=locked_calendar,
+                public_confirmation_reference=draft["confirmation_reference"],
             )
+    except _CustomerPrivacyDocumentUnavailable:
+        return _public_booking_privacy_unavailable_response(
+            request, business, client_access
+        )
+    except _BeneficiaryPrivacyNotCurrent as exc:
+        messages.error(request, _validation_message(exc))
+        return _render_public_booking_confirmation(request, business, client_access)
+    except LegalPresentationError:
+        messages.error(request, LEGAL_PRESENTATION_CHANGED_MESSAGE)
+        return _render_public_booking_confirmation(request, business, client_access)
     except (ValidationError, WorkLine.DoesNotExist) as exc:
         clear_public_booking_draft(request, business)
         messages.error(request, _validation_message(exc))
@@ -1235,6 +1450,14 @@ def _render_public_booking_confirmation(request, business, client_access):
         confirmation_url = _public_booking_confirmation_url(business)
         login_url = reverse("customers:client_access", args=[business.slug])
         return redirect(f"{login_url}?{urlencode({'next': confirmation_url})}")
+
+    if (
+        business.legal_compliance_enabled
+        and get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY) is None
+    ):
+        return _public_booking_privacy_unavailable_response(
+            request, business, client_access
+        )
 
     form = PublicBookingForm(
         public_booking_draft_form_data(draft),
@@ -1265,12 +1488,27 @@ def _render_public_booking_confirmation(request, business, client_access):
     selected_services = tuple(form.cleaned_data["services"])
     bookable_clients = tuple(get_bookable_clients(client_access))
     privacy_status = customer_privacy_status(client_access.business_client)
+    legal_presentation_token = ""
+    if not privacy_status["is_current"] and privacy_status["document"] is not None:
+        legal_presentation_token = issue_legal_presentation(
+            scope=LegalPresentationScope.PUBLIC_BOOKING,
+            audience=_public_booking_legal_audience(business, client_access),
+            documents=(privacy_status["document"],),
+            legal_context=business_legal_snapshot(business),
+        )
     context = _public_booking_base_context(
         business=business,
         client_access=client_access,
         form=form,
         has_search=True,
     )
+    selected_business_client = client_access.business_client
+    requested_business_client_id = request.POST.get("business_client")
+    if requested_business_client_id:
+        selected_business_client = (
+            get_bookable_client(client_access, requested_business_client_id)
+            or selected_business_client
+        )
     context.update(
         {
             "confirmation_pending": True,
@@ -1282,13 +1520,155 @@ def _render_public_booking_confirmation(request, business, client_access):
             "booking_progress_step": "confirm",
             "change_search_url": _public_booking_search_url(business, draft),
             "bookable_clients": bookable_clients,
-            "selected_business_client": client_access.business_client,
+            "selected_business_client": selected_business_client,
             "privacy_acknowledgement_required": not privacy_status["is_current"],
             "privacy_document": privacy_status["document"],
+            "legal_presentation_token": legal_presentation_token,
             **_public_price_summary(selected_services),
         }
     )
-    return render(request, "public/booking.html", context)
+    response = render(request, "public/booking.html", context)
+    return _protect_personal_booking_response(response)
+
+
+def _public_booking_legal_audience(business, client_access):
+    return {
+        "business_id": business.pk,
+        "client_access_id": client_access.pk,
+    }
+
+
+def _protect_personal_booking_response(response):
+    response["Cache-Control"] = "no-store"
+    # ``no-referrer`` convierte el encabezado Origin en ``null`` en los POST
+    # HTML básicos. Django lo rechaza correctamente mediante CSRF, de modo que
+    # la confirmación y la salida de la cuenta quedaban inutilizables en un
+    # navegador real. ``same-origin`` sigue sin revelar esta página personal a
+    # otros orígenes y conserva un Origin verificable en los formularios
+    # internos.
+    response["Referrer-Policy"] = "same-origin"
+    return response
+
+
+def _public_booking_privacy_unavailable_response(request, business, client_access):
+    response = render(
+        request,
+        "legal/public_booking_privacy_unavailable.html",
+        {
+            "business": business,
+            "client_access": client_access,
+            "client_auth_theme": get_business_visual_theme(business),
+            "client_auth_image_url": get_business_public_image_url(business),
+        },
+        status=503,
+    )
+    return _protect_personal_booking_response(response)
+
+
+def _lock_public_booking_identity(business, client_access, requested_client_id):
+    """Revalida cuenta, ficha y permiso dentro de la transacción de reserva."""
+
+    principal_client = (
+        BusinessClient.objects.select_for_update()
+        .filter(
+            pk=client_access.business_client_id,
+            business=business,
+            is_active=True,
+        )
+        .first()
+    )
+    if principal_client is None:
+        raise ValidationError(
+            "Tu acceso ha cambiado. Vuelve a entrar antes de confirmar la cita."
+        )
+    locked_access = (
+        BusinessClientAccess.objects.select_for_update()
+        .select_related("business_client")
+        .filter(
+            pk=client_access.pk,
+            business=business,
+            business_client=principal_client,
+            is_active=True,
+            email_verified_at__isnull=False,
+        )
+        .first()
+    )
+    if locked_access is None:
+        raise ValidationError(
+            "Tu acceso ha cambiado. Vuelve a entrar antes de confirmar la cita."
+        )
+    if not hmac.compare_digest(
+        client_password_fingerprint(client_access),
+        client_password_fingerprint(locked_access),
+    ):
+        raise ValidationError(
+            "Tu acceso ha cambiado. Vuelve a entrar antes de confirmar la cita."
+        )
+
+    try:
+        requested_client_id = int(requested_client_id)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(
+            "Ya no tienes permiso para reservar para esa persona."
+        ) from exc
+
+    if requested_client_id == principal_client.pk:
+        return locked_access, principal_client
+
+    beneficiary = (
+        BusinessClient.objects.select_for_update()
+        .filter(
+            pk=requested_client_id,
+            business=business,
+            is_active=True,
+        )
+        .first()
+    )
+    if beneficiary is None:
+        raise ValidationError("Ya no tienes permiso para reservar para esa persona.")
+
+    grant_candidate = (
+        BusinessClientAccessGrant.objects
+        .filter(
+            business=business,
+            access=locked_access,
+            business_client=beneficiary,
+            is_active=True,
+        )
+        .values("pk", "authorized_contact_id")
+        .first()
+    )
+    if grant_candidate is None:
+        raise ValidationError("Ya no tienes permiso para reservar para esa persona.")
+    authorized_contact_id = grant_candidate["authorized_contact_id"]
+    if authorized_contact_id is not None:
+        contact_is_active = (
+            BusinessClientAuthorizedContact.objects.select_for_update()
+            .filter(
+                pk=authorized_contact_id,
+                business=business,
+                business_client=beneficiary,
+                is_active=True,
+            )
+            .exists()
+        )
+        if not contact_is_active:
+            raise ValidationError("Ya no tienes permiso para reservar para esa persona.")
+    grant_is_current = (
+        BusinessClientAccessGrant.objects.select_for_update()
+        .filter(
+            pk=grant_candidate["pk"],
+            business=business,
+            access=locked_access,
+            business_client=beneficiary,
+            authorized_contact_id=authorized_contact_id,
+            is_active=True,
+        )
+        .exists()
+    )
+    if not grant_is_current:
+        raise ValidationError("Ya no tienes permiso para reservar para esa persona.")
+    return locked_access, beneficiary
 
 
 def _selected_public_available_slot(data, day_availability):
@@ -1715,6 +2095,7 @@ def _confirm_public_appointment(
     form,
     *,
     locked_calendar,
+    public_confirmation_reference,
 ):
     grant = client_access.booking_grants.filter(
         business_client=business_client,
@@ -1736,6 +2117,7 @@ def _confirm_public_appointment(
                 if grant
                 else "Es su propia ficha"
             ),
+            public_confirmation_reference=public_confirmation_reference,
         ),
         locked_calendar=locked_calendar,
         allow_line_reassignment=True,

@@ -24,6 +24,7 @@ from apps.customers.models import (
     BusinessClientAccessGrant,
     BusinessClientAuthorizedContact,
 )
+from apps.customers.forms import ClientEmailVerificationForm, ProfessionalClientQuickForm
 from apps.customers.services import (
     CLIENT_ACCESS_LAST_SEEN_SESSION_KEY,
     CLIENT_ACCESS_PASSWORD_SESSION_KEY,
@@ -36,11 +37,15 @@ from apps.customers.services import (
 )
 from apps.legal.models import (
     CustomerPrivacyEvidence,
+    CustomerPrivacyEvidenceEvent,
     LegalAcceptance,
+    LegalAcceptanceEvent,
     LegalDocument,
 )
+from apps.legal.presentations import LEGAL_PRESENTATION_CHANGED_MESSAGE
 from apps.legal.services import (
     accept_professional_legal_documents,
+    business_legal_snapshot,
     get_active_document,
 )
 from apps.notifications.models import OutboundEmail
@@ -968,6 +973,7 @@ class ClientAccessSecurityP0Tests(TestCase):
             {
                 "password": "NuevaClaveCliente2026!",
                 "password_confirm": "NuevaClaveCliente2026!",
+                "legal_presentation_token": page.context["legal_presentation_token"],
             },
         )
         self.assertEqual(rejected.status_code, 200)
@@ -980,12 +986,39 @@ class ClientAccessSecurityP0Tests(TestCase):
         self.assertFalse(access.business_client.is_active)
         self.assertFalse(LegalAcceptance.objects.filter(client_access=access).exists())
 
+        ordinary_error = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "OtraClaveCliente2026!",
+                "privacy_acknowledged": "on",
+                "legal_presentation_token": page.context["legal_presentation_token"],
+            },
+        )
+        self.assertEqual(ordinary_error.status_code, 200)
+        self.assertEqual(ordinary_error["Cache-Control"], "no-store")
+        self.assertEqual(ordinary_error["Referrer-Policy"], "strict-origin")
+        self.assertTrue(
+            ordinary_error.context["verification_form"][
+                "privacy_acknowledged"
+            ].value()
+        )
+        self.assertEqual(
+            ordinary_error.context["legal_presentation_token"],
+            page.context["legal_presentation_token"],
+        )
+        access.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+
         confirmed = self.client.post(
             verify_path,
             {
                 "password": "NuevaClaveCliente2026!",
                 "password_confirm": "NuevaClaveCliente2026!",
                 "privacy_acknowledged": "on",
+                "legal_presentation_token": ordinary_error.context[
+                    "legal_presentation_token"
+                ],
             },
         )
         self.assertEqual(confirmed.status_code, 302)
@@ -1001,12 +1034,209 @@ class ClientAccessSecurityP0Tests(TestCase):
         self.assertEqual(acceptance.context, LegalAcceptance.Context.CLIENT_REGISTRATION)
         self.assertEqual(acceptance.document, privacy_document)
         self.assertEqual(acceptance.document_hash_snapshot, privacy_document.content_hash)
-        self.assertTrue(acceptance.legal_context_snapshot)
+        expected_legal_context = business_legal_snapshot(self.business)
+        self.assertEqual(acceptance.legal_context_snapshot, expected_legal_context)
         self.assertEqual(
             evidence.channel,
             CustomerPrivacyEvidence.Channel.ONLINE_REGISTRATION,
         )
         self.assertEqual(evidence.document, privacy_document)
+        self.assertEqual(evidence.legal_context_snapshot, expected_legal_context)
+
+    def test_email_verification_stops_cleanly_without_current_privacy_document(self):
+        self._enable_current_legal_compliance()
+        response = self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Cliente sin política vigente",
+                "phone": "600777038",
+                "email": "cliente.sin.politica@example.com",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="cliente.sin.politica@example.com",
+        )
+        verify_path = urlparse(client_verification_url(access)).path
+        initial_page = self.client.get(verify_path)
+        token = initial_page.context["legal_presentation_token"]
+        LegalDocument.objects.filter(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        ).update(is_active=False)
+
+        unavailable = self.client.get(verify_path)
+
+        self.assertEqual(unavailable.status_code, 503)
+        self.assertContains(
+            unavailable,
+            "Tu enlace sigue siendo válido, pero antes necesitamos poder mostrarte",
+            status_code=503,
+        )
+        self.assertContains(
+            unavailable,
+            "sigue pendiente de confirmación",
+            status_code=503,
+        )
+        self.assertNotContains(unavailable, 'name="password"', status_code=503)
+        self.assertNotContains(unavailable, 'type="submit"', status_code=503)
+
+        rejected = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+                "privacy_acknowledged": "on",
+                "legal_presentation_token": token,
+            },
+        )
+
+        self.assertEqual(rejected.status_code, 503)
+        access.refresh_from_db()
+        access.business_client.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+        self.assertFalse(is_password_usable(access.password_hash))
+        self.assertTrue(access.is_pending_public_registration)
+        self.assertFalse(access.business_client.is_active)
+        self.assertFalse(LegalAcceptance.objects.filter(client_access=access).exists())
+        self.assertFalse(
+            LegalAcceptanceEvent.objects.filter(client_access=access).exists()
+        )
+        self.assertFalse(
+            CustomerPrivacyEvidence.objects.filter(client_access=access).exists()
+        )
+        self.assertFalse(
+            CustomerPrivacyEvidenceEvent.objects.filter(client_access=access).exists()
+        )
+
+    def test_email_verification_rerenders_fresh_compliance_after_false_to_true_flip(self):
+        response = self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Cliente durante activación legal",
+                "phone": "600777037",
+                "email": "cliente.activacion.legal@example.com",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="cliente.activacion.legal@example.com",
+        )
+        verify_path = urlparse(client_verification_url(access)).path
+        page = self.client.get(verify_path)
+        self.assertEqual(page.context["legal_presentation_token"], "")
+        original_is_valid = ClientEmailVerificationForm.is_valid
+
+        def validate_then_enable_compliance(form):
+            is_valid = original_is_valid(form)
+            Business.objects.filter(pk=self.business.pk).update(
+                legal_compliance_enabled=True
+            )
+            return is_valid
+
+        with patch.object(
+            ClientEmailVerificationForm,
+            "is_valid",
+            new=validate_then_enable_compliance,
+        ):
+            rejected = self.client.post(
+                verify_path,
+                {
+                    "password": "NuevaClaveCliente2026!",
+                    "password_confirm": "NuevaClaveCliente2026!",
+                    "legal_presentation_token": "",
+                },
+            )
+
+        self.assertEqual(rejected.status_code, 200)
+        self.assertContains(rejected, LEGAL_PRESENTATION_CHANGED_MESSAGE)
+        self.assertTrue(rejected.context["business"].legal_compliance_enabled)
+        self.assertIsNotNone(rejected.context["privacy_document"])
+        self.assertTrue(rejected.context["legal_presentation_token"])
+        access.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+
+    def test_email_verification_rejects_a_rotated_privacy_document_without_mutations(self):
+        self._enable_current_legal_compliance()
+        response = self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Cliente con documento rotado",
+                "phone": "600777036",
+                "email": "cliente.rotacion@example.com",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            email_normalized="cliente.rotacion@example.com",
+        )
+        verify_path = urlparse(client_verification_url(access)).path
+        page = self.client.get(verify_path)
+        self.assertEqual(page.status_code, 200)
+        old_document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+
+        LegalDocument.objects.filter(pk=old_document.pk).update(is_active=False)
+        replacement = LegalDocument.objects.create(
+            kind=old_document.kind,
+            slug="privacidad-clientes-prueba-rotacion-b",
+            version="test-rotation-b",
+            title=old_document.title,
+            lead=old_document.lead,
+            sections=old_document.sections,
+            is_active=True,
+        )
+
+        rejected = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "OtraClaveCliente2026!",
+                "privacy_acknowledged": "on",
+                "legal_presentation_token": page.context["legal_presentation_token"],
+            },
+        )
+
+        self.assertEqual(rejected.status_code, 200)
+        self.assertContains(rejected, LEGAL_PRESENTATION_CHANGED_MESSAGE)
+        self.assertContains(rejected, f"versión {replacement.version}")
+        self.assertContains(rejected, 'tabindex="-1"')
+        self.assertContains(rejected, 'data-error-summary')
+        self.assertFalse(
+            rejected.context["verification_form"]["privacy_acknowledged"].value()
+        )
+        self.assertNotEqual(
+            rejected.context["legal_presentation_token"],
+            page.context["legal_presentation_token"],
+        )
+        access.refresh_from_db()
+        access.business_client.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
+        self.assertFalse(is_password_usable(access.password_hash))
+        self.assertTrue(access.is_pending_public_registration)
+        self.assertFalse(access.business_client.is_active)
+        self.assertFalse(LegalAcceptance.objects.filter(client_access=access).exists())
+        self.assertFalse(CustomerPrivacyEvidence.objects.filter(client_access=access).exists())
+
+        reconfirmation_required = self.client.post(
+            verify_path,
+            {
+                "password": "NuevaClaveCliente2026!",
+                "password_confirm": "NuevaClaveCliente2026!",
+                "legal_presentation_token": rejected.context[
+                    "legal_presentation_token"
+                ],
+            },
+        )
+        self.assertEqual(reconfirmation_required.status_code, 200)
+        self.assertContains(
+            reconfirmation_required,
+            "Confirma que has recibido la información",
+        )
+        access.refresh_from_db()
+        self.assertIsNone(access.email_verified_at)
 
     def test_paused_business_preserves_pending_public_registration_for_later(self):
         access = register_client_access(
@@ -1241,8 +1471,9 @@ class ClientAccessSecurityP0Tests(TestCase):
         verify_path = urlparse(client_verification_url(access)).path
         browser = Client(enforce_csrf_checks=True)
 
-        page = browser.get(verify_path)
+        page = browser.get(verify_path, secure=True)
         self.assertEqual(page.status_code, 200)
+        self.assertEqual(page["Referrer-Policy"], "strict-origin")
         self.assertContains(page, "Confirmar correo y crear contraseña")
         access.refresh_from_db()
         self.assertIsNone(access.email_verified_at)
@@ -1255,6 +1486,7 @@ class ClientAccessSecurityP0Tests(TestCase):
                 "password": "NuevaClaveCliente2026!",
                 "password_confirm": "NuevaClaveCliente2026!",
             },
+            secure=True,
         )
         self.assertEqual(rejected.status_code, 403)
         access.refresh_from_db()
@@ -1268,7 +1500,8 @@ class ClientAccessSecurityP0Tests(TestCase):
                 "password": "NuevaClaveCliente2026!",
                 "password_confirm": "OtraClaveCliente2026!",
             },
-            HTTP_ORIGIN="http://testserver",
+            HTTP_ORIGIN="https://testserver",
+            secure=True,
         )
         self.assertEqual(mismatch.status_code, 200)
         access.refresh_from_db()
@@ -1282,7 +1515,8 @@ class ClientAccessSecurityP0Tests(TestCase):
                 "password": "NuevaClaveCliente2026!",
                 "password_confirm": "NuevaClaveCliente2026!",
             },
-            HTTP_ORIGIN="http://testserver",
+            HTTP_ORIGIN="https://testserver",
+            secure=True,
         )
         self.assertEqual(confirmed.status_code, 302)
         access.refresh_from_db()
@@ -1397,19 +1631,24 @@ class ClientAccessSecurityP0Tests(TestCase):
             302,
         )
         reset_path = urlparse(client_password_reset_url(access)).path
-        reset_browser = self.client_class()
+        reset_browser = Client(enforce_csrf_checks=True)
 
-        page = reset_browser.get(reset_path)
+        page = reset_browser.get(reset_path, secure=True)
         self.assertEqual(page.status_code, 200)
+        self.assertEqual(page["Referrer-Policy"], "strict-origin")
         access.refresh_from_db()
         self.assertTrue(access.check_password("ClienteDemo2026!"))
+        csrf_token = reset_browser.cookies["csrftoken"].value
 
         changed = reset_browser.post(
             reset_path,
             {
+                "csrfmiddlewaretoken": csrf_token,
                 "password": "NuevaClaveCliente2026!",
                 "password_confirm": "NuevaClaveCliente2026!",
             },
+            HTTP_ORIGIN="https://testserver",
+            secure=True,
         )
         self.assertEqual(changed.status_code, 302)
         access.refresh_from_db()
@@ -1603,12 +1842,17 @@ class ClientAccessInvitationTests(TestCase):
         self.assertFalse(CustomerPrivacyEvidence.objects.filter(client_access=access).exists())
 
         verify_path = urlparse(client_verification_url(access)).path
+        verification_page = customer_browser.get(verify_path)
+        self.assertEqual(verification_page.status_code, 200)
         verified = customer_browser.post(
             verify_path,
             {
                 "password": "ClienteInvitado2026!",
                 "password_confirm": "ClienteInvitado2026!",
                 "privacy_acknowledged": "on",
+                "legal_presentation_token": verification_page.context[
+                    "legal_presentation_token"
+                ],
             },
         )
 
@@ -1627,12 +1871,13 @@ class ClientAccessInvitationTests(TestCase):
         response, _ = self._create_invitation()
         claim_path = urlparse(response.context["invitation_url"]).path
         csrf_browser = Client(enforce_csrf_checks=True)
-        csrf_browser.get(claim_path)
+        csrf_browser.get(claim_path, secure=True)
         activation_url = reverse(
             "customers:client_invitation_activate",
             args=[self.business.slug],
         )
-        csrf_browser.get(activation_url)
+        activation_page = csrf_browser.get(activation_url, secure=True)
+        self.assertEqual(activation_page["Referrer-Policy"], "same-origin")
         csrf_token = csrf_browser.cookies["csrftoken"].value
 
         response = csrf_browser.post(
@@ -1643,7 +1888,8 @@ class ClientAccessInvitationTests(TestCase):
                 "password": "ClienteInvitado2026!",
                 "password_confirm": "ClienteInvitado2026!",
             },
-            HTTP_ORIGIN="http://testserver",
+            HTTP_ORIGIN="https://testserver",
+            secure=True,
         )
 
         self.assertRedirects(
@@ -1716,6 +1962,168 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:login"), response["Location"])
 
+    def test_quick_client_rechecks_compliance_after_the_form_was_built(self):
+        business = Business.objects.get(pk=self.business.pk)
+        business.legal_compliance_enabled = False
+        business.save(update_fields=["legal_compliance_enabled", "updated_at"])
+        form = ProfessionalClientQuickForm(
+            {
+                "full_name": "Cliente durante cambio legal",
+                "phone": "600333118",
+            },
+            business=business,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        Business.objects.filter(pk=self.business.pk).update(
+            legal_compliance_enabled=True
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            LEGAL_PRESENTATION_CHANGED_MESSAGE,
+        ):
+            form.save(recorded_by=self.professional, legal_presentation_token="")
+
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente durante cambio legal",
+            ).exists()
+        )
+
+    def test_quick_client_rerenders_fresh_compliance_after_false_to_true_flip(self):
+        business = Business.objects.get(pk=self.business.pk)
+        business.legal_compliance_enabled = False
+        business.save(update_fields=["legal_compliance_enabled", "updated_at"])
+        self.client.force_login(self.professional)
+        original_is_valid = ProfessionalClientQuickForm.is_valid
+
+        def validate_then_enable_compliance(form):
+            is_valid = original_is_valid(form)
+            Business.objects.filter(pk=business.pk).update(
+                legal_compliance_enabled=True
+            )
+            return is_valid
+
+        with patch.object(
+            ProfessionalClientQuickForm,
+            "is_valid",
+            new=validate_then_enable_compliance,
+        ):
+            response = self.client.post(
+                reverse("customers:professional_client_list"),
+                {
+                    "full_name": "Cliente durante render legal",
+                    "phone": "600333116",
+                    "legal_presentation_token": "",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, LEGAL_PRESENTATION_CHANGED_MESSAGE)
+        self.assertTrue(response.context["business"].legal_compliance_enabled)
+        self.assertIsNotNone(response.context["privacy_document"])
+        self.assertTrue(response.context["legal_presentation_token"])
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente durante render legal",
+            ).exists()
+        )
+
+    def test_rotated_quick_client_receipt_with_another_error_clears_confirmation(self):
+        self.client.force_login(self.professional)
+        list_url = reverse("customers:professional_client_list")
+        page = self.client.get(list_url)
+        old_token = page.context["legal_presentation_token"]
+        ordinary_error = self.client.post(
+            list_url,
+            {
+                "full_name": "Cliente con recibo rotado",
+                "phone": "600333117",
+                "email": "correo-no-valido",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+                "privacy_information_provided": "on",
+                "legal_presentation_token": old_token,
+            },
+        )
+        self.assertEqual(ordinary_error.status_code, 200)
+        self.assertTrue(
+            ordinary_error.context["quick_form"][
+                "privacy_information_provided"
+            ].value()
+        )
+        self.assertEqual(
+            ordinary_error.context["legal_presentation_token"],
+            old_token,
+        )
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente con recibo rotado",
+            ).exists()
+        )
+
+        old_document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+        LegalDocument.objects.filter(pk=old_document.pk).update(is_active=False)
+        replacement = LegalDocument.objects.create(
+            kind=old_document.kind,
+            slug="privacidad-clientes-alta-rapida-b",
+            version="quick-rotation-b",
+            title=old_document.title,
+            lead=old_document.lead,
+            sections=old_document.sections,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            list_url,
+            {
+                "full_name": "Cliente con recibo rotado",
+                "phone": "600333117",
+                "email": "correo-no-valido",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+                "privacy_information_provided": "on",
+                "legal_presentation_token": old_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, LEGAL_PRESENTATION_CHANGED_MESSAGE)
+        self.assertContains(response, f"versión {replacement.version}")
+        self.assertContains(response, 'role="alert"')
+        self.assertContains(response, 'data-error-summary')
+        self.assertFalse(
+            response.context["quick_form"]["privacy_information_provided"].value()
+        )
+        self.assertNotEqual(response.context["legal_presentation_token"], old_token)
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente con recibo rotado",
+            ).exists()
+        )
+
+        reconfirmation_required = self.client.post(
+            list_url,
+            {
+                "full_name": "Cliente con recibo rotado",
+                "phone": "600333117",
+                "email": "cliente.rotado@example.com",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+                "legal_presentation_token": response.context[
+                    "legal_presentation_token"
+                ],
+            },
+        )
+        self.assertEqual(reconfirmation_required.status_code, 200)
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente con recibo rotado",
+            ).exists()
+        )
+
     def test_professional_client_list_shows_business_clients(self):
         self.client.force_login(self.professional)
 
@@ -1769,9 +2177,11 @@ class ProfessionalClientViewTests(TestCase):
 
     def test_professional_can_create_client_from_client_list(self):
         self.client.force_login(self.professional)
+        list_url = reverse("customers:professional_client_list")
+        page = self.client.get(list_url)
 
         response = self.client.post(
-            reverse("customers:professional_client_list"),
+            list_url,
             {
                 "full_name": "Paula Vega",
                 "phone": "600333111",
@@ -1779,6 +2189,7 @@ class ProfessionalClientViewTests(TestCase):
                 "internal_notes": "Prefiere primera hora.",
                 "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
                 "privacy_information_provided": "on",
+                "legal_presentation_token": page.context["legal_presentation_token"],
             },
         )
 
@@ -1824,9 +2235,11 @@ class ProfessionalClientViewTests(TestCase):
 
     def test_professional_can_create_profile_without_own_phone(self):
         self.client.force_login(self.professional)
+        list_url = reverse("customers:professional_client_list")
+        page = self.client.get(list_url)
 
         response = self.client.post(
-            reverse("customers:professional_client_list"),
+            list_url,
             {
                 "full_name": "Leo López",
                 "phone": "",
@@ -1834,6 +2247,7 @@ class ProfessionalClientViewTests(TestCase):
                 "internal_notes": "Menor gestionado por su madre.",
                 "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
                 "privacy_information_provided": "on",
+                "legal_presentation_token": page.context["legal_presentation_token"],
             },
         )
 
@@ -1848,9 +2262,11 @@ class ProfessionalClientViewTests(TestCase):
             business=self.business,
             full_name="María López",
         )
+        list_url = reverse("customers:professional_client_list")
+        page = self.client.get(list_url)
 
         response = self.client.post(
-            reverse("customers:professional_client_list"),
+            list_url,
             {
                 "full_name": "Leo López",
                 "phone": "",
@@ -1862,6 +2278,7 @@ class ProfessionalClientViewTests(TestCase):
                 "authorized_allow_online": "on",
                 "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
                 "privacy_information_provided": "on",
+                "legal_presentation_token": page.context["legal_presentation_token"],
             },
         )
 
@@ -1889,6 +2306,644 @@ class ProfessionalClientViewTests(TestCase):
             CustomerPrivacyEvidence.InformedParty.AUTHORIZED_PERSON,
         )
         self.assertEqual(evidence.informed_party_name_snapshot, authorized_client.full_name)
+
+    def test_reused_quick_client_rejects_different_optional_data_before_evidence(self):
+        self.client.force_login(self.professional)
+        list_url = reverse("customers:professional_client_list")
+
+        for index, changed_field in enumerate(("email", "internal_notes"), start=1):
+            with self.subTest(changed_field=changed_field):
+                existing = BusinessClient.objects.create(
+                    business=self.business,
+                    full_name=f"Cliente existente {index}",
+                    phone=f"60033345{index}",
+                    email=f"existente{index}@example.com",
+                    internal_notes=f"Notas existentes {index}",
+                    source=BusinessClient.Source.PROFESSIONAL,
+                )
+                page = self.client.get(list_url)
+                payload = {
+                    "full_name": existing.full_name,
+                    "phone": existing.phone,
+                    "email": existing.email,
+                    "internal_notes": existing.internal_notes,
+                    "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+                    "privacy_information_provided": "on",
+                    "legal_presentation_token": page.context[
+                        "legal_presentation_token"
+                    ],
+                }
+                payload[changed_field] = (
+                    f"distinto{index}@example.com"
+                    if changed_field == "email"
+                    else f"Notas distintas {index}"
+                )
+
+                response = self.client.post(list_url, payload)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(
+                    response,
+                    "el correo o las notas no coinciden",
+                )
+                self.assertEqual(
+                    CustomerPrivacyEvidenceEvent.objects.filter(
+                        business_client=existing
+                    ).count(),
+                    0,
+                )
+                self.assertEqual(
+                    CustomerPrivacyEvidence.objects.filter(
+                        business_client=existing
+                    ).count(),
+                    0,
+                )
+                existing.refresh_from_db()
+                self.assertEqual(existing.email, f"existente{index}@example.com")
+                self.assertEqual(
+                    existing.internal_notes,
+                    f"Notas existentes {index}",
+                )
+
+    def test_reused_quick_client_exact_replay_is_idempotent(self):
+        self.client.force_login(self.professional)
+        existing = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Cliente existente replay",
+            phone="600333459",
+            email="existente-replay@example.com",
+            internal_notes="Datos ya guardados.",
+            source=BusinessClient.Source.PROFESSIONAL,
+        )
+        list_url = reverse("customers:professional_client_list")
+        page = self.client.get(list_url)
+        payload = {
+            "full_name": existing.full_name,
+            "phone": existing.phone,
+            "email": existing.email,
+            "internal_notes": existing.internal_notes,
+            "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+            "privacy_information_provided": "on",
+            "legal_presentation_token": page.context["legal_presentation_token"],
+        }
+
+        first = self.client.post(list_url, payload)
+        second = self.client.post(list_url, payload)
+
+        expected_location = reverse(
+            "customers:professional_client_detail",
+            args=[existing.pk],
+        )
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(first["Location"], expected_location)
+        self.assertEqual(second["Location"], expected_location)
+        self.assertEqual(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name=existing.full_name,
+                phone_normalized=existing.phone_normalized,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(
+                business_client=existing
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidence.objects.filter(
+                business_client=existing
+            ).count(),
+            1,
+        )
+
+    def test_repeating_the_same_quick_client_receipt_is_fully_idempotent(self):
+        self.client.force_login(self.professional)
+        authorized_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+        list_url = reverse("customers:professional_client_list")
+        page = self.client.get(list_url)
+        payload = {
+            "full_name": "Leo Replay",
+            "phone": "",
+            "email": "",
+            "internal_notes": "Menor gestionado por su madre.",
+            "authorized_business_client": authorized_client.id,
+            "authorized_client_search": authorized_client.full_name,
+            "authorized_relationship": (
+                BusinessClientAuthorizedContact.Relationship.MOTHER
+            ),
+            "authorized_allow_online": "on",
+            "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+            "privacy_information_provided": "on",
+            "legal_presentation_token": page.context["legal_presentation_token"],
+        }
+
+        first = self.client.post(list_url, payload)
+        second = self.client.post(list_url, payload)
+
+        profile = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Leo Replay",
+        )
+        expected_location = reverse(
+            "customers:professional_client_detail",
+            args=[profile.pk],
+        )
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(first["Location"], expected_location)
+        self.assertEqual(second["Location"], expected_location)
+        self.assertEqual(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Leo Replay",
+            ).count(),
+            1,
+        )
+        self.assertEqual(profile.authorized_contacts.count(), 1)
+        self.assertEqual(
+            BusinessClientAccessGrant.objects.filter(
+                business=self.business,
+                business_client=profile,
+                is_active=True,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidence.objects.filter(business_client=profile).count(),
+            1,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(
+                business_client=profile
+            ).count(),
+            1,
+        )
+
+    def test_quick_client_receipt_cannot_be_reused_with_other_data(self):
+        self.client.force_login(self.professional)
+        list_url = reverse("customers:professional_client_list")
+        page = self.client.get(list_url)
+        token = page.context["legal_presentation_token"]
+        payload = {
+            "full_name": "Cliente Replay Original",
+            "phone": "600333441",
+            "email": "",
+            "internal_notes": "",
+            "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+            "privacy_information_provided": "on",
+            "legal_presentation_token": token,
+        }
+        first = self.client.post(list_url, payload)
+        profile = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Cliente Replay Original",
+        )
+
+        altered = self.client.post(
+            list_url,
+            {**payload, "full_name": "Cliente Replay Alterado"},
+        )
+
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(altered.status_code, 200)
+        self.assertContains(
+            altered,
+            "No podemos reutilizar esta confirmación con otros datos",
+        )
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente Replay Alterado",
+            ).exists()
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(
+                business_client=profile
+            ).count(),
+            1,
+        )
+        self.assertFalse(
+            altered.context["quick_form"]["privacy_information_provided"].value()
+        )
+        self.assertNotEqual(altered.context["legal_presentation_token"], token)
+
+    def test_quick_client_rechecks_that_authorized_person_is_still_active(self):
+        self.client.force_login(self.professional)
+        authorized_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+        page = self.client.get(reverse("customers:professional_client_list"))
+        form = ProfessionalClientQuickForm(
+            {
+                "full_name": "Cliente tras pausa autorizada",
+                "phone": "",
+                "email": "",
+                "authorized_business_client": authorized_client.pk,
+                "authorized_client_search": authorized_client.full_name,
+                "authorized_relationship": (
+                    BusinessClientAuthorizedContact.Relationship.MOTHER
+                ),
+                "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                "privacy_information_provided": "on",
+            },
+            business=self.business,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        contact_count = BusinessClientAuthorizedContact.objects.filter(
+            business=self.business
+        ).count()
+        grant_count = BusinessClientAccessGrant.objects.filter(
+            business=self.business
+        ).count()
+        projection_count = CustomerPrivacyEvidence.objects.filter(
+            business=self.business
+        ).count()
+        event_count = CustomerPrivacyEvidenceEvent.objects.filter(
+            business=self.business
+        ).count()
+        BusinessClient.objects.filter(pk=authorized_client.pk).update(is_active=False)
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "La persona autorizada ya no está activa",
+        ):
+            form.save(
+                recorded_by=self.professional,
+                legal_presentation_token=page.context["legal_presentation_token"],
+            )
+
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente tras pausa autorizada",
+            ).exists()
+        )
+        self.assertEqual(
+            BusinessClientAuthorizedContact.objects.filter(
+                business=self.business
+            ).count(),
+            contact_count,
+        )
+        self.assertEqual(
+            BusinessClientAccessGrant.objects.filter(
+                business=self.business
+            ).count(),
+            grant_count,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidence.objects.filter(business=self.business).count(),
+            projection_count,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(business=self.business).count(),
+            event_count,
+        )
+
+    def test_quick_client_rechecks_authorized_online_access_before_writing(self):
+        self.client.force_login(self.professional)
+        authorized_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+        page = self.client.get(reverse("customers:professional_client_list"))
+        form = ProfessionalClientQuickForm(
+            {
+                "full_name": "Cliente tras pausa de cuenta",
+                "phone": "",
+                "email": "",
+                "authorized_business_client": authorized_client.pk,
+                "authorized_client_search": authorized_client.full_name,
+                "authorized_relationship": (
+                    BusinessClientAuthorizedContact.Relationship.MOTHER
+                ),
+                "authorized_allow_online": "on",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                "privacy_information_provided": "on",
+            },
+            business=self.business,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        contact_count = BusinessClientAuthorizedContact.objects.filter(
+            business=self.business
+        ).count()
+        grant_count = BusinessClientAccessGrant.objects.filter(
+            business=self.business
+        ).count()
+        projection_count = CustomerPrivacyEvidence.objects.filter(
+            business=self.business
+        ).count()
+        event_count = CustomerPrivacyEvidenceEvent.objects.filter(
+            business=self.business
+        ).count()
+        BusinessClientAccess.objects.filter(
+            business=self.business,
+            business_client=authorized_client,
+        ).update(is_active=False)
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "La cuenta online de la persona autorizada ya no está activa",
+        ):
+            form.save(
+                recorded_by=self.professional,
+                legal_presentation_token=page.context["legal_presentation_token"],
+            )
+
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente tras pausa de cuenta",
+            ).exists()
+        )
+        self.assertEqual(
+            BusinessClientAuthorizedContact.objects.filter(
+                business=self.business
+            ).count(),
+            contact_count,
+        )
+        self.assertEqual(
+            BusinessClientAccessGrant.objects.filter(
+                business=self.business
+            ).count(),
+            grant_count,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidence.objects.filter(business=self.business).count(),
+            projection_count,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(business=self.business).count(),
+            event_count,
+        )
+
+    def test_quick_client_hides_the_form_when_privacy_document_is_missing(self):
+        LegalDocument.objects.filter(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        ).update(is_active=False)
+        self.client.force_login(self.professional)
+        list_url = reverse("customers:professional_client_list")
+
+        page = self.client.get(list_url)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "No hemos guardado ningún dato")
+        self.assertNotContains(page, "Guardar cliente")
+        self.assertNotContains(page, 'class="quick-client-card')
+        self.assertEqual(page.context["legal_presentation_token"], "")
+
+        rejected = self.client.post(
+            list_url,
+            {
+                "full_name": "Cliente sin política",
+                "phone": "600333442",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+                "privacy_information_provided": "on",
+                "legal_presentation_token": "recibo-forjado",
+            },
+        )
+        self.assertEqual(rejected.status_code, 503)
+        self.assertFalse(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name="Cliente sin política",
+            ).exists()
+        )
+
+    def test_disabled_legal_control_explains_preserved_privacy_history(self):
+        business_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Lucía Gómez",
+        )
+        self.assertTrue(
+            CustomerPrivacyEvidenceEvent.objects.filter(
+                business_client=business_client,
+            ).exists()
+        )
+        Business.objects.filter(pk=self.business.pk).update(
+            legal_compliance_enabled=False,
+        )
+        self.client.force_login(self.professional)
+
+        page = self.client.get(
+            reverse(
+                "customers:professional_client_detail",
+                args=[business_client.pk],
+            )
+        )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Control legal no requerido")
+        self.assertContains(page, "La constancia anterior se conserva en el historial")
+        self.assertContains(page, "AgendaSalon no te pedirá registrar una nueva")
+        self.assertNotContains(page, "no hay una política vigente disponible")
+        self.assertNotContains(page, "Guardar constancia")
+
+    def test_disabled_legal_control_explains_state_without_privacy_history(self):
+        business_client = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Cliente sin historial con control desactivado",
+            phone="600333445",
+        )
+        Business.objects.filter(pk=self.business.pk).update(
+            legal_compliance_enabled=False,
+        )
+        self.client.force_login(self.professional)
+
+        page = self.client.get(
+            reverse(
+                "customers:professional_client_detail",
+                args=[business_client.pk],
+            )
+        )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Control legal no requerido")
+        self.assertContains(
+            page,
+            "AgendaSalon no te pedirá registrar una constancia en esta ficha",
+        )
+        self.assertNotContains(page, "la política no está disponible")
+        self.assertNotContains(page, "Guardar constancia")
+
+    def test_manual_privacy_record_is_unavailable_without_current_document(self):
+        business_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Lucía Gómez",
+        )
+        client_without_history = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Cliente sin historial legal",
+            phone="600333444",
+        )
+        projection_count = CustomerPrivacyEvidence.objects.filter(
+            business_client=business_client
+        ).count()
+        event_count = CustomerPrivacyEvidenceEvent.objects.filter(
+            business_client=business_client
+        ).count()
+        LegalDocument.objects.filter(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        ).update(is_active=False)
+        self.client.force_login(self.professional)
+        detail_url = reverse(
+            "customers:professional_client_detail",
+            args=[business_client.pk],
+        )
+
+        page = self.client.get(detail_url)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "No hemos guardado ninguna constancia")
+        self.assertContains(
+            page,
+            "Se conserva en el historial, aunque ahora no hay una política vigente",
+        )
+        self.assertNotContains(page, "Guardar constancia")
+        no_history_page = self.client.get(
+            reverse(
+                "customers:professional_client_detail",
+                args=[client_without_history.pk],
+            )
+        )
+        self.assertContains(
+            no_history_page,
+            "No hay una constancia vigente porque la política no está disponible",
+        )
+        self.assertNotContains(
+            no_history_page,
+            "No consta todavía la entrega de la información vigente",
+        )
+        rejected = self.client.post(
+            reverse(
+                "customers:professional_client_privacy_record",
+                args=[business_client.pk],
+            ),
+            {
+                "channel": CustomerPrivacyEvidence.Channel.PHONE,
+                "legal_presentation_token": "recibo-forjado",
+            },
+            follow=True,
+        )
+        self.assertContains(rejected, "No hemos guardado ninguna constancia")
+        self.assertEqual(
+            CustomerPrivacyEvidence.objects.filter(
+                business_client=business_client
+            ).count(),
+            projection_count,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(
+                business_client=business_client
+            ).count(),
+            event_count,
+        )
+
+    def test_manual_privacy_record_rechecks_disabled_compliance_before_writing(self):
+        business_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="Lucía Gómez",
+        )
+        projection_count = CustomerPrivacyEvidence.objects.filter(
+            business_client=business_client
+        ).count()
+        event_count = CustomerPrivacyEvidenceEvent.objects.filter(
+            business_client=business_client
+        ).count()
+        self.client.force_login(self.professional)
+        detail_url = reverse(
+            "customers:professional_client_detail",
+            args=[business_client.pk],
+        )
+        page = self.client.get(detail_url)
+        token = page.context["legal_presentation_token"]
+        Business.objects.filter(pk=self.business.pk).update(
+            legal_compliance_enabled=False
+        )
+
+        rejected = self.client.post(
+            reverse(
+                "customers:professional_client_privacy_record",
+                args=[business_client.pk],
+            ),
+            {
+                "channel": CustomerPrivacyEvidence.Channel.PHONE,
+                "legal_presentation_token": token,
+            },
+            follow=True,
+        )
+
+        self.assertContains(rejected, "El control de privacidad está desactivado")
+        self.assertEqual(
+            CustomerPrivacyEvidence.objects.filter(
+                business_client=business_client
+            ).count(),
+            projection_count,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(
+                business_client=business_client
+            ).count(),
+            event_count,
+        )
+
+    def test_manual_privacy_receipt_cannot_be_reused_with_another_channel(self):
+        business_client = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Cliente constancia replay",
+            phone="600333443",
+        )
+        self.client.force_login(self.professional)
+        detail_url = reverse(
+            "customers:professional_client_detail",
+            args=[business_client.pk],
+        )
+        page = self.client.get(detail_url)
+        token = page.context["legal_presentation_token"]
+        record_url = reverse(
+            "customers:professional_client_privacy_record",
+            args=[business_client.pk],
+        )
+
+        first = self.client.post(
+            record_url,
+            {
+                "channel": CustomerPrivacyEvidence.Channel.PHONE,
+                "legal_presentation_token": token,
+            },
+        )
+        altered = self.client.post(
+            record_url,
+            {
+                "channel": CustomerPrivacyEvidence.Channel.EMAIL,
+                "legal_presentation_token": token,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(first.status_code, 302)
+        self.assertContains(
+            altered,
+            "No podemos reutilizar esta confirmación con otros datos",
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(
+                business_client=business_client
+            ).count(),
+            1,
+        )
+        evidence = CustomerPrivacyEvidence.objects.get(
+            business_client=business_client
+        )
+        self.assertEqual(evidence.channel, CustomerPrivacyEvidence.Channel.PHONE)
 
     def test_professional_client_lookup_is_scoped_and_reports_online_status(self):
         self.client.force_login(self.professional)
@@ -1929,9 +2984,11 @@ class ProfessionalClientViewTests(TestCase):
 
     def test_quick_client_from_appointment_assistant_selects_new_client(self):
         self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+        page = self.client.get(assistant_url)
 
         response = self.client.post(
-            reverse("booking:appointment_assistant"),
+            assistant_url,
             {
                 "action": "quick_client",
                 "full_name": "Nuria Soler",
@@ -1942,6 +2999,9 @@ class ProfessionalClientViewTests(TestCase):
                 "selected_starts_at": "2026-07-09T18:30:00+02:00",
                 "privacy_channel": CustomerPrivacyEvidence.Channel.WHATSAPP,
                 "privacy_information_provided": "on",
+                "legal_presentation_token": page.context[
+                    "quick_legal_presentation_token"
+                ],
             },
         )
 

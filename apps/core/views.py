@@ -13,4 +13,9 @@ def home(request):
 def csrf_failure(request, reason=""):
     """Respuesta pública estable sin exponer el motivo interno del rechazo."""
 
-    return render(request, "core/csrf_failure.html", status=403)
+    response = render(request, "core/csrf_failure.html", status=403)
+    # El rechazo puede producirse antes de entrar en una vista cuya URL contenga
+    # un token. No se debe reenviar ni almacenar esa ruta sensible.
+    response["Referrer-Policy"] = "no-referrer"
+    response["Cache-Control"] = "no-store"
+    return response

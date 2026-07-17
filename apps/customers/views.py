@@ -23,6 +23,7 @@ from apps.businesses.services import (
     get_primary_business_for_user,
 )
 from apps.customers.forms import (
+    CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE,
     ClientEmailVerificationForm,
     ClientInvitationActivationForm,
     ClientLoginForm,
@@ -35,8 +36,18 @@ from apps.customers.forms import (
 )
 from apps.legal.forms import CustomerPrivacyEvidenceForm
 from apps.legal.models import LegalDocument
+from apps.legal.presentations import (
+    LEGAL_PRESENTATION_CHANGED_MESSAGE,
+    LegalPresentationError,
+    LegalPresentationScope,
+    clear_legal_confirmation_fields,
+    issue_legal_presentation,
+    resolve_legal_presentation,
+)
 from apps.legal.services import (
+    EVENT_FINGERPRINT_COLLISION_MESSAGE,
     business_can_collect_personal_data,
+    business_legal_snapshot,
     customer_privacy_status,
     get_active_document,
     record_customer_privacy_information,
@@ -88,6 +99,40 @@ CLIENT_EMAIL_PENDING_SESSION_KEY = "client_email_verification_pending"
 CLIENT_GENERIC_EMAIL_MESSAGE = (
     "Si los datos corresponden a una cuenta disponible, recibirás un correo en unos minutos."
 )
+CUSTOMER_PRIVACY_UNAVAILABLE_EMAIL_MESSAGE = (
+    "Ahora mismo no podemos mostrar la información de privacidad necesaria. "
+    "No hemos creado la contraseña ni activado la cuenta. Inténtalo de nuevo más tarde."
+)
+CUSTOMER_PRIVACY_UNAVAILABLE_MANUAL_MESSAGE = (
+    "No hay una política de privacidad vigente para registrar. "
+    "No hemos guardado ninguna constancia. Inténtalo de nuevo más tarde."
+)
+CUSTOMER_PRIVACY_CONTROL_DISABLED_MESSAGE = (
+    "El control de privacidad está desactivado para este negocio. "
+    "No hemos guardado ninguna constancia."
+)
+_DOCUMENT_NOT_PROVIDED = object()
+
+
+def _issue_customer_privacy_presentation(
+    *,
+    business,
+    scope,
+    audience,
+    document=_DOCUMENT_NOT_PROVIDED,
+):
+    if not business.legal_compliance_enabled:
+        return ""
+    if document is _DOCUMENT_NOT_PROVIDED:
+        document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+    if document is None:
+        return ""
+    return issue_legal_presentation(
+        scope=scope,
+        audience=audience,
+        documents=(document,),
+        legal_context=business_legal_snapshot(business),
+    )
 
 
 def _email_throttle_key(value):
@@ -147,19 +192,55 @@ def professional_client_list(request):
         return redirect("accounts:no_business")
 
     quick_form = ProfessionalClientQuickForm(business=business)
+    validated_receipt = None
+    response_status = 200
     if request.method == "POST":
         quick_form = ProfessionalClientQuickForm(request.POST, business=business)
-        if quick_form.is_valid():
-            try:
-                client, created = quick_form.save(recorded_by=request.user)
-            except FormValidationError as exc:
-                quick_form.add_error(None, exc)
-            else:
+        quick_form_is_valid = quick_form.is_valid()
+        try:
+            validated_receipt = quick_form.validate_legal_presentation(
+                recorded_by=request.user,
+                legal_presentation_token=request.POST.get(
+                    "legal_presentation_token",
+                    "",
+                ),
+            )
+            if quick_form_is_valid:
+                client, created = quick_form.save(
+                    recorded_by=request.user,
+                    legal_presentation_token=request.POST.get(
+                        "legal_presentation_token",
+                        "",
+                    ),
+                )
+        except FormValidationError as exc:
+            if CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE in getattr(
+                exc,
+                "messages",
+                (),
+            ):
+                response_status = 503
+            if LEGAL_PRESENTATION_CHANGED_MESSAGE in getattr(exc, "messages", ()):
+                validated_receipt = None
+                clear_legal_confirmation_fields(
+                    quick_form,
+                    ("privacy_information_provided",),
+                )
+            if EVENT_FINGERPRINT_COLLISION_MESSAGE in getattr(exc, "messages", ()):
+                validated_receipt = None
+                clear_legal_confirmation_fields(
+                    quick_form,
+                    ("privacy_information_provided",),
+                )
+            quick_form.add_error(None, exc)
+        else:
+            if quick_form_is_valid:
                 if created:
                     messages.success(request, f"Ficha creada para {client.full_name}.")
                 else:
                     messages.success(request, f"{client.full_name} ya estaba en clientes.")
                 return redirect("customers:professional_client_detail", client_id=client.id)
+        business = quick_form.business
 
     search = (request.GET.get("q") or "").strip()
     status_filter = request.GET.get("status") or "active"
@@ -212,6 +293,34 @@ def professional_client_list(request):
         if selected_authorized_client is not None
         else None
     )
+    if validated_receipt is not None:
+        quick_privacy_document = validated_receipt.document(
+            LegalDocument.Kind.CUSTOMER_PRIVACY
+        )
+        legal_presentation_token = request.POST.get("legal_presentation_token", "")
+    else:
+        quick_privacy_document = (
+            get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+            if business.legal_compliance_enabled
+            else None
+        )
+        legal_presentation_token = _issue_customer_privacy_presentation(
+            business=business,
+            scope=LegalPresentationScope.PROFESSIONAL_CLIENT_QUICK,
+            audience={"business_id": business.pk, "user_id": request.user.pk},
+            document=quick_privacy_document,
+        )
+    privacy_document_available = (
+        not business.legal_compliance_enabled
+        or quick_privacy_document is not None
+    )
+    if not privacy_document_available:
+        if request.method == "POST" and CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE not in tuple(
+            str(error) for error in quick_form.non_field_errors()
+        ):
+            quick_form.add_error(None, CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE)
+        if request.method == "POST":
+            response_status = 503
 
     return render(
         request,
@@ -223,6 +332,12 @@ def professional_client_list(request):
             "search": search,
             "status_filter": status_filter,
             "quick_form": quick_form,
+            "privacy_document": quick_privacy_document,
+            "privacy_document_available": privacy_document_available,
+            "customer_privacy_unavailable_message": (
+                CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE
+            ),
+            "legal_presentation_token": legal_presentation_token,
             "client_search_url": reverse("customers:professional_client_lookup"),
             "selected_authorized_client": selected_authorized_client,
             "selected_authorized_access": selected_authorized_access,
@@ -237,6 +352,7 @@ def professional_client_list(request):
             ).count(),
             "all_clients_count": BusinessClient.objects.filter(business=business).count(),
         },
+        status=response_status,
     )
 
 
@@ -250,7 +366,7 @@ def professional_client_detail(request, client_id):
     return render(
         request,
         "professional/clients/detail.html",
-        _professional_client_context(business, business_client),
+        _professional_client_context(business, business_client, request.user),
     )
 
 
@@ -263,18 +379,60 @@ def professional_client_privacy_record(request, client_id):
 
     business_client = _get_professional_client(business, client_id)
     form = CustomerPrivacyEvidenceForm(request.POST)
-    if form.is_valid():
-        record_customer_privacy_information(
-            business_client=business_client,
-            recorded_by=request.user,
-            channel=form.cleaned_data["channel"],
-        )
-        messages.success(
-            request,
-            "Queda registrada la entrega de la información de privacidad vigente.",
-        )
+    form_is_valid = form.is_valid()
+    privacy_unavailable = False
+    try:
+        with transaction.atomic():
+            business = Business.objects.select_for_update().get(pk=business.pk)
+            if not business.legal_compliance_enabled:
+                privacy_unavailable = True
+                raise ValidationError(CUSTOMER_PRIVACY_CONTROL_DISABLED_MESSAGE)
+            privacy_document = (
+                LegalDocument.objects.select_for_update()
+                .filter(
+                    kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+                    is_active=True,
+                )
+                .first()
+            )
+            if privacy_document is None:
+                privacy_unavailable = True
+                raise LegalPresentationError(
+                    CUSTOMER_PRIVACY_UNAVAILABLE_MANUAL_MESSAGE
+                )
+            receipt = resolve_legal_presentation(
+                request.POST.get("legal_presentation_token", ""),
+                scope=LegalPresentationScope.PROFESSIONAL_CLIENT_PRIVACY,
+                audience={
+                    "business_id": business.pk,
+                    "business_client_id": business_client.pk,
+                    "user_id": request.user.pk,
+                },
+                required_kinds=(LegalDocument.Kind.CUSTOMER_PRIVACY,),
+                legal_context=business_legal_snapshot(business),
+            )
+            if form_is_valid:
+                record_customer_privacy_information(
+                    business_client=business_client,
+                    recorded_by=request.user,
+                    channel=form.cleaned_data["channel"],
+                    document=receipt.document(LegalDocument.Kind.CUSTOMER_PRIVACY),
+                    legal_context_snapshot=receipt.legal_context,
+                    action_fingerprint_source=receipt.receipt_id,
+                )
+    except ValidationError as exc:
+        messages.error(request, exc.messages[0])
     else:
-        messages.error(request, "Selecciona el canal utilizado para registrar la constancia.")
+        if form_is_valid and not privacy_unavailable:
+            messages.success(
+                request,
+                "Queda registrada la entrega de la información de privacidad vigente.",
+            )
+        else:
+            messages.error(
+                request,
+                "Selecciona el canal utilizado para registrar la constancia.",
+            )
     return redirect("customers:professional_client_detail", client_id=business_client.id)
 
 
@@ -317,7 +475,7 @@ def professional_client_edit(request, client_id):
         request,
         "professional/clients/edit.html",
         {
-            **_professional_client_context(business, business_client),
+            **_professional_client_context(business, business_client, request.user),
             "edit_form": edit_form,
         },
     )
@@ -607,7 +765,7 @@ def professional_client_invitation_revoke(request, client_id, invitation_id):
     return redirect("customers:professional_client_detail", client_id=business_client.id)
 
 
-def _professional_client_context(business, business_client):
+def _professional_client_context(business, business_client, actor_user):
     now = timezone.now()
     appointments = (
         business_client.appointments.select_related("work_line")
@@ -662,6 +820,10 @@ def _professional_client_context(business, business_client):
         contact.online_grant = grant_by_contact.get(contact.id)
 
     privacy_status = customer_privacy_status(business_client)
+    privacy_document_available = (
+        not business.legal_compliance_enabled
+        or privacy_status["document"] is not None
+    )
     return {
         "business": business,
         "business_client": business_client,
@@ -677,7 +839,21 @@ def _professional_client_context(business, business_client):
             ends_at__gt=now,
         ).count(),
         "privacy_status": privacy_status,
+        "privacy_document_available": privacy_document_available,
+        "customer_privacy_unavailable_message": (
+            CUSTOMER_PRIVACY_UNAVAILABLE_MANUAL_MESSAGE
+        ),
         "privacy_evidence_form": CustomerPrivacyEvidenceForm(),
+        "legal_presentation_token": _issue_customer_privacy_presentation(
+            business=business,
+            scope=LegalPresentationScope.PROFESSIONAL_CLIENT_PRIVACY,
+            audience={
+                "business_id": business.pk,
+                "business_client_id": business_client.pk,
+                "user_id": actor_user.pk,
+            },
+            document=privacy_status["document"],
+        ),
     }
 
 
@@ -719,7 +895,7 @@ def _professional_contact_form_view(request, *, business, business_client, conta
         request,
         "professional/clients/contact_form.html",
         {
-            **_professional_client_context(business, business_client),
+            **_professional_client_context(business, business_client, request.user),
             "contact_form": contact_form,
             "editing_contact": contact,
             "selected_linked_client": selected_linked_client,
@@ -917,7 +1093,8 @@ def client_invitation_activate(request, slug):
             "client_auth_image_url": get_business_public_image_url(business),
         },
     )
-    response["Referrer-Policy"] = "no-referrer"
+    # La activación se confirma con un formulario POST en este mismo origen.
+    response["Referrer-Policy"] = "same-origin"
     response["Cache-Control"] = "no-store"
     return response
 
@@ -1120,65 +1297,162 @@ def client_email_verify(request, slug, token):
         response["Cache-Control"] = "no-store"
         return response
 
-    privacy_document = (
-        get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
-        if business.legal_compliance_enabled
-        else None
-    )
     verification_form = ClientEmailVerificationForm(
         request.POST or None,
         business=business,
     )
-    if request.method == "POST" and verification_form.is_valid():
+    verification_form_is_valid = (
+        verification_form.is_valid() if request.method == "POST" else False
+    )
+    privacy_receipt = None
+    locked_business = business
+    if request.method == "POST":
         try:
-            access = verified_client_from_token(
-                token,
-                business=business,
-                password=verification_form.cleaned_data["password"],
-                privacy_acknowledged=verification_form.cleaned_data.get(
-                    "privacy_acknowledged",
-                    False,
-                ),
-            )
+            with transaction.atomic():
+                locked_business = Business.objects.select_for_update().get(pk=business.pk)
+                if locked_business.legal_compliance_enabled:
+                    locked_privacy_document = (
+                        LegalDocument.objects.select_for_update()
+                        .filter(
+                            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+                            is_active=True,
+                        )
+                        .first()
+                    )
+                    if locked_privacy_document is None:
+                        raise ValidationError(
+                            CUSTOMER_PRIVACY_UNAVAILABLE_EMAIL_MESSAGE
+                        )
+                    privacy_receipt = resolve_legal_presentation(
+                        request.POST.get("legal_presentation_token", ""),
+                        scope=LegalPresentationScope.CLIENT_EMAIL_VERIFICATION,
+                        audience={
+                            "business_id": locked_business.pk,
+                            "client_access_id": access.pk,
+                        },
+                        required_kinds=(LegalDocument.Kind.CUSTOMER_PRIVACY,),
+                        legal_context=business_legal_snapshot(locked_business),
+                    )
+                if verification_form_is_valid:
+                    access = verified_client_from_token(
+                        token,
+                        business=locked_business,
+                        password=verification_form.cleaned_data["password"],
+                        privacy_acknowledged=verification_form.cleaned_data.get(
+                            "privacy_acknowledged",
+                            False,
+                        ),
+                        privacy_document=(
+                            privacy_receipt.document(
+                                LegalDocument.Kind.CUSTOMER_PRIVACY
+                            )
+                            if privacy_receipt is not None
+                            else None
+                        ),
+                        privacy_legal_context=(
+                            privacy_receipt.legal_context
+                            if privacy_receipt is not None
+                            else None
+                        ),
+                        privacy_action_fingerprint_source=(
+                            privacy_receipt.receipt_id
+                            if privacy_receipt is not None
+                            else None
+                        ),
+                    )
         except ValidationError as exc:
+            if CUSTOMER_PRIVACY_UNAVAILABLE_EMAIL_MESSAGE in getattr(
+                exc,
+                "messages",
+                (),
+            ):
+                privacy_receipt = None
+                clear_legal_confirmation_fields(
+                    verification_form,
+                    ("privacy_acknowledged",),
+                )
+            if LEGAL_PRESENTATION_CHANGED_MESSAGE in getattr(exc, "messages", ()):
+                privacy_receipt = None
+                clear_legal_confirmation_fields(
+                    verification_form,
+                    ("privacy_acknowledged",),
+                )
+            if EVENT_FINGERPRINT_COLLISION_MESSAGE in getattr(exc, "messages", ()):
+                privacy_receipt = None
+                clear_legal_confirmation_fields(
+                    verification_form,
+                    ("privacy_acknowledged",),
+                )
             verification_form.add_error(None, exc)
         else:
-            if access is None:
-                response = render(
-                    request,
-                    "customers/client_email_verified.html",
-                    {
-                        "business": business,
-                        "verification_valid": False,
-                        "client_auth_theme": get_business_visual_theme(business),
-                        "client_auth_image_url": get_business_public_image_url(business),
-                    },
-                    status=410,
-                )
+            business = locked_business
+            if verification_form_is_valid:
+                if access is None:
+                    response = render(
+                        request,
+                        "customers/client_email_verified.html",
+                        {
+                            "business": business,
+                            "verification_valid": False,
+                            "client_auth_theme": get_business_visual_theme(business),
+                            "client_auth_image_url": get_business_public_image_url(business),
+                        },
+                        status=410,
+                    )
+                    response["Referrer-Policy"] = "no-referrer"
+                    response["Cache-Control"] = "no-store"
+                    return response
+                login_client_access(request, access)
+                pending = request.session.pop(CLIENT_EMAIL_PENDING_SESSION_KEY, {})
+                next_url = pending.get("next") if pending.get("business_id") == business.pk else ""
+                business.refresh_from_db(fields=["is_active", "public_booking_enabled"])
+                if business.accepts_public_bookings():
+                    messages.success(
+                        request,
+                        "Correo confirmado y contraseña creada. Ya puedes continuar con tu reserva.",
+                    )
+                    destination = next_url or reverse("public_booking", args=[business.slug])
+                else:
+                    messages.success(
+                        request,
+                        "Correo confirmado y contraseña creada. El negocio está pausado ahora mismo, pero tu cuenta ya queda preparada.",
+                    )
+                    destination = reverse("legal:business_privacy", args=[business.slug])
+                response = redirect(destination)
                 response["Referrer-Policy"] = "no-referrer"
                 response["Cache-Control"] = "no-store"
                 return response
-            login_client_access(request, access)
-            pending = request.session.pop(CLIENT_EMAIL_PENDING_SESSION_KEY, {})
-            next_url = pending.get("next") if pending.get("business_id") == business.pk else ""
-            business.refresh_from_db(fields=["is_active", "public_booking_enabled"])
-            if business.accepts_public_bookings():
-                messages.success(
-                    request,
-                    "Correo confirmado y contraseña creada. Ya puedes continuar con tu reserva.",
-                )
-                destination = next_url or reverse("public_booking", args=[business.slug])
-            else:
-                messages.success(
-                    request,
-                    "Correo confirmado y contraseña creada. El negocio está pausado ahora mismo, pero tu cuenta ya queda preparada.",
-                )
-                destination = reverse("legal:business_privacy", args=[business.slug])
-            response = redirect(destination)
-            response["Referrer-Policy"] = "no-referrer"
-            response["Cache-Control"] = "no-store"
-            return response
+        business = locked_business
 
+    if privacy_receipt is not None:
+        privacy_document = privacy_receipt.document(
+            LegalDocument.Kind.CUSTOMER_PRIVACY
+        )
+        legal_presentation_token = request.POST.get("legal_presentation_token", "")
+    else:
+        privacy_document = (
+            get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+            if business.legal_compliance_enabled
+            else None
+        )
+        legal_presentation_token = _issue_customer_privacy_presentation(
+            business=business,
+            scope=LegalPresentationScope.CLIENT_EMAIL_VERIFICATION,
+            audience={"business_id": business.pk, "client_access_id": access.pk},
+            document=privacy_document,
+        )
+    privacy_document_available = (
+        not business.legal_compliance_enabled or privacy_document is not None
+    )
+    if not privacy_document_available:
+        if request.method == "POST" and CUSTOMER_PRIVACY_UNAVAILABLE_EMAIL_MESSAGE not in tuple(
+            str(error) for error in verification_form.non_field_errors()
+        ):
+            verification_form.add_error(
+                None,
+                CUSTOMER_PRIVACY_UNAVAILABLE_EMAIL_MESSAGE,
+            )
+        legal_presentation_token = ""
     response = render(
         request,
         "customers/client_email_verified.html",
@@ -1188,14 +1462,23 @@ def client_email_verify(request, slug, token):
             "verification_form": verification_form,
             "verification_valid": True,
             "privacy_document": privacy_document,
+            "privacy_document_available": privacy_document_available,
+            "legal_presentation_token": legal_presentation_token,
+            "customer_privacy_unavailable_message": (
+                CUSTOMER_PRIVACY_UNAVAILABLE_EMAIL_MESSAGE
+            ),
+            "customer_privacy_unavailable_class": "login-form-error",
             "registration_activation_paused": (
                 access.is_pending_public_registration and not business.accepts_public_bookings()
             ),
             "client_auth_theme": get_business_visual_theme(business),
             "client_auth_image_url": get_business_public_image_url(business),
         },
+        status=200 if privacy_document_available else 503,
     )
-    response["Referrer-Policy"] = "no-referrer"
+    # El token está en la URL. Conservamos un Origin válido para el POST CSRF,
+    # pero nunca enviamos la ruta completa como Referer ni siquiera al mismo sitio.
+    response["Referrer-Policy"] = "strict-origin"
     response["Cache-Control"] = "no-store"
     return response
 
@@ -1329,7 +1612,9 @@ def client_password_reset(request, slug, token):
             "client_auth_image_url": get_business_public_image_url(business),
         },
     )
-    response["Referrer-Policy"] = "no-referrer"
+    # El token está en la URL. Conservamos un Origin válido para el POST CSRF,
+    # pero nunca enviamos la ruta completa como Referer ni siquiera al mismo sitio.
+    response["Referrer-Policy"] = "strict-origin"
     response["Cache-Control"] = "no-store"
     return response
 

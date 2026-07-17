@@ -10,12 +10,17 @@
         <div class="login-hero-copy client-auth-copy">
           <div class="client-auth-business-signal">{{ business.commercial_name }}</div>
           {% if verification_valid %}
-            <h1>Confirma tu correo.</h1>
-            <p>
-              El correo es la identidad de tu cuenta. Crea ahora una contraseña que
-              solo tú conozcas; no guardamos ninguna clave elegida antes de demostrar
-              que este correo es tuyo.
-            </p>
+            {% if privacy_document_available %}
+              <h1>Confirma tu correo.</h1>
+              <p>
+                El correo es la identidad de tu cuenta. Crea ahora una contraseña que
+                solo tú conozcas; no guardamos ninguna clave elegida antes de demostrar
+                que este correo es tuyo.
+              </p>
+            {% else %}
+              <h1>La activación está temporalmente en pausa.</h1>
+              <p>Tu enlace sigue siendo válido, pero antes necesitamos poder mostrarte la información de privacidad.</p>
+            {% endif %}
           {% else %}
             <h1>Este enlace ya no está disponible.</h1>
             <p>Puede que haya caducado, ya se haya usado o el correo de la cuenta haya cambiado.</p>
@@ -25,11 +30,15 @@
         <aside class="login-panel client-auth-panel" aria-label="Verificación de correo">
           <div class="login-panel__inner">
             {% if verification_valid %}
-              <h2>Crea tu contraseña.</h2>
-              <p>
-                Vas a confirmar <strong>{{ access.email }}</strong> como correo de tu
-                cuenta en {{ business.commercial_name }}.
-              </p>
+              <h2>{% if privacy_document_available %}Crea tu contraseña.{% else %}No podemos completar la activación ahora.{% endif %}</h2>
+              {% if privacy_document_available %}
+                <p>
+                  Vas a confirmar <strong>{{ access.email }}</strong> como correo de tu
+                  cuenta en {{ business.commercial_name }}.
+                </p>
+              {% else %}
+                <p>El correo <strong>{{ access.email }}</strong> sigue pendiente de confirmación en {{ business.commercial_name }}.</p>
+              {% endif %}
               {% if registration_activation_paused %}
                 <div class="login-form-error" role="status">
                   Las altas online están pausadas. Este enlace caduca en 48 horas y
@@ -38,11 +47,13 @@
                   vuelvan a estar disponibles.
                 </div>
               {% endif %}
-              <form method="post" class="login-form-stack" novalidate>
+              {% if privacy_document_available %}
+                <form method="post" class="login-form-stack" novalidate>
                 {% csrf_token %}
+                <input type="hidden" name="legal_presentation_token" value="{{ legal_presentation_token }}">
 
                 {% if verification_form.non_field_errors %}
-                  <div class="login-form-error" role="alert">{{ verification_form.non_field_errors }}</div>
+                  <div class="login-form-error" role="alert" tabindex="-1" data-error-summary>{{ verification_form.non_field_errors }}</div>
                 {% endif %}
 
                 <div class="login-field{% if verification_form.password.errors %} is-error{% endif %}">
@@ -81,8 +92,11 @@
                   </div>
                 {% endif %}
 
-                <button class="login-button" type="submit">Confirmar correo y crear contraseña</button>
-              </form>
+                  <button class="login-button" type="submit">Confirmar correo y crear contraseña</button>
+                </form>
+              {% else %}
+                {% include "legal/_customer_privacy_unavailable.html" %}
+              {% endif %}
             {% else %}
               <h2>Volvamos a empezar.</h2>
               <p>Entra con tu cuenta o pide un enlace nuevo desde el registro pendiente.</p>

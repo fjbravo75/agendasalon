@@ -13,6 +13,7 @@ from .models import (
 
 @admin.register(Business)
 class BusinessAdmin(admin.ModelAdmin):
+    actions = None
     list_display = (
         "commercial_name",
         "slug",
@@ -33,6 +34,15 @@ class BusinessAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("commercial_name",)}
     readonly_fields = ("created_at", "updated_at")
 
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(BusinessSignupRequest)
 class BusinessSignupRequestAdmin(admin.ModelAdmin):
@@ -51,6 +61,7 @@ class BusinessSignupRequestAdmin(admin.ModelAdmin):
         "privacy_document",
         "privacy_document_version",
         "privacy_document_hash",
+        "privacy_legal_context_snapshot",
         "privacy_acknowledged_at",
         "converted_business",
         "converted_at",

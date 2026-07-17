@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Confirmación temporalmente no disponible - {{ business.commercial_name }}{% endblock %}
+{% block body_class %}public-booking-body public-booking-body--{{ client_auth_theme }} theme-auto{% endblock %}
+{% block body_style %}{% if client_auth_image_url %}--public-booking-bg: url('{{ client_auth_image_url }}');{% endif %}{% endblock %}
+
+{% block app_header %}
+  <header class="app-header app-header--public-booking">
+    <div class="app-header__inner">
+      <a class="brand" href="{% url 'public_booking' business.slug %}">
+        <span class="brand__mark">AgendaSalon</span>
+        <span class="brand__tag">Reserva tu cita en este salón</span>
+      </a>
+      <nav class="nav" aria-label="Accesos">
+        {% if client_access %}
+          <span class="public-nav-client">Hola, {{ client_access.business_client.full_name }}</span>
+        {% else %}
+          <a href="{% url 'customers:client_access' business.slug %}">Ya tengo cuenta</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+{% endblock %}
+
+{% block content %}
+  <section class="legal-shell legal-shell--reading" aria-labelledby="privacy-unavailable-title">
+    <header class="legal-hero">
+      <span class="legal-kicker">Privacidad</span>
+      <h1 id="privacy-unavailable-title">No podemos confirmar la reserva ahora</h1>
+      {% include "legal/_customer_privacy_unavailable.html" with customer_privacy_unavailable_message="En este momento no está disponible la información de privacidad que debes revisar antes de confirmar. Por seguridad, la reserva se ha detenido." customer_privacy_unavailable_class="legal-form-note" %}
+      <div class="legal-meta"><span>No hemos creado la cita ni guardado datos nuevos de esta confirmación</span></div>
+    </header>
+    <div class="legal-panel">
+      <h2>¿Qué puedes hacer?</h2>
+      <p class="legal-panel__intro">La reserva online está detenida de forma temporal, aunque cambies el servicio o la hora. Tu selección sigue preparada para cuando la confirmación vuelva a estar disponible.</p>
+      {% if business.public_phone or business.public_email %}
+        <p>Si necesitas reservar ahora, contacta directamente con {{ business.commercial_name }}.</p>
+      {% endif %}
+      <div class="actions">
+        <a class="button" href="{% url 'public_booking' business.slug %}?confirm=1">Reintentar confirmación</a>
+        {% if business.public_phone %}<a class="button button--secondary" href="tel:{{ business.public_phone }}">Llamar al salón</a>{% endif %}
+        {% if business.public_email %}<a class="button button--secondary" href="mailto:{{ business.public_email }}">Escribir un correo</a>{% endif %}
+        <a class="button button--secondary" href="{% url 'public_booking' business.slug %}">Volver a servicios y horas</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}

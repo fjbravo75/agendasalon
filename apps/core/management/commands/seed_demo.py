@@ -34,11 +34,13 @@ from apps.customers.models import (
     BusinessClientAuthorizedContact,
 )
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
-from apps.legal.models import CustomerPrivacyEvidence, LegalDocument
+from apps.legal.models import CustomerPrivacyEvidence, LegalAcceptance, LegalDocument
 from apps.legal.services import (
     accept_professional_legal_documents,
+    acknowledge_customer_privacy,
     business_legal_snapshot,
     get_active_document,
+    record_customer_privacy_information,
 )
 from apps.notifications.models import InternalNotification
 
@@ -508,40 +510,37 @@ class DemoSeeder:
                 user=professional,
                 business=business,
                 profile_data=profile_data,
+                action_fingerprint_source=(
+                    f"seed-demo:professional:{business.slug}:legal-v1"
+                ),
             )
 
         document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
         if document is None:
             raise CommandError("No hay una política de privacidad de clientes vigente.")
-        CustomerPrivacyEvidence.objects.filter(
-            business__in=(self.business, self.secondary_business)
-        ).delete()
         for business, professional, _ in profiles:
             for client in BusinessClient.objects.filter(business=business).order_by("pk"):
                 access = getattr(client, "access", None)
-                evidence = CustomerPrivacyEvidence(
-                    document=document,
-                    business=business,
+                action_source = f"seed-demo:customer:{business.slug}:{client.pk}:privacy-v1"
+                legal_context = business_legal_snapshot(business)
+                if access is not None:
+                    acknowledge_customer_privacy(
+                        client_access=access,
+                        context=LegalAcceptance.Context.CLIENT_REGISTRATION,
+                        document=document,
+                        legal_context_snapshot=legal_context,
+                        action_fingerprint_source=action_source,
+                    )
+                    continue
+                record_customer_privacy_information(
                     business_client=client,
-                    client_access=access,
-                    recorded_by=None if access else professional,
-                    event_type=(
-                        CustomerPrivacyEvidence.EventType.ACKNOWLEDGED
-                        if access
-                        else CustomerPrivacyEvidence.EventType.INFORMATION_PROVIDED
-                    ),
-                    channel=(
-                        CustomerPrivacyEvidence.Channel.ONLINE_REGISTRATION
-                        if access
-                        else CustomerPrivacyEvidence.Channel.IN_PERSON
-                    ),
-                    informed_party_type=CustomerPrivacyEvidence.InformedParty.CLIENT,
+                    recorded_by=professional,
+                    channel=CustomerPrivacyEvidence.Channel.IN_PERSON,
                     informed_party_name_snapshot=client.full_name,
-                    document_hash_snapshot=document.content_hash,
-                    legal_context_snapshot=business_legal_snapshot(business),
+                    document=document,
+                    legal_context_snapshot=legal_context,
+                    action_fingerprint_source=action_source,
                 )
-                evidence.full_clean()
-                evidence.save()
 
     def _create_representative_booking_demo(self):
         self._upsert_online_representative(

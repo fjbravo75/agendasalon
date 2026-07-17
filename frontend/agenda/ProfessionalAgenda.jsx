@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import {
   appointmentDetailUrl,
@@ -20,7 +20,7 @@ import {
 
 
 const WEEKDAYS = ["L", "M", "X", "J", "V", "S", "D"];
-const ROW_HEIGHT = 22;
+const ROW_HEIGHT = 24;
 
 const STATUS_COPY = {
   available: ["Con huecos", "Hay opciones completas para esta duración."],
@@ -107,6 +107,7 @@ export default function ProfessionalAgenda({ config }) {
   const [viewMonth, setViewMonth] = useState(monthFromDate(config.initialDate));
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [activeLineId, setActiveLineId] = useState(null);
+  const [decisionFocusRequest, setDecisionFocusRequest] = useState(0);
 
   const dayUrl = `${config.dayEndpoint}?${new URLSearchParams({
     date: selectedDate,
@@ -141,9 +142,15 @@ export default function ProfessionalAgenda({ config }) {
     setActiveLineId(slot.work_line_id);
   }
 
+  function chooseDecisionSlot(slot) {
+    chooseSlot(slot);
+    setDecisionFocusRequest((current) => current + 1);
+  }
+
   function chooseSuggestion(slot) {
     chooseDate(slot.starts_at.slice(0, 10), slot);
     setActiveLineId(slot.work_line_id);
+    setDecisionFocusRequest((current) => current + 1);
   }
 
   const newAppointmentUrl = buildAppointmentAssistantUrl(
@@ -210,7 +217,8 @@ export default function ProfessionalAgenda({ config }) {
             duration={duration}
             selectedDate={selectedDate}
             selectedSlot={selectedSlot}
-            onChooseSlot={chooseSlot}
+            focusContinueRequest={decisionFocusRequest}
+            onChooseSlot={chooseDecisionSlot}
             onChooseSuggestion={chooseSuggestion}
             appointmentAssistantUrl={config.appointmentAssistantUrl}
           />
@@ -345,10 +353,12 @@ function AgendaDecision({
   duration,
   selectedDate,
   selectedSlot,
+  focusContinueRequest,
   onChooseSlot,
   onChooseSuggestion,
   appointmentAssistantUrl,
 }) {
+  const continueLinkRef = useRef(null);
   const recommended = dayData?.recommended_slot;
   const previewSlot = selectedSlot || recommended;
   const continueUrl = buildAppointmentAssistantUrl(
@@ -356,6 +366,12 @@ function AgendaDecision({
     previewSlot,
     selectedDate,
   );
+
+  useEffect(() => {
+    if (focusContinueRequest > 0) {
+      continueLinkRef.current?.focus();
+    }
+  }, [focusContinueRequest]);
 
   return (
     <section className="agenda-card agenda-decision" aria-labelledby="decision-title">
@@ -371,11 +387,11 @@ function AgendaDecision({
           <small>{SLOT_REASON_COPY[previewSlot.reason] || "Disponible para ofrecer"}</small>
           {!selectedSlot && recommended ? (
             <button type="button" onClick={() => onChooseSlot(recommended)}>
-              Ver y elegir este hueco
+              Elegir esta hora
             </button>
           ) : null}
-          <a className="button button--wide" href={continueUrl}>
-            Continuar en Nueva cita
+          <a ref={continueLinkRef} className="button button--wide" href={continueUrl}>
+            Preparar esta cita
           </a>
         </div>
       ) : (
@@ -515,7 +531,7 @@ function Timeline({
   return (
     <section className="agenda-timeline-card" aria-label="Jornada por líneas de trabajo">
       <div className="agenda-timeline-card__hint">
-        <span>Los trazos verdes son inicios donde cabe el bloque completo.</span>
+        <span>Las horas en verde indican dónde cabe la cita completa.</span>
         <strong>Tramos de {data.calendar.slot_interval_minutes} min</strong>
       </div>
       <div
@@ -614,9 +630,9 @@ function TimelineLine({
       ))}
 
       {line.available_slots.map((slot) => {
-        const isSelected = selectedSlot
+        const isSelected = Boolean(selectedSlot
           && selectedSlot.work_line_id === slot.work_line_id
-          && selectedSlot.starts_at === slot.starts_at;
+          && selectedSlot.starts_at === slot.starts_at);
         return (
           <button
             key={`slot-${slot.starts_at}`}
@@ -624,6 +640,7 @@ function TimelineLine({
             className={`agenda-timeline__slot${isSelected ? " is-selected" : ""}`}
             style={markerPosition(slot.starts_at, range, ROW_HEIGHT)}
             aria-label={`Elegir ${formatClock(slot.starts_at)} en ${line.name}`}
+            aria-pressed={isSelected}
             title={`${formatClock(slot.starts_at)} · ${SLOT_REASON_COPY[slot.reason] || "Hueco válido"}`}
             onClick={() => onChooseSlot(slot)}
           >

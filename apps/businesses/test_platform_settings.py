@@ -1,9 +1,10 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import requests
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -18,6 +19,156 @@ from apps.businesses.models import (
     PlatformSettings,
 )
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
+
+
+class HolidaySyncRunPresentationTests(TestCase):
+    def test_sync_form_declares_busy_feedback(self):
+        superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000902",
+            phone="+34910000902",
+            password="test-pass-123",
+            full_name="Admin BOE",
+        )
+        self.client.force_login(superadmin)
+
+        response = self.client.get(
+            f"{reverse('platform_settings:superadmin_platform_settings')}?holiday_year=2026"
+        )
+
+        self.assertContains(response, "data-submit-busy")
+        self.assertContains(response, 'data-submit-busy-label="Sincronizando…"')
+        self.assertContains(response, "Sincronizar con BOE")
+        self.assertContains(response, "js/app.js?v=20260717-p1-submit-busy")
+
+    def test_unfinished_run_is_presented_as_in_progress(self):
+        superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000903",
+            phone="+34910000903",
+            password="test-pass-123",
+            full_name="Admin BOE",
+        )
+        HolidaySyncRun.objects.create(
+            year=2026,
+            source_name="BOE - calendario laboral nacional",
+            status=HolidaySyncRun.Status.FAILED,
+            started_at=timezone.now(),
+            finished_at=None,
+        )
+        self.client.force_login(superadmin)
+
+        response = self.client.get(
+            f"{reverse('platform_settings:superadmin_platform_settings')}?holiday_year=2026"
+        )
+
+        self.assertContains(response, "En curso")
+        self.assertContains(response, "Sincronización con el BOE de 2026 en curso")
+        self.assertContains(response, "AgendaSalon está consultando el BOE")
+        self.assertNotContains(response, "Fallida")
+        self.assertNotContains(response, "Cargados")
+        self.assertNotContains(response, "settings-state--danger")
+
+    @patch("apps.holidays.models.timezone.now")
+    def test_stale_unfinished_run_is_presented_as_interrupted(self, mocked_now):
+        current_time = timezone.make_aware(datetime(2026, 7, 17, 8, 0))
+        mocked_now.return_value = current_time
+        superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000904",
+            phone="+34910000904",
+            password="test-pass-123",
+            full_name="Admin BOE",
+        )
+        HolidaySyncRun.objects.create(
+            year=2026,
+            source_name="BOE - calendario laboral nacional",
+            status=HolidaySyncRun.Status.FAILED,
+            started_at=current_time - timedelta(minutes=16),
+            finished_at=None,
+        )
+        self.client.force_login(superadmin)
+
+        response = self.client.get(
+            f"{reverse('platform_settings:superadmin_platform_settings')}?holiday_year=2026"
+        )
+
+        self.assertContains(response, "Interrumpida")
+        self.assertContains(response, "Sincronización con el BOE de 2026 interrumpida")
+        self.assertContains(response, "La sincronización no terminó correctamente")
+        self.assertContains(response, "settings-state--danger")
+        self.assertNotContains(response, "Fallida")
+        self.assertNotContains(response, "Cargados")
+
+    @patch("apps.businesses.views.sync_boe_national_holidays")
+    def test_sync_messages_use_natural_singular_and_plural(self, mocked_sync):
+        superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000905",
+            phone="+34910000905",
+            password="test-pass-123",
+            full_name="Admin BOE",
+        )
+        self.client.force_login(superadmin)
+        sync_url = reverse("platform_settings:superadmin_holiday_sync")
+        scenarios = (
+            (
+                SimpleNamespace(
+                    items_created=1,
+                    items_updated=1,
+                    items_removed=1,
+                    affected_appointments=1,
+                    affected_businesses=1,
+                ),
+                "Calendario BOE 2026 sincronizado: 1 creado, 1 actualizado y 1 retirado.",
+                "Hay 1 cita futura que coincide con estos festivos en 1 negocio.",
+            ),
+            (
+                SimpleNamespace(
+                    items_created=2,
+                    items_updated=3,
+                    items_removed=4,
+                    affected_appointments=2,
+                    affected_businesses=3,
+                ),
+                "Calendario BOE 2026 sincronizado: 2 creados, 3 actualizados y 4 retirados.",
+                "Hay 2 citas futuras que coinciden con estos festivos en 3 negocios.",
+            ),
+        )
+
+        for run, success_copy, warning_copy in scenarios:
+            with self.subTest(created=run.items_created):
+                mocked_sync.return_value = SimpleNamespace(run=run)
+                response = self.client.post(
+                    sync_url,
+                    {"year": 2026},
+                    follow=True,
+                )
+
+                self.assertContains(response, success_copy)
+                self.assertContains(response, warning_copy)
+
+    @patch("apps.businesses.views.sync_boe_national_holidays")
+    def test_network_error_message_hides_transport_details(self, mocked_sync):
+        superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000906",
+            phone="+34910000906",
+            password="test-pass-123",
+            full_name="Admin BOE",
+        )
+        mocked_sync.side_effect = requests.Timeout(
+            "HTTPSConnectionPool(host='www.boe.es'): Read timed out."
+        )
+        self.client.force_login(superadmin)
+
+        response = self.client.post(
+            reverse("platform_settings:superadmin_holiday_sync"),
+            {"year": 2026},
+            follow=True,
+        )
+
+        self.assertContains(
+            response,
+            "No hemos podido consultar el BOE. "
+            "Comprueba la conexión y vuelve a intentarlo.",
+        )
+        self.assertNotContains(response, "HTTPSConnectionPool")
 
 
 class PlatformSettingsTests(TestCase):

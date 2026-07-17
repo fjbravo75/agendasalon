@@ -1,6 +1,9 @@
+import uuid
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -148,8 +151,32 @@ class OutboundEmail(models.Model):
     )
     recipient_email = models.EmailField("destinatario")
     deduplication_key = models.CharField(max_length=255, unique=True)
+    delivery_reference = models.UUIDField(
+        "identificador del aviso",
+        default=uuid.uuid4,
+        editable=False,
+        db_index=True,
+    )
     scheduled_for = models.DateTimeField("programado para", default=timezone.now, db_index=True)
     attempts = models.PositiveSmallIntegerField("intentos", default=0)
+    lease_token = models.UUIDField(
+        "identificador del procesamiento",
+        null=True,
+        blank=True,
+        editable=False,
+    )
+    lease_expires_at = models.DateTimeField(
+        "procesamiento reservado hasta",
+        null=True,
+        blank=True,
+        editable=False,
+    )
+    cancellation_requested_at = models.DateTimeField(
+        "cancelación solicitada el",
+        null=True,
+        blank=True,
+        editable=False,
+    )
     sent_at = models.DateTimeField("enviado el", null=True, blank=True)
     last_error = models.CharField("último error", max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -158,7 +185,25 @@ class OutboundEmail(models.Model):
     class Meta:
         ordering = ["scheduled_for", "pk"]
         indexes = [
-            models.Index(fields=["status", "scheduled_for"], name="email_status_schedule_idx")
+            models.Index(fields=["status", "scheduled_for"], name="email_status_schedule_idx"),
+            models.Index(fields=["status", "lease_expires_at"], name="email_status_lease_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status="processing",
+                        lease_token__isnull=False,
+                        lease_expires_at__isnull=False,
+                    )
+                    | (
+                        ~Q(status="processing")
+                        & Q(lease_token__isnull=True)
+                        & Q(lease_expires_at__isnull=True)
+                    )
+                ),
+                name="email_processing_lease_state",
+            )
         ]
 
     def __str__(self):
@@ -169,5 +214,42 @@ class OutboundEmail(models.Model):
         if self.status == self.Status.SENT:
             return "Aceptado por el servicio de correo"
         return self.get_status_display()
+
+    @property
+    def operational_status_message(self):
+        if self.status == self.Status.SENT:
+            if self.cancellation_requested_at is not None:
+                return (
+                    "El servicio de correo aceptó el aviso cuando la cancelación "
+                    "de la cita ya estaba en curso. El mensaje todavía puede llegar "
+                    "a la bandeja del cliente."
+                )
+            return (
+                "El servicio de correo aceptó el aviso. "
+                "Esto no confirma que haya llegado a su bandeja ni que lo haya leído."
+            )
+        if self.status == self.Status.PENDING:
+            if self.attempts:
+                return (
+                    "El aviso todavía no ha sido aceptado por el servicio de correo. "
+                    "Se volverá a intentar automáticamente."
+                )
+            return "El aviso está pendiente de su primer intento."
+        if self.status == self.Status.PROCESSING:
+            if self.cancellation_requested_at is not None:
+                return (
+                    "La cita está cancelada, pero el aviso ya estaba en curso. "
+                    "El servicio de correo todavía puede aceptarlo."
+                )
+            return "El aviso se está procesando en este momento."
+        if self.status == self.Status.FAILED:
+            return (
+                "El servicio de correo no aceptó el aviso tras agotar los intentos. "
+                "Revisa la dirección del cliente y avisa al administrador de AgendaSalon "
+                "si el problema continúa."
+            )
+        if self.status == self.Status.CANCELLED:
+            return "El aviso se canceló y no volverá a intentarse."
+        return "Consulta el estado operativo de este aviso."
 
 # Create your models here.

@@ -123,7 +123,27 @@
           <div class="ops-section-head ops-section-head--compact"><div><span>Avisos al cliente</span><h2>Correo de la cita</h2></div></div>
           <div class="appointment-audit-list">
             {% for email in appointment_emails %}
-              <article><span>{{ email.get_kind_display }}</span><strong>{{ email.operational_status_label }}</strong><small>{{ email.recipient_email }} · {% if email.sent_at %}{{ email.sent_at|date:"j M Y H:i" }}{% else %}previsto para {{ email.scheduled_for|date:"j M Y H:i" }}{% endif %}</small>{% if email.last_error %}<small>{{ email.last_error }}</small>{% endif %}</article>
+              <article>
+                <span>{{ email.get_kind_display }}</span>
+                <strong>{{ email.operational_status_label }}</strong>
+                <small>
+                  {{ email.recipient_email }} ·
+                  {% if email.status == "sent" and email.sent_at %}
+                    aceptado por el servicio de correo el {{ email.sent_at|date:"j M Y H:i" }}
+                  {% elif email.status == "pending" %}
+                    próximo intento el {{ email.scheduled_for|date:"j M Y H:i" }}
+                  {% elif email.status == "processing" %}
+                    procesamiento en curso
+                  {% elif email.status == "failed" %}
+                    sin más intentos · actualizado el {{ email.updated_at|date:"j M Y H:i" }}
+                  {% elif email.status == "cancelled" %}
+                    cancelado · actualizado el {{ email.updated_at|date:"j M Y H:i" }}
+                  {% else %}
+                    actualizado el {{ email.updated_at|date:"j M Y H:i" }}
+                  {% endif %}
+                </small>
+                <small>{{ email.operational_status_message }}</small>
+              </article>
             {% empty %}
               <div class="soft-note"><strong>No hay avisos por correo.</strong><p>No hay avisos registrados para esta cita. Solo se envían cuando la cuenta cliente tiene un correo verificado.</p></div>
             {% endfor %}

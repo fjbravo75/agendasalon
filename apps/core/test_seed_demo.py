@@ -26,6 +26,17 @@ from apps.customers.models import (
     BusinessClientAuthorizedContact,
 )
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
+from apps.legal.models import (
+    CustomerPrivacyEvidence,
+    CustomerPrivacyEvidenceEvent,
+    LegalAcceptance,
+    LegalAcceptanceEvent,
+    LegalDocument,
+)
+from apps.legal.services import (
+    business_legal_snapshot,
+    record_customer_privacy_information,
+)
 from apps.notifications.models import InternalNotification
 
 
@@ -36,11 +47,18 @@ class SeedDemoCommandTests(TestCase):
     def test_seed_demo_creates_required_demo_data_and_is_idempotent(self):
         call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
         first_counts = self._counts()
+        first_legal_fingerprints = self._legal_event_fingerprints()
 
         call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
         second_counts = self._counts()
+        second_legal_fingerprints = self._legal_event_fingerprints()
 
         self.assertEqual(first_counts, second_counts)
+        self.assertEqual(first_legal_fingerprints, second_legal_fingerprints)
+        self.assertEqual(first_counts["legal_acceptances"], 10)
+        self.assertEqual(first_counts["legal_acceptance_events"], 10)
+        self.assertEqual(first_counts["customer_privacy_evidence"], 8)
+        self.assertEqual(first_counts["customer_privacy_evidence_events"], 8)
 
         business = Business.objects.get(slug="peluqueria-mari")
         barberia = Business.objects.get(slug="barberia-norte")
@@ -241,6 +259,42 @@ class SeedDemoCommandTests(TestCase):
             self.assertFalse(user.check_password("Contraseña modificada durante la prueba 2026"))
             self.assertFalse(user.password_change_required)
 
+    def test_seed_demo_preserves_an_additional_real_privacy_event(self):
+        call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
+        business = Business.objects.get(slug="peluqueria-mari")
+        client = BusinessClient.objects.get(
+            business=business,
+            full_name="Lucas López",
+        )
+        professional = BusinessMembership.objects.get(
+            business=business,
+            user__is_superuser=False,
+        ).user
+        document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        )
+        projection = record_customer_privacy_information(
+            business_client=client,
+            recorded_by=professional,
+            channel=CustomerPrivacyEvidence.Channel.OTHER,
+            document=document,
+            legal_context_snapshot=business_legal_snapshot(business),
+        )
+        extra_event = CustomerPrivacyEvidenceEvent.objects.get(
+            business_client=client,
+            channel=CustomerPrivacyEvidence.Channel.OTHER,
+            occurred_at=projection.occurred_at,
+        )
+        counts_with_real_event = self._counts()
+
+        call_command("seed_demo", base_date="2026-07-06", stdout=StringIO())
+
+        self.assertTrue(
+            CustomerPrivacyEvidenceEvent.objects.filter(pk=extra_event.pk).exists()
+        )
+        self.assertEqual(self._counts(), counts_with_real_event)
+
     def test_seed_demo_never_dates_calendar_trace_in_the_future(self):
         future_base_date = timezone.localdate() + timedelta(days=30)
 
@@ -315,4 +369,24 @@ class SeedDemoCommandTests(TestCase):
             "appointment_services": AppointmentService.objects.count(),
             "notifications": InternalNotification.objects.count(),
             "activity_events": BusinessActivityEvent.objects.count(),
+            "legal_acceptances": LegalAcceptance.objects.count(),
+            "legal_acceptance_events": LegalAcceptanceEvent.objects.count(),
+            "customer_privacy_evidence": CustomerPrivacyEvidence.objects.count(),
+            "customer_privacy_evidence_events": (
+                CustomerPrivacyEvidenceEvent.objects.count()
+            ),
+        }
+
+    def _legal_event_fingerprints(self):
+        return {
+            "acceptance": tuple(
+                LegalAcceptanceEvent.objects.order_by("action_fingerprint", "pk")
+                .values_list("action_fingerprint", flat=True)
+            ),
+            "customer": tuple(
+                CustomerPrivacyEvidenceEvent.objects.order_by(
+                    "action_fingerprint",
+                    "pk",
+                ).values_list("action_fingerprint", flat=True)
+            ),
         }

@@ -144,6 +144,10 @@ class BusinessSignupRequest(models.Model):
     )
     privacy_document_version = models.CharField("versión de privacidad", max_length=24)
     privacy_document_hash = models.CharField("huella de privacidad", max_length=64)
+    privacy_legal_context_snapshot = models.JSONField(
+        "contexto legal de privacidad mostrado",
+        default=dict,
+    )
     privacy_acknowledged_at = models.DateTimeField("información de privacidad leída")
     status = models.CharField(
         "estado",
@@ -219,6 +223,14 @@ class BusinessSignupRequest(models.Model):
                 raise ValidationError({"privacy_document_version": "La versión no coincide."})
             if self.privacy_document_hash != self.privacy_document.content_hash:
                 raise ValidationError({"privacy_document_hash": "La huella no coincide."})
+        if not isinstance(self.privacy_legal_context_snapshot, dict):
+            raise ValidationError(
+                {
+                    "privacy_legal_context_snapshot": (
+                        "El contexto legal mostrado debe conservarse como una estructura."
+                    )
+                }
+            )
 
     def __str__(self):
         return f"{self.business_name} · {self.contact_name}"

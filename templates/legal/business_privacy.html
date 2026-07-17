@@ -7,8 +7,13 @@
     <header class="legal-hero">
       <span class="legal-kicker">Privacidad de clientes</span>
       <h1 id="privacy-title">Tus datos en {{ business.commercial_name }}</h1>
-      <p>{{ document.lead }}</p>
-      <div class="legal-meta"><span>Versión {{ document.version }}</span><span>Sin comunicaciones comerciales por defecto</span></div>
+      {% if document %}
+        <p>{{ document.lead }}</p>
+        <div class="legal-meta"><span>Versión {{ document.version }}</span><span>Sin comunicaciones comerciales por defecto</span></div>
+      {% else %}
+        <p>Ahora mismo no podemos mostrar el texto completo de la política de privacidad. El canal de contacto y el ejercicio de tus derechos siguen disponibles.</p>
+        <div class="legal-meta"><span>Texto temporalmente no disponible</span><span>Tus derechos siguen activos</span></div>
+      {% endif %}
     </header>
 
     <dl class="legal-identity">
@@ -21,12 +26,19 @@
 
     <div class="legal-layout">
       <article class="legal-document">
-        {% for section in document.sections %}
-          <section class="legal-section">
-            <h2>{{ section.heading }}</h2>
-            {% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+        {% if document %}
+          {% for section in document.sections %}
+            <section class="legal-section">
+              <h2>{{ section.heading }}</h2>
+              {% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+            </section>
+          {% endfor %}
+        {% else %}
+          <section class="legal-section" role="status">
+            <h2>La política completa no está disponible ahora</h2>
+            <p>No necesitas esperar para ejercer tus derechos. Puedes usar el canal de privacidad indicado o registrar una solicitud desde tu cuenta.</p>
           </section>
-        {% endfor %}
+        {% endif %}
       </article>
 
       <aside class="legal-panel legal-panel--sticky" aria-labelledby="rights-title">

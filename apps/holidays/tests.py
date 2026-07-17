@@ -1,6 +1,9 @@
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
-from django.test import TestCase
+import requests
+from django.db import transaction
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from apps.booking.models import Appointment, BusinessCalendarSettings, WorkLine
@@ -105,8 +108,24 @@ class BoeNationalHolidaySyncServiceTests(TestCase):
                 session=FakeSession([oversized])
             ).find_resolution(2026)
 
+    def test_network_timeout_is_explained_without_technical_details(self):
+        class TimeoutSession:
+            def get(self, url, **kwargs):
+                raise requests.Timeout(
+                    "HTTPSConnectionPool(host='www.boe.es'): Read timed out."
+                )
 
-class NationalHolidayReconciliationTests(TestCase):
+        with self.assertRaisesMessage(
+            BoeSyncError,
+            "No hemos podido consultar el BOE. "
+            "Comprueba la conexión y vuelve a intentarlo.",
+        ):
+            BoeNationalHolidaySyncService(
+                session=TimeoutSession()
+            ).find_resolution(2026)
+
+
+class NationalHolidayReconciliationTests(TransactionTestCase):
     def setUp(self):
         self.resolution = BoeHolidayResolution(
             identifier="BOE-A-2025-21667",
@@ -165,6 +184,38 @@ class NationalHolidayReconciliationTests(TestCase):
         self.assertEqual(result.run.items_removed, 2)
         self.assertEqual(result.run.items_skipped, 1)
 
+    @patch("apps.holidays.services.timezone.now")
+    def test_new_sync_marks_an_unfinished_previous_run_as_interrupted(
+        self,
+        mocked_now,
+    ):
+        current_time = timezone.make_aware(datetime(2026, 7, 17, 8, 0))
+        mocked_now.return_value = current_time
+        interrupted_run = HolidaySyncRun.objects.create(
+            year=2026,
+            source_name="BOE - calendario laboral nacional",
+            status=HolidaySyncRun.Status.SUCCESS,
+            started_at=current_time - timedelta(minutes=20),
+            finished_at=None,
+        )
+        service = FixedHolidayService(
+            self.resolution,
+            (OfficialHolidayImport(date(2026, 1, 1), "Año Nuevo"),),
+        )
+
+        result = sync_boe_national_holidays(2026, service=service)
+
+        interrupted_run.refresh_from_db()
+        self.assertEqual(interrupted_run.status, HolidaySyncRun.Status.FAILED)
+        self.assertEqual(interrupted_run.finished_at, current_time)
+        self.assertEqual(
+            interrupted_run.error_detail,
+            "La sincronización anterior se interrumpió antes de terminar. "
+            "No se aplicó un resultado completo.",
+        )
+        self.assertNotEqual(result.run.pk, interrupted_run.pk)
+        self.assertEqual(result.run.status, HolidaySyncRun.Status.SUCCESS)
+
     def test_sync_reports_future_appointments_without_changing_them(self):
         business = Business.objects.create(commercial_name="Salón Centro", slug="salon-centro")
         BusinessCalendarSettings.objects.create(business=business, apply_national_holidays=True)
@@ -212,3 +263,125 @@ class NationalHolidayReconciliationTests(TestCase):
         self.assertEqual(run.status, HolidaySyncRun.Status.FAILED)
         self.assertEqual(run.error_detail, "BOE no disponible")
         self.assertIsNotNone(run.finished_at)
+
+    def test_network_failure_run_keeps_only_the_human_explanation(self):
+        class TimeoutSession:
+            def get(self, url, **kwargs):
+                raise requests.Timeout("HTTPSConnectionPool: Read timed out")
+
+        with self.assertRaises(BoeSyncError):
+            sync_boe_national_holidays(
+                2026,
+                service=BoeNationalHolidaySyncService(session=TimeoutSession()),
+            )
+
+        run = HolidaySyncRun.objects.get()
+        self.assertEqual(
+            run.error_detail,
+            "No hemos podido consultar el BOE. "
+            "Comprueba la conexión y vuelve a intentarlo.",
+        )
+        self.assertNotIn("HTTPSConnectionPool", run.error_detail)
+
+    def test_failure_during_impact_snapshot_rolls_back_the_catalogue(self):
+        existing = OfficialHoliday.objects.create(
+            date=date(2026, 1, 1),
+            name="Nombre anterior",
+            scope=OfficialHoliday.Scope.NATIONAL,
+            year=2026,
+            source_name="BOE - calendario laboral nacional",
+            official_reference="BOE-A-OLD",
+        )
+        service = FixedHolidayService(
+            self.resolution,
+            (
+                OfficialHolidayImport(date(2026, 1, 1), "Año Nuevo"),
+                OfficialHolidayImport(date(2026, 8, 15), "Asunción de la Virgen"),
+            ),
+        )
+
+        with patch(
+            "apps.holidays.services._locked_affected_future_appointments",
+            side_effect=RuntimeError("No se pudo construir el resumen"),
+        ), self.assertRaises(RuntimeError):
+            sync_boe_national_holidays(2026, service=service)
+
+        existing.refresh_from_db()
+        run = HolidaySyncRun.objects.get()
+        self.assertEqual(existing.name, "Nombre anterior")
+        self.assertEqual(existing.official_reference, "BOE-A-OLD")
+        self.assertFalse(
+            OfficialHoliday.objects.filter(date=date(2026, 8, 15)).exists()
+        )
+        self.assertEqual(run.status, HolidaySyncRun.Status.FAILED)
+        self.assertEqual(run.items_created, 0)
+        self.assertEqual(run.items_updated, 0)
+        self.assertEqual(
+            run.error_detail,
+            "La sincronización se interrumpió por un error interno. "
+            "No se aplicó un resultado completo.",
+        )
+        self.assertNotIn("No se pudo construir el resumen", run.error_detail)
+
+    def test_sync_snapshot_counts_only_businesses_that_apply_national_holidays(self):
+        future_date = timezone.localdate() + timedelta(days=40)
+        starts_at = timezone.make_aware(
+            datetime.combine(future_date, datetime.min.time().replace(hour=10))
+        )
+        for index, applies_holidays in enumerate((True, False), start=1):
+            business = Business.objects.create(
+                commercial_name=f"Salón {index}",
+                slug=f"salon-{index}",
+            )
+            BusinessCalendarSettings.objects.create(
+                business=business,
+                apply_national_holidays=applies_holidays,
+            )
+            client = BusinessClient.objects.create(
+                business=business,
+                full_name=f"Cliente {index}",
+            )
+            line = WorkLine.objects.create(business=business, line_number=1)
+            Appointment.objects.create(
+                business=business,
+                business_client=client,
+                work_line=line,
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(minutes=30),
+                total_duration_minutes=30,
+                status=Appointment.Status.CONFIRMED,
+                manual_channel=Appointment.ManualChannel.PHONE,
+            )
+        service = FixedHolidayService(
+            self.resolution,
+            (OfficialHolidayImport(future_date, "Festivo nacional"),),
+        )
+
+        result = sync_boe_national_holidays(future_date.year, service=service)
+
+        self.assertEqual(result.run.affected_appointments, 1)
+        self.assertEqual(result.run.affected_businesses, 1)
+
+
+class HolidaySyncTransactionBoundaryTests(TransactionTestCase):
+    def test_external_fetch_happens_before_the_atomic_reconciliation(self):
+        resolution = BoeHolidayResolution(
+            identifier="BOE-A-TEST-BOUNDARY",
+            title="Calendario de prueba",
+            url_html="https://www.boe.es/diario_boe/txt.php?id=BOE-A-TEST-BOUNDARY",
+        )
+
+        class BoundaryInspectingService:
+            def fetch_national_holidays(inner_self, target_year):
+                self.assertFalse(transaction.get_connection().in_atomic_block)
+                return resolution, (
+                    OfficialHolidayImport(date(target_year, 1, 1), "Año Nuevo"),
+                )
+
+        result = sync_boe_national_holidays(
+            2026,
+            service=BoundaryInspectingService(),
+        )
+
+        self.assertEqual(result.run.status, HolidaySyncRun.Status.SUCCESS)
+        self.assertEqual(result.run.items_created, 1)

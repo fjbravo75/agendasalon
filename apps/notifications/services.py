@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import hmac
+import logging
+import uuid
+from dataclasses import dataclass
 from datetime import timedelta
+from email.utils import parseaddr
+from threading import Event, Thread
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives
-from django.db import transaction
+from django.db import close_old_connections, connection, connections, transaction
+from django.db.models import Q
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -27,25 +34,108 @@ CLIENT_EMAIL_TOKEN_MAX_AGE = 48 * 60 * 60
 CLIENT_PASSWORD_RESET_TOKEN_SALT = "agendasalon.client-password-reset.v1"
 CLIENT_PASSWORD_RESET_TOKEN_MAX_AGE = 60 * 60
 MAX_EMAIL_ATTEMPTS = 3
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _EmailClaim:
+    email_id: int
+    lease_token: uuid.UUID
+    attempt_number: int
+    recovered: bool
+
+
+class _EmailClaimHeartbeat:
+    """Mantiene la reserva mientras el backend SMTP sigue ejecutándose."""
+
+    def __init__(self, claim: _EmailClaim):
+        self.claim = claim
+        self._stop = Event()
+        self._lost = Event()
+        self._thread = Thread(
+            target=self._run,
+            name=f"outbound-email-lease-{claim.email_id}",
+            daemon=True,
+        )
+
+    @property
+    def lost(self):
+        return self._lost.is_set()
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        self._thread.join()
+
+    def _run(self):
+        close_old_connections()
+        try:
+            interval = _lease_heartbeat_interval()
+            while not self._stop.wait(interval):
+                try:
+                    renewed = _renew_claim(self.claim)
+                except Exception:
+                    # Un fallo transitorio se reintenta. Si la reserva llega a
+                    # caducar, el siguiente CAS devolverá cero y este worker
+                    # ya no podrá cerrar el trabajo de otro.
+                    logger.exception(
+                        "No se pudo renovar temporalmente la reserva del correo %s.",
+                        self.claim.email_id,
+                    )
+                    continue
+                if not renewed:
+                    self._lost.set()
+                    return
+        finally:
+            connections.close_all()
 
 
 def _absolute_url(path: str) -> str:
     return f"{settings.AGENDA_PLATFORM_WEBSITE.rstrip('/')}{path}"
 
 
+@transaction.atomic
 def _upsert_email(*, key, defaults, allow_resend=False):
     email, created = OutboundEmail.objects.get_or_create(
         deduplication_key=key,
         defaults=defaults,
     )
-    if not created and (email.status != OutboundEmail.Status.SENT or allow_resend):
-        for field, value in defaults.items():
-            setattr(email, field, value)
-        email.status = OutboundEmail.Status.PENDING
-        email.attempts = 0
-        email.last_error = ""
-        email.sent_at = None
-        email.save()
+    if created:
+        return email
+
+    email = OutboundEmail.objects.select_for_update().get(pk=email.pk)
+    lease_is_active = (
+        email.status == OutboundEmail.Status.PROCESSING
+        and email.lease_expires_at is not None
+        and email.lease_expires_at > timezone.now()
+    )
+    if lease_is_active:
+        return email
+
+    if not allow_resend:
+        if email.status == OutboundEmail.Status.PENDING:
+            refreshed_fields = []
+            for field, value in defaults.items():
+                if field == "scheduled_for" and email.attempts > 0:
+                    continue
+                setattr(email, field, value)
+                refreshed_fields.append(field)
+            if refreshed_fields:
+                email.save(update_fields=[*refreshed_fields, "updated_at"])
+        return email
+
+    for field, value in defaults.items():
+        setattr(email, field, value)
+    email.status = OutboundEmail.Status.PENDING
+    email.attempts = 0
+    email.last_error = ""
+    email.sent_at = None
+    email.lease_token = None
+    email.lease_expires_at = None
+    email.delivery_reference = uuid.uuid4()
+    email.save()
     return email
 
 
@@ -158,11 +248,55 @@ def queue_appointment_emails(appointment):
     return tuple(queued)
 
 
+def _apply_locked_appointment_email_cancellation(emails, *, now):
+    processing_ids = [
+        email.pk
+        for email in emails
+        if email.status == OutboundEmail.Status.PROCESSING
+    ]
+    pending_ids = [
+        email.pk
+        for email in emails
+        if email.status == OutboundEmail.Status.PENDING
+    ]
+    if processing_ids:
+        OutboundEmail.objects.filter(pk__in=processing_ids).update(
+            cancellation_requested_at=now,
+            last_error=(
+                "La cita se canceló mientras el aviso estaba en curso. "
+                "El servicio de correo aún puede aceptarlo."
+            ),
+            updated_at=now,
+        )
+    if pending_ids:
+        OutboundEmail.objects.filter(pk__in=pending_ids).update(
+            status=OutboundEmail.Status.CANCELLED,
+            last_error="Cita cancelada.",
+            cancellation_requested_at=now,
+            lease_token=None,
+            lease_expires_at=None,
+            updated_at=now,
+        )
+    return len(emails)
+
+
+@transaction.atomic
 def cancel_appointment_emails(appointment):
-    return OutboundEmail.objects.filter(
-        appointment=appointment,
-        status__in=[OutboundEmail.Status.PENDING, OutboundEmail.Status.PROCESSING],
-    ).update(status=OutboundEmail.Status.CANCELLED, last_error="Cita cancelada.")
+    lock_options = {}
+    if getattr(connection.features, "has_select_for_update_of", False):
+        lock_options["of"] = ("self",)
+    emails = list(
+        OutboundEmail.objects.select_for_update(**lock_options)
+        .filter(
+            appointment=appointment,
+            status__in=[OutboundEmail.Status.PENDING, OutboundEmail.Status.PROCESSING],
+        )
+        .order_by("pk")
+    )
+    return _apply_locked_appointment_email_cancellation(
+        emails,
+        now=timezone.now(),
+    )
 
 
 def _professional_token_url(user, route_name):
@@ -236,6 +370,9 @@ def verified_client_from_token(
     business,
     password,
     privacy_acknowledged=False,
+    privacy_document=None,
+    privacy_legal_context=None,
+    privacy_action_fingerprint_source=None,
 ):
     # La pausa operativa puede cambiar entre el GET y el POST. Bloqueamos y
     # releemos el negocio dentro de la misma transacción antes de consolidar
@@ -299,7 +436,13 @@ def verified_client_from_token(
             if locked_client.source == "other"
             else LegalAcceptance.Context.CLIENT_INVITATION
         )
-        acknowledge_customer_privacy(client_access=access, context=context)
+        acknowledge_customer_privacy(
+            client_access=access,
+            context=context,
+            document=privacy_document,
+            legal_context_snapshot=privacy_legal_context,
+            action_fingerprint_source=privacy_action_fingerprint_source,
+        )
     return access
 
 
@@ -466,26 +609,224 @@ def _is_still_valid(email):
     )
 
 
-def dispatch_outbound_email(email_id):
+def _lease_duration():
+    seconds = int(settings.AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS)
+    if seconds <= 0:
+        raise ValueError("AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS debe ser mayor que cero.")
+    return timedelta(seconds=seconds)
+
+
+def _lease_heartbeat_interval():
+    return max(
+        0.1,
+        min(30.0, int(settings.AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS) / 3),
+    )
+
+
+def _claim_lock_queryset():
+    options = {}
+    if getattr(connection.features, "has_select_for_update_skip_locked", False):
+        options["skip_locked"] = True
+    if getattr(connection.features, "has_select_for_update_of", False):
+        options["of"] = ("self",)
+    return OutboundEmail.objects.select_for_update(**options)
+
+
+def _claimable_email_filter(now):
+    return Q(
+        status=OutboundEmail.Status.PENDING,
+        scheduled_for__lte=now,
+    ) | (
+        Q(status=OutboundEmail.Status.PROCESSING)
+        & (Q(lease_expires_at__lte=now) | Q(lease_expires_at__isnull=True))
+    )
+
+
+def _claim_outbound_email(*, email_id=None):
+    now = timezone.now()
     with transaction.atomic():
-        email = OutboundEmail.objects.select_for_update(of=("self",)).select_related(
+        queryset = _claim_lock_queryset().filter(_claimable_email_filter(now))
+        if email_id is not None:
+            queryset = queryset.filter(pk=email_id)
+        email = queryset.order_by("scheduled_for", "pk").first()
+        if email is None:
+            return None, None
+
+        recovered = email.status == OutboundEmail.Status.PROCESSING
+        if email.attempts >= MAX_EMAIL_ATTEMPTS:
+            email.status = OutboundEmail.Status.FAILED
+            email.last_error = (
+                "El envío anterior quedó interrumpido y ya había agotado sus intentos."
+            )
+            email.lease_token = None
+            email.lease_expires_at = None
+            email.save(
+                update_fields=[
+                    "status",
+                    "last_error",
+                    "lease_token",
+                    "lease_expires_at",
+                    "updated_at",
+                ]
+            )
+            logger.warning(
+                "El correo transaccional %s agotó sus intentos tras una reserva interrumpida.",
+                email.pk,
+            )
+            return None, email.pk
+
+        lease_token = uuid.uuid4()
+        email.status = OutboundEmail.Status.PROCESSING
+        email.attempts += 1
+        email.lease_token = lease_token
+        email.lease_expires_at = now + _lease_duration()
+        email.save(
+            update_fields=[
+                "status",
+                "attempts",
+                "lease_token",
+                "lease_expires_at",
+                "updated_at",
+            ]
+        )
+
+    if recovered:
+        logger.warning(
+            "Recuperada la reserva caducada del correo transaccional %s en el intento %s.",
+            email.pk,
+            email.attempts,
+        )
+    return (
+        _EmailClaim(
+            email_id=email.pk,
+            lease_token=lease_token,
+            attempt_number=email.attempts,
+            recovered=recovered,
+        ),
+        None,
+    )
+
+
+def _active_claim_email(claim):
+    return (
+        OutboundEmail.objects.select_related(
             "business",
             "recipient_user",
             "client_access__business_client",
             "appointment__business_client",
-        ).get(pk=email_id)
-        if email.status in {OutboundEmail.Status.SENT, OutboundEmail.Status.CANCELLED}:
-            return email
-        if email.scheduled_for > timezone.now():
-            return email
-        if not _is_still_valid(email):
-            email.status = OutboundEmail.Status.CANCELLED
-            email.last_error = "El destinatario o la operacion ya no estan vigentes."
-            email.save(update_fields=["status", "last_error", "updated_at"])
-            return email
-        email.status = OutboundEmail.Status.PROCESSING
-        email.attempts += 1
-        email.save(update_fields=["status", "attempts", "updated_at"])
+        )
+        .filter(
+            pk=claim.email_id,
+            status=OutboundEmail.Status.PROCESSING,
+            lease_token=claim.lease_token,
+            lease_expires_at__gt=timezone.now(),
+        )
+        .first()
+    )
+
+
+def _renew_claim(claim):
+    renewed_at = timezone.now()
+    renewed_until = renewed_at + _lease_duration()
+    renewed = OutboundEmail.objects.filter(
+        pk=claim.email_id,
+        status=OutboundEmail.Status.PROCESSING,
+        lease_token=claim.lease_token,
+        lease_expires_at__gt=renewed_at,
+    ).update(
+        lease_expires_at=renewed_until,
+        updated_at=renewed_at,
+    )
+    return renewed == 1
+
+
+def _current_email(email_id):
+    return OutboundEmail.objects.get(pk=email_id)
+
+
+def _cancel_claim(claim, *, reason=None):
+    OutboundEmail.objects.filter(
+        pk=claim.email_id,
+        status=OutboundEmail.Status.PROCESSING,
+        lease_token=claim.lease_token,
+    ).update(
+        status=OutboundEmail.Status.CANCELLED,
+        last_error=(reason or "El destinatario o la operación ya no están vigentes."),
+        lease_token=None,
+        lease_expires_at=None,
+        updated_at=timezone.now(),
+    )
+    return _current_email(claim.email_id)
+
+
+def _finish_claim_with_error(claim, exc):
+    email = _active_claim_email(claim)
+    if email is None:
+        return _current_email(claim.email_id)
+    if email.cancellation_requested_at is not None:
+        return _cancel_claim(claim, reason="Cita cancelada durante el envío.")
+    if not _is_still_valid(email):
+        return _cancel_claim(claim)
+
+    next_status = (
+        OutboundEmail.Status.FAILED
+        if claim.attempt_number >= MAX_EMAIL_ATTEMPTS
+        else OutboundEmail.Status.PENDING
+    )
+    OutboundEmail.objects.filter(
+        pk=claim.email_id,
+        status=OutboundEmail.Status.PROCESSING,
+        lease_token=claim.lease_token,
+        cancellation_requested_at__isnull=True,
+    ).update(
+        status=next_status,
+        last_error=str(exc)[:500],
+        scheduled_for=timezone.now() + timedelta(minutes=5 * claim.attempt_number),
+        lease_token=None,
+        lease_expires_at=None,
+        updated_at=timezone.now(),
+    )
+    current = _current_email(claim.email_id)
+    if (
+        current.status == OutboundEmail.Status.PROCESSING
+        and current.lease_token == claim.lease_token
+        and current.cancellation_requested_at is not None
+    ):
+        return _cancel_claim(claim, reason="Cita cancelada durante el envío.")
+    return current
+
+
+def _finish_claim_as_accepted(claim):
+    accepted_at = timezone.now()
+    OutboundEmail.objects.filter(
+        pk=claim.email_id,
+        status=OutboundEmail.Status.PROCESSING,
+        lease_token=claim.lease_token,
+    ).update(
+        status=OutboundEmail.Status.SENT,
+        sent_at=accepted_at,
+        last_error="",
+        lease_token=None,
+        lease_expires_at=None,
+        updated_at=accepted_at,
+    )
+    return _current_email(claim.email_id)
+
+
+def _message_id_domain():
+    sender_domain = parseaddr(settings.DEFAULT_FROM_EMAIL)[1].rpartition("@")[2]
+    website_domain = urlparse(settings.AGENDA_PLATFORM_WEBSITE).hostname
+    return (sender_domain or website_domain or "agendasalon.local").encode("idna").decode("ascii")
+
+
+def _dispatch_claim(claim):
+    email = _active_claim_email(claim)
+    if email is None:
+        return _current_email(claim.email_id)
+    if email.cancellation_requested_at is not None:
+        return _cancel_claim(claim, reason="Cita cancelada antes del envío.")
+    if not _is_still_valid(email):
+        return _cancel_claim(claim)
 
     try:
         if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
@@ -502,39 +843,60 @@ def dispatch_outbound_email(email_id):
             body=text_body,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[email.recipient_email],
+            headers={
+                # La referencia se conserva en reintentos automáticos para
+                # correlacionarlos. SMTP no garantiza una entrega exactamente una vez.
+                "Message-ID": f"<{email.delivery_reference}@{_message_id_domain()}>",
+                "X-AgendaSalon-Delivery-Reference": str(email.delivery_reference),
+            },
         )
         message.attach_alternative(html_body, "text/html")
-        message.send(fail_silently=False)
+        if not _renew_claim(claim):
+            return _current_email(claim.email_id)
+        email = _active_claim_email(claim)
+        if email is None:
+            return _current_email(claim.email_id)
+        if email.cancellation_requested_at is not None:
+            return _cancel_claim(claim, reason="Cita cancelada antes del envío.")
+        if not _is_still_valid(email):
+            return _cancel_claim(claim)
+        heartbeat = _EmailClaimHeartbeat(claim)
+        heartbeat.start()
+        try:
+            accepted_count = message.send(fail_silently=False)
+        finally:
+            heartbeat.stop()
+        if heartbeat.lost:
+            logger.warning(
+                "El correo transaccional %s perdió su reserva durante la llamada SMTP.",
+                claim.email_id,
+            )
+            return _current_email(claim.email_id)
+        if accepted_count != 1:
+            raise RuntimeError("El servicio de correo no confirmó la aceptación del mensaje.")
     except Exception as exc:  # El error queda trazado para reintentos operativos.
-        email.refresh_from_db()
-        email.status = (
-            OutboundEmail.Status.FAILED
-            if email.attempts >= MAX_EMAIL_ATTEMPTS
-            else OutboundEmail.Status.PENDING
-        )
-        email.last_error = str(exc)[:500]
-        email.scheduled_for = timezone.now() + timedelta(minutes=5 * email.attempts)
-        email.save(update_fields=["status", "last_error", "scheduled_for", "updated_at"])
-        return email
+        return _finish_claim_with_error(claim, exc)
 
-    email.refresh_from_db()
-    email.status = OutboundEmail.Status.SENT
-    email.sent_at = timezone.now()
-    email.last_error = ""
-    email.save(update_fields=["status", "sent_at", "last_error", "updated_at"])
-    return email
+    return _finish_claim_as_accepted(claim)
 
+
+def dispatch_outbound_email(email_id):
+    claim, terminal_email_id = _claim_outbound_email(email_id=email_id)
+    if claim is None:
+        return _current_email(terminal_email_id or email_id)
+    return _dispatch_claim(claim)
 
 def dispatch_due_emails(*, limit=100):
-    email_ids = list(
-        OutboundEmail.objects.filter(
-            status=OutboundEmail.Status.PENDING,
-            scheduled_for__lte=timezone.now(),
-        )
-        .order_by("scheduled_for", "pk")
-        .values_list("pk", flat=True)[:limit]
-    )
-    return [dispatch_outbound_email(email_id) for email_id in email_ids]
+    delivered = []
+    for _ in range(max(0, limit)):
+        claim, terminal_email_id = _claim_outbound_email()
+        if claim is None and terminal_email_id is None:
+            break
+        if claim is None:
+            delivered.append(_current_email(terminal_email_id))
+            continue
+        delivered.append(_dispatch_claim(claim))
+    return delivered
 
 
 def queue_and_dispatch(email):

@@ -58,7 +58,7 @@
   --agenda-green-soft: #dff1ec;
   --agenda-coral: #c66f5c;
   --agenda-warning: #a46a17;
-  --agenda-row-height: 22px;
+  --agenda-row-height: 24px;
   max-width: 1560px;
   margin: 0 auto;
   color: var(--agenda-ink);
@@ -301,7 +301,6 @@
 
 .agenda-calendar__day:focus-visible,
 .agenda-calendar__navigation button:focus-visible,
-.agenda-timeline__slot:focus-visible,
 .agenda-line-tabs button:focus-visible,
 .agenda-suggestions button:focus-visible {
   outline: 3px solid rgba(8, 127, 112, 0.24);
@@ -616,7 +615,12 @@
   right: 5px;
   left: 5px;
   z-index: 2;
-  height: 18px;
+  /*
+   * Excepción de densidad: cada inicio ocupa el paso temporal completo de
+   * 24 px. Subirlo a los 36 px generales solaparía los tramos de 15 minutos;
+   * con 24 x 24 px como mínimo, los objetivos contiguos se tocan sin solaparse.
+   */
+  height: var(--agenda-row-height);
   padding: 0 7px;
   overflow: hidden;
   border: 1px solid rgba(8, 127, 112, 0.28);
@@ -626,9 +630,15 @@
   cursor: pointer;
   font-size: 0.62rem;
   font-weight: 850;
-  line-height: 16px;
+  line-height: calc(var(--agenda-row-height) - 2px);
   text-align: left;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.agenda-timeline__slot:focus-visible {
+  z-index: 7;
+  outline: 3px solid var(--agenda-green-dark);
+  outline-offset: 2px;
 }
 
 .agenda-timeline__slot:hover,

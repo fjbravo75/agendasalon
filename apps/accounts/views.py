@@ -182,7 +182,10 @@ def professional_activate(request, uidb64, token):
         user.save()
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         messages.success(request, "Tu cuenta ya está activa. La contraseña solo la conoces tú.")
-        return redirect(get_post_login_redirect_url(user))
+        response = redirect(get_post_login_redirect_url(user))
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "no-store"
+        return response
     platform_settings = get_platform_settings()
     response = render(
         request,
@@ -194,7 +197,9 @@ def professional_activate(request, uidb64, token):
             "internal_login_image_url": get_platform_login_image_url(platform_settings),
         },
     )
-    response["Referrer-Policy"] = "same-origin"
+    # El formulario conserva un Origin válido para CSRF sin divulgar la ruta
+    # con token como Referer. La página terminal no necesita enviar Referer.
+    response["Referrer-Policy"] = "strict-origin" if valid else "no-referrer"
     response["Cache-Control"] = "no-store"
     return response
 
@@ -238,15 +243,35 @@ def account_email(request):
 def professional_email_verify(request, uidb64, token):
     user = _user_from_token(uidb64, token)
     if user is None or not user.is_active or user.email_verified_at is not None:
-        return render(request, "accounts/email_verified.html", {"verification_valid": False}, status=410)
+        response = render(
+            request,
+            "accounts/email_verified.html",
+            {"verification_valid": False},
+            status=410,
+        )
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "no-store"
+        return response
     user.email_verified_at = timezone.now()
     user.email_verification_required = False
     user.save(update_fields=["email_verified_at", "email_verification_required"])
     if request.user.is_authenticated and request.user.pk == user.pk:
         next_url = request.session.pop(ACCOUNT_EMAIL_NEXT_SESSION_KEY, "")
         messages.success(request, "Correo verificado. Ya puedes continuar en AgendaSalon.")
-        return redirect(next_url or get_post_login_redirect_url(user))
-    return render(request, "accounts/email_verified.html", {"verification_valid": True})
+        response = redirect(next_url or get_post_login_redirect_url(user))
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "no-store"
+        return response
+    response = render(
+        request,
+        "accounts/email_verified.html",
+        {"verification_valid": True},
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 @login_required
 @require_POST
 def private_logout(request):

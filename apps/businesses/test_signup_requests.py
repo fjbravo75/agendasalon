@@ -1,9 +1,11 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from apps.businesses.models import Business, BusinessSignupRequest
 from apps.legal.models import LegalDocument
+from apps.legal.presentations import LEGAL_PRESENTATION_CHANGED_MESSAGE
+from apps.legal.services import platform_legal_context
 
 
 class BusinessSignupRequestPublicTests(TestCase):
@@ -21,6 +23,10 @@ class BusinessSignupRequestPublicTests(TestCase):
             "need_text": "Quiero ordenar las citas y reducir las llamadas.",
             "privacy_acknowledged": "on",
         }
+        page = self.client.get(self.url)
+        self.valid_data["legal_presentation_token"] = page.context[
+            "legal_presentation_token"
+        ]
 
     def test_login_offers_a_path_for_a_new_professional(self):
         response = self.client.get(reverse("accounts:login"))
@@ -34,6 +40,30 @@ class BusinessSignupRequestPublicTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Solicita el alta")
         self.assertContains(response, "todavía no se crea ninguna cuenta")
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
+
+    def test_public_form_accepts_a_valid_same_origin_csrf_submission(self):
+        browser = Client(enforce_csrf_checks=True)
+        page = browser.get(self.url, secure=True)
+        csrf_token = browser.cookies["csrftoken"].value
+
+        response = browser.post(
+            self.url,
+            {
+                **self.valid_data,
+                "csrfmiddlewaretoken": csrf_token,
+                "legal_presentation_token": page.context[
+                    "legal_presentation_token"
+                ],
+            },
+            HTTP_ORIGIN="https://testserver",
+            secure=True,
+        )
+
+        self.assertEqual(page["Referrer-Policy"], "same-origin")
+        self.assertRedirects(response, reverse("business_signup_request_success"))
+        self.assertEqual(BusinessSignupRequest.objects.count(), 1)
 
     def test_valid_request_records_normalized_contact_and_privacy_snapshot(self):
         response = self.client.post(self.url, self.valid_data)
@@ -48,6 +78,10 @@ class BusinessSignupRequestPublicTests(TestCase):
         self.assertEqual(signup_request.privacy_document, privacy_document)
         self.assertEqual(signup_request.privacy_document_version, privacy_document.version)
         self.assertEqual(signup_request.privacy_document_hash, privacy_document.content_hash)
+        self.assertEqual(
+            signup_request.privacy_legal_context_snapshot,
+            platform_legal_context(),
+        )
         self.assertIsNotNone(signup_request.privacy_acknowledged_at)
 
     def test_privacy_acknowledgement_is_required(self):
@@ -69,6 +103,133 @@ class BusinessSignupRequestPublicTests(TestCase):
         self.assertContains(response, 'href="#id_privacy_acknowledged"')
         self.assertFalse(BusinessSignupRequest.objects.exists())
 
+    def test_manipulated_legal_receipt_creates_no_request(self):
+        token = self.valid_data["legal_presentation_token"]
+        manipulated = f"{token[:-1]}{'x' if token[-1] != 'x' else 'y'}"
+
+        response = self.client.post(
+            self.url,
+            {**self.valid_data, "legal_presentation_token": manipulated},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, LEGAL_PRESENTATION_CHANGED_MESSAGE)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+
+    def test_missing_platform_privacy_returns_503_without_recording_data(self):
+        LegalDocument.objects.filter(
+            kind=LegalDocument.Kind.PLATFORM_PRIVACY,
+            is_active=True,
+        ).update(is_active=False)
+
+        page = self.client.get(self.url)
+
+        self.assertEqual(page.status_code, 503)
+        self.assertContains(
+            page,
+            "Ahora mismo no podemos mostrar la información legal necesaria",
+            status_code=503,
+        )
+        self.assertContains(page, "No hemos guardado ningún dato", status_code=503)
+        self.assertNotContains(page, "Enviar solicitud", status_code=503)
+        self.assertContains(
+            page,
+            '<fieldset class="business-signup-form__fields" disabled>',
+            status_code=503,
+        )
+        self.assertEqual(page.context["legal_presentation_token"], "")
+        self.assertEqual(page["Cache-Control"], "no-store")
+        self.assertEqual(page["Referrer-Policy"], "same-origin")
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+
+        response = self.client.post(self.url, self.valid_data)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertContains(response, "No hemos guardado ningún dato", status_code=503)
+        self.assertNotContains(response, "Enviar solicitud", status_code=503)
+        self.assertContains(
+            response,
+            '<fieldset class="business-signup-form__fields" disabled>',
+            status_code=503,
+        )
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+
+    def test_rotated_receipt_with_another_error_clears_the_privacy_confirmation(self):
+        old_token = self.valid_data["legal_presentation_token"]
+        old_document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.PLATFORM_PRIVACY,
+            is_active=True,
+        )
+        LegalDocument.objects.filter(pk=old_document.pk).update(is_active=False)
+        replacement = LegalDocument.objects.create(
+            kind=old_document.kind,
+            slug="privacidad-plataforma-alta-negocio-b",
+            version="signup-rotation-b",
+            title=old_document.title,
+            lead=old_document.lead,
+            sections=old_document.sections,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                **self.valid_data,
+                "email": "correo-no-valido",
+                "legal_presentation_token": old_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, LEGAL_PRESENTATION_CHANGED_MESSAGE)
+        self.assertContains(response, f"versión {replacement.version}")
+        self.assertContains(
+            response,
+            reverse("legal:platform_document", args=[replacement.slug]),
+        )
+        self.assertFalse(response.context["form"]["privacy_acknowledged"].value())
+        self.assertNotEqual(
+            response.context["legal_presentation_token"],
+            old_token,
+        )
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+
+        reconfirmation_required = self.client.post(
+            self.url,
+            {
+                **self.valid_data,
+                "legal_presentation_token": response.context[
+                    "legal_presentation_token"
+                ],
+                "email": "maria@example.com",
+                "privacy_acknowledged": "",
+            },
+        )
+        self.assertEqual(reconfirmation_required.status_code, 200)
+        self.assertContains(reconfirmation_required, "Este campo es obligatorio")
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+
+        accepted = self.client.post(
+            self.url,
+            {
+                **self.valid_data,
+                "legal_presentation_token": reconfirmation_required.context[
+                    "legal_presentation_token"
+                ],
+            },
+        )
+        self.assertEqual(accepted.status_code, 302)
+        signup_request = BusinessSignupRequest.objects.get()
+        self.assertEqual(signup_request.privacy_document, replacement)
+        self.assertEqual(
+            signup_request.privacy_legal_context_snapshot,
+            platform_legal_context(),
+        )
+
     def test_email_is_required_for_every_signup_request(self):
         data = {
             **self.valid_data,
@@ -79,6 +240,13 @@ class BusinessSignupRequestPublicTests(TestCase):
         response = self.client.post(self.url, data)
 
         self.assertContains(response, "Indica un correo para recibir la respuesta y activar el acceso")
+        self.assertTrue(response.context["form"]["privacy_acknowledged"].value())
+        self.assertEqual(
+            response.context["legal_presentation_token"],
+            self.valid_data["legal_presentation_token"],
+        )
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertFalse(BusinessSignupRequest.objects.exists())
 
     def test_non_routable_email_is_rejected_before_creating_the_request(self):
@@ -115,6 +283,8 @@ class BusinessSignupRequestPublicTests(TestCase):
 
         self.assertEqual(response.status_code, 429)
         self.assertContains(response, "Ya hemos recibido varios envíos", status_code=429)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
 
 
 class BusinessSignupRequestSuperadminTests(TestCase):
