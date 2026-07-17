@@ -402,6 +402,7 @@ def accept_professional_legal_documents(
     profile_data,
     legal_presentation_token=None,
     action_fingerprint_source=None,
+    accepted_at=None,
 ):
     presented_documents = None
     presented_platform_context = platform_legal_context()
@@ -431,7 +432,7 @@ def accept_professional_legal_documents(
         "platform": presented_platform_context,
         "business": profile.snapshot(),
     }
-    accepted_at = timezone.now()
+    accepted_at = accepted_at or timezone.now()
 
     acceptances = []
     created_any_event = False
@@ -571,6 +572,7 @@ def record_customer_privacy_information(
     document=None,
     legal_context_snapshot=None,
     action_fingerprint_source=None,
+    occurred_at=None,
 ):
     document = document or get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
     if document is None:
@@ -598,7 +600,7 @@ def record_customer_privacy_information(
         informed_party_name_snapshot=informed_party_name,
         document_hash_snapshot=document.content_hash,
         legal_context_snapshot=snapshot,
-        occurred_at=timezone.now(),
+        occurred_at=occurred_at or timezone.now(),
         action_fingerprint=action_fingerprint,
     )
     existing_projection = CustomerPrivacyEvidence.objects.filter(
@@ -639,6 +641,7 @@ def acknowledge_customer_privacy(
     document=None,
     legal_context_snapshot=None,
     action_fingerprint_source=None,
+    acknowledged_at=None,
 ):
     document = document or get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
     if document is None:
@@ -650,7 +653,7 @@ def acknowledge_customer_privacy(
         if legal_context_snapshot is not None
         else business_legal_snapshot(client_access.business)
     )
-    acknowledged_at = timezone.now()
+    acknowledged_at = acknowledged_at or timezone.now()
     action = LegalAcceptance.Action.ACKNOWLEDGED
     action_fingerprint = _acceptance_action_fingerprint(
         action_fingerprint_source,

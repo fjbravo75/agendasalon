@@ -41,6 +41,7 @@ from apps.legal.models import (
 )
 from apps.legal.presentations import LEGAL_PRESENTATION_CHANGED_MESSAGE
 from apps.legal.services import EVENT_FINGERPRINT_COLLISION_MESSAGE
+from apps.holidays.models import OfficialHoliday
 
 
 class AppointmentAssistantTests(TestCase):
@@ -75,8 +76,8 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Buscar huecos")
         self.assertNotContains(response, "Enlace de reserva online")
         self.assertNotContains(response, "/clientes/peluqueria-mari/entrar/")
-        self.assertContains(response, "Lavado - 15 min")
-        self.assertNotContains(response, "Lavado (Peluquería Mari)")
+        self.assertContains(response, "Lavado y preparación - 15 min")
+        self.assertNotContains(response, "Lavado y preparación (Peluquería Mari)")
         self.assertNotContains(response, "Web publica")
         self.assertNotContains(response, "BusinessClient")
         self.assertNotContains(response, "MVP")
@@ -85,14 +86,19 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, 'href="/profesional/agenda/">Volver a la agenda</a>')
         self.assertContains(response, 'class="required-mark"', count=5)
         self.assertContains(response, "service-choice-list--scrollable")
-        self.assertContains(response, 'data-service-count="6"')
-        self.assertContains(response, 'data-service-count="6" tabindex="0"')
+        self.assertContains(response, 'data-service-count="12"')
+        self.assertContains(response, 'data-service-count="12" tabindex="0"')
+        self.assertContains(
+            response,
+            "12 servicios disponibles. Desplázate para ver el catálogo completo.",
+        )
+        self.assertContains(response, 'aria-describedby="services-scroll-hint"')
         self.assertContains(response, "data-appointment-search")
         self.assertContains(response, 'id="appointment-search-form"')
         self.assertContains(response, "data-appointment-results-stale")
         self.assertContains(response, 'data-results-actionable="false"')
         self.assertContains(response, "Buscar con estos cambios")
-        self.assertContains(response, "data-appointment-service", count=6)
+        self.assertContains(response, "data-appointment-service", count=12)
         self.assertContains(response, 'id="appointment-requester-options"')
         lucas = self.business.clients.get(full_name="Lucas L\u00f3pez")
         mother = lucas.authorized_contacts.get(full_name="Mar\u00eda L\u00f3pez")
@@ -115,9 +121,12 @@ class AppointmentAssistantTests(TestCase):
         self.assertEqual(response.context["form"]["business_client"].value(), None)
 
     def test_service_list_only_scrolls_when_more_than_five_services_are_available(self):
-        service = self.business.services.filter(is_active=True).order_by("display_order", "pk").last()
-        service.is_active = False
-        service.save(update_fields=["is_active"])
+        services_to_pause = list(
+            self.business.services.filter(is_active=True)
+            .order_by("display_order", "pk")
+            .values_list("pk", flat=True)[5:]
+        )
+        self.business.services.filter(pk__in=services_to_pause).update(is_active=False)
         self.client.force_login(self.professional)
 
         response = self.client.get(reverse("booking:appointment_assistant"))
@@ -126,6 +135,8 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, 'data-service-count="5"')
         self.assertNotContains(response, "service-choice-list--scrollable")
         self.assertNotContains(response, 'data-service-count="5" tabindex="0"')
+        self.assertNotContains(response, "servicios disponibles. Desplázate")
+        self.assertNotContains(response, 'id="services-scroll-hint"')
 
     def test_assistant_quick_client_pauses_without_a_privacy_document(self):
         document = LegalDocument.objects.get(
@@ -572,6 +583,10 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Selecciona al menos un servicio.")
         self.assertNotContains(response, "Este campo es obligatorio.")
         self.assertContains(response, 'class="service-field-errors"')
+        self.assertContains(
+            response,
+            'aria-describedby="services-error services-scroll-hint"',
+        )
 
     def test_agenda_prefill_keeps_date_and_time_without_premature_errors(self):
         self.client.force_login(self.professional)
@@ -716,6 +731,13 @@ class AppointmentAssistantTests(TestCase):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
         client_id = self.business.clients.get(full_name="Lucía Gómez").id
+        OfficialHoliday.objects.create(
+            date=date(2026, 7, 10),
+            name="Fiesta nacional",
+            scope=OfficialHoliday.Scope.NATIONAL,
+            year=2026,
+            source_name="Fixture de prueba",
+        )
 
         response = self.client.get(
             reverse("booking:appointment_assistant"),
@@ -733,8 +755,8 @@ class AppointmentAssistantTests(TestCase):
     def test_professional_can_preview_an_alternative_available_slot(self):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
-        business_client = self.business.clients.get(full_name="Lucía Gómez")
-        requested_by = business_client.authorized_contacts.get(full_name="Ana Gómez")
+        business_client = self.business.clients.get(full_name="Lucas López")
+        requested_by = business_client.authorized_contacts.get(full_name="María López")
         availability = get_day_availability(
             business=self.business,
             target_date=self._target_date(),
@@ -778,8 +800,8 @@ class AppointmentAssistantTests(TestCase):
     def test_professional_can_confirm_recommended_slot(self):
         self.client.force_login(self.professional)
         service_ids = self._combined_service_ids()
-        business_client = self.business.clients.get(full_name="Lucía Gómez")
-        requested_by = business_client.authorized_contacts.get(full_name="Ana Gómez")
+        business_client = self.business.clients.get(full_name="Lucas López")
+        requested_by = business_client.authorized_contacts.get(full_name="María López")
         availability = get_day_availability(
             business=self.business,
             target_date=self._target_date(),
@@ -815,7 +837,7 @@ class AppointmentAssistantTests(TestCase):
             starts_at=slot.starts_at,
             status=Appointment.Status.CONFIRMED,
         )
-        self.assertEqual(appointment.requested_by_name_snapshot, "Ana Gómez")
+        self.assertEqual(appointment.requested_by_name_snapshot, "María López")
         self.assertEqual(appointment.requested_by_relationship_snapshot, "Madre")
         self.assertEqual(
             response["Location"],
@@ -854,7 +876,7 @@ class AppointmentAssistantTests(TestCase):
         )
         self.assertNotContains(response, "Acceso profesional")
         self.assertContains(response, "Elegir esta hora")
-        self.assertContains(response, "100,00 €")
+        self.assertContains(response, "108,00 €")
         self.assertNotContains(response, "María López")
         self.assertNotContains(response, "600111201")
         self.assertNotContains(response, "Línea")
@@ -865,14 +887,25 @@ class AppointmentAssistantTests(TestCase):
         response = self.client.get(reverse("public_booking", args=[self.business.slug]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'data-service-count="6"')
+        self.assertContains(response, 'data-service-count="12"')
         self.assertContains(response, "service-choice-list--scrollable")
-        self.assertContains(response, 'data-service-count="6" tabindex="0"')
-        self.assertContains(response, 'type="checkbox"', count=6)
+        self.assertContains(response, 'data-service-count="12" tabindex="0"')
+        self.assertContains(
+            response,
+            "12 servicios disponibles. Desplázate para ver el catálogo completo.",
+        )
+        self.assertContains(
+            response,
+            'aria-describedby="public-services-scroll-hint"',
+        )
+        self.assertContains(response, 'type="checkbox"', count=12)
 
-        service = self.business.services.filter(is_active=True).order_by("display_order", "pk").last()
-        service.is_active = False
-        service.save(update_fields=["is_active"])
+        services_to_pause = list(
+            self.business.services.filter(is_active=True)
+            .order_by("display_order", "pk")
+            .values_list("pk", flat=True)[5:]
+        )
+        self.business.services.filter(pk__in=services_to_pause).update(is_active=False)
 
         response = self.client.get(reverse("public_booking", args=[self.business.slug]))
 
@@ -881,11 +914,13 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, 'type="checkbox"', count=5)
         self.assertNotContains(response, "service-choice-list--scrollable")
         self.assertNotContains(response, 'data-service-count="5" tabindex="0"')
+        self.assertNotContains(response, "servicios disponibles. Desplázate")
+        self.assertNotContains(response, 'id="public-services-scroll-hint"')
 
     def test_public_booking_reports_a_legacy_duration_incompatibility_without_500(self):
         self.business.calendar_settings.slot_interval_minutes = 30
         self.business.calendar_settings.save(update_fields=["slot_interval_minutes"])
-        incompatible_service = self.business.services.get(name="Tinte")
+        incompatible_service = self.business.services.get(name="Color completo")
         self.assertEqual(incompatible_service.duration_minutes, 90)
         incompatible_service.duration_minutes = 45
         incompatible_service.save(update_fields=["duration_minutes", "updated_at"])
@@ -1092,7 +1127,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertEqual(review_response["Referrer-Policy"], "same-origin")
         self.assertContains(review_response, "Revisa y confirma")
         self.assertContains(review_response, "María López")
-        self.assertContains(review_response, "100,00 €")
+        self.assertContains(review_response, "108,00 €")
         self.assertContains(review_response, "Confirmar cita")
         self.assertFalse(
             Appointment.objects.filter(
@@ -1150,7 +1185,7 @@ class AppointmentAssistantTests(TestCase):
         self.assertEqual(receipt_response["Referrer-Policy"], "same-origin")
         self.assertContains(receipt_response, "Tu cita está confirmada")
         self.assertContains(receipt_response, "María López")
-        self.assertContains(receipt_response, "100,00 €")
+        self.assertContains(receipt_response, "108,00 €")
         self.assertContains(receipt_response, "Confirmación por correo")
 
         refreshed_response = self.client.get(response["Location"])
@@ -2057,7 +2092,12 @@ class AppointmentAssistantTests(TestCase):
         return list(
             Service.objects.filter(
                 business=self.business,
-                name__in=["Lavado", "Tinte", "Corte", "Peinado"],
+                name__in=[
+                    "Lavado y preparación",
+                    "Color completo",
+                    "Corte mujer",
+                    "Peinado cabello largo",
+                ],
             )
             .order_by("display_order")
             .values_list("id", flat=True)

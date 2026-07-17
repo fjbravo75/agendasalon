@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import uuid
+from collections import Counter
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.booking.models import (
@@ -25,6 +26,24 @@ from apps.businesses.models import (
     BusinessMembership,
     PlatformSettings,
 )
+from apps.core.demo_scenario import (
+    ACCESSES,
+    APPOINTMENTS,
+    BUSINESS_MARI,
+    BUSINESS_NORTE,
+    CLIENTS,
+    DEMO_PASSWORD,
+    RELATIONSHIPS,
+    SERVICES,
+    STATUS_CANCELLED,
+    STATUS_COMPLETED,
+    STATUS_NO_SHOW,
+    appointment_duration_minutes,
+    future_business_days,
+    previous_business_days,
+    resolve_day_token,
+    validate_scenario,
+)
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
 from apps.customers.models import (
@@ -34,7 +53,14 @@ from apps.customers.models import (
     BusinessClientAuthorizedContact,
 )
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
-from apps.legal.models import CustomerPrivacyEvidence, LegalAcceptance, LegalDocument
+from apps.legal.models import (
+    BusinessLegalProfile,
+    CustomerPrivacyEvidence,
+    CustomerPrivacyEvidenceEvent,
+    LegalAcceptance,
+    LegalAcceptanceEvent,
+    LegalDocument,
+)
 from apps.legal.services import (
     accept_professional_legal_documents,
     acknowledge_customer_privacy,
@@ -45,55 +71,204 @@ from apps.legal.services import (
 from apps.notifications.models import InternalNotification
 
 
-DEMO_PASSWORD = "DemoAgendaSalon2026!"
 MADRID = ZoneInfo("Europe/Madrid")
+DEMO_UUID_NAMESPACE = uuid.UUID("942679fe-471f-4bdb-b09e-ec76820403c5")
+
+BUSINESS_DEFINITIONS = {
+    BUSINESS_MARI: {
+        "slug": "peluqueria-mari",
+        "commercial_name": "Peluquería Mari",
+        "public_description": (
+            "Peluquería y salón de belleza para corte, color, tratamientos y peinados."
+        ),
+        "public_phone": "+34 600 111 001",
+        "public_email": "hola@peluqueriamari.local",
+        "address": "Calle Mayor 12",
+        "city": "Madrid",
+        "province": "Madrid",
+        "public_image_preset": Business.PublicImagePreset.SALON,
+        "line_count": 3,
+        "line_name": "Línea {number}",
+        "opening_time": time(9, 0),
+        "weekly_rules": {
+            0: ((time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))),
+            1: ((time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))),
+            2: ((time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))),
+            3: ((time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))),
+            4: ((time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))),
+            5: ((time(9, 0), time(14, 0)),),
+        },
+    },
+    BUSINESS_NORTE: {
+        "slug": "barberia-norte",
+        "commercial_name": "Barbería Norte",
+        "public_description": (
+            "Barbería de corte masculino, afeitado y cuidado personal con reserva online."
+        ),
+        "public_phone": "+34 600 222 001",
+        "public_email": "hola@barberianorte.local",
+        "address": "Avenida Norte 18",
+        "city": "Madrid",
+        "province": "Madrid",
+        "public_image_preset": Business.PublicImagePreset.BARBERSHOP,
+        "line_count": 2,
+        "line_name": "Silla {number}",
+        "opening_time": time(10, 0),
+        "weekly_rules": {
+            0: ((time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))),
+            1: ((time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))),
+            2: ((time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))),
+            3: ((time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))),
+            4: ((time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))),
+            5: ((time(10, 0), time(14, 0)),),
+        },
+    },
+}
+
+LEGACY_SERVICE_ALIASES = {
+    BUSINESS_MARI: {
+        "wash": ("Lavado",),
+        "cut": ("Corte",),
+        "dry": ("Peinado",),
+        "full_color": ("Tinte",),
+        "hydration": ("Tratamiento hidratante",),
+        "perm": ("Moldeador clásico", "Moldeador clasico"),
+    },
+    BUSINESS_NORTE: {
+        "classic": ("Corte caballero",),
+        "fade": ("Degradado",),
+        "beard": ("Arreglo de barba",),
+    },
+}
 
 
 class Command(BaseCommand):
-    help = "Crea o actualiza datos demo reproducibles para AgendaSalon."
+    help = "Crea o actualiza el escenario académico reproducible de AgendaSalon."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--base-date",
             default="",
             help=(
-                "Primer lunes de la semana demo en formato YYYY-MM-DD. "
-                "Si se omite, se usa el lunes operativo actual o siguiente."
+                "Fecha de referencia de la demo en formato YYYY-MM-DD. "
+                "Si se omite, se utiliza la fecha actual de Madrid."
             ),
         )
 
     @transaction.atomic
     def handle(self, *args, **options):
         try:
-            base_date = (
+            anchor_date = (
                 date.fromisoformat(options["base_date"])
                 if options["base_date"]
-                else _current_or_next_monday(timezone.localdate())
+                else timezone.localdate()
             )
         except ValueError as exc:
             raise CommandError("--base-date debe usar formato YYYY-MM-DD.") from exc
 
-        demo = DemoSeeder(base_date=base_date)
+        _acquire_demo_seed_lock()
+        current_now = timezone.now().astimezone(MADRID)
+        reference_now = (
+            min(
+                current_now,
+                datetime.combine(anchor_date, time(2, 5), tzinfo=MADRID),
+            )
+            if options["base_date"]
+            else current_now
+        )
+        demo = DemoSeeder(anchor_date=anchor_date, reference_now=reference_now)
         summary = demo.run()
 
-        self.stdout.write(self.style.SUCCESS("Datos demo de AgendaSalon creados o actualizados."))
-        self.stdout.write(f"Semana demo: {base_date.isoformat()}")
-        self.stdout.write(f"Superadmin: {summary['superadmin_phone']} / {DEMO_PASSWORD}")
-        self.stdout.write(f"Profesional: {summary['professional_phone']} / {DEMO_PASSWORD}")
-        self.stdout.write(f"Profesional Barbería Norte: {summary['secondary_professional_phone']} / {DEMO_PASSWORD}")
-        self.stdout.write(f"Negocio principal: {summary['business']}")
-        self.stdout.write(f"Segundo negocio demo: {summary['secondary_business']}")
-        self.stdout.write(f"Día sin hueco para 180 min: {summary['no_capacity_date']}")
+        self.stdout.write(
+            self.style.SUCCESS("Escenario académico de AgendaSalon creado o actualizado.")
+        )
+        self.stdout.write(f"Fecha de referencia: {anchor_date.isoformat()}")
+        self.stdout.write(f"Superadministración: {summary['superadmin_phone']}")
+        self.stdout.write(f"Profesional Peluquería Mari: {summary['professional_phone']}")
+        self.stdout.write(f"Profesional Barbería Norte: {summary['secondary_professional_phone']}")
+        self.stdout.write(
+            f"Datos canónicos: {summary['clients']} clientes, "
+            f"{summary['services']} servicios y {summary['appointments']} citas."
+        )
+        self.stdout.write(f"Día sin hueco continuo de 180 minutos: {summary['no_capacity_date']}")
 
 
 class DemoSeeder:
-    def __init__(self, *, base_date: date):
-        self.base_date = base_date
-        self.no_capacity_date = base_date + timedelta(days=2)
-        self.past_date = min(base_date - timedelta(days=14), timezone.localdate() - timedelta(days=1))
-        self.activity_anchor = timezone.now()
+    def __init__(self, *, anchor_date: date, reference_now: datetime | None = None):
+        self.anchor_date = anchor_date
+        self.reference_now = reference_now or timezone.now()
+        if timezone.is_naive(self.reference_now):
+            raise ValueError("reference_now debe incluir zona horaria.")
+        self.reference_now = self.reference_now.astimezone(MADRID)
+
+        history_anchor = min(anchor_date, self.reference_now.date())
+        excluded_holidays = set(
+            OfficialHoliday.objects.filter(
+                scope=OfficialHoliday.Scope.NATIONAL,
+                date__gte=history_anchor - timedelta(days=60),
+                date__lte=max(anchor_date, self.reference_now.date()) + timedelta(days=40),
+            )
+            .exclude(official_reference="PFM-LOCAL")
+            .values_list("date", flat=True)
+        )
+        self.past_days = previous_business_days(
+            history_anchor,
+            20,
+            excluded_dates=excluded_holidays,
+        )
+        self.future_days = future_business_days(
+            anchor_date,
+            self.reference_now,
+            13,
+            first_opening_time=time(9, 0),
+            excluded_dates=excluded_holidays,
+        )
+        self.no_capacity_date = self.future_days[2]
+        anchor_start = datetime.combine(anchor_date, time(2, 5), tzinfo=MADRID)
+        self.activity_anchor = min(self.reference_now, anchor_start)
+        earliest_scenario_day = self.past_days[-1]
+        self.record_origin_at = _at(
+            earliest_scenario_day - timedelta(days=21),
+            time(9, 0),
+        )
+        self.legal_anchor = _at(
+            earliest_scenario_day - timedelta(days=14),
+            time(10, 0),
+        )
 
     def run(self):
+        validate_scenario()
+        self._create_users()
+        self._create_businesses()
+        self._create_memberships()
+        self._reset_demo_operational_data()
+        self._create_calendars()
+        self._sync_services()
+        self._sync_work_lines()
+        self._sync_clients()
+        self._sync_client_accesses()
+        self._sync_representatives()
+        self._create_closures()
+        appointments = self._create_appointments()
+        self._create_notifications(appointments)
+        self._create_legal_demo()
+        self._create_activity_events(appointments)
+        self._update_client_activity()
+        self._validate_postflight()
+
+        return {
+            "superadmin_phone": self.superadmin.normalized_phone,
+            "professional_phone": self.professionals[BUSINESS_MARI].normalized_phone,
+            "secondary_professional_phone": self.professionals[BUSINESS_NORTE].normalized_phone,
+            "clients": BusinessClient.objects.filter(business__in=self.businesses.values()).count(),
+            "services": Service.objects.filter(business__in=self.businesses.values()).count(),
+            "appointments": Appointment.objects.filter(
+                business__in=self.businesses.values()
+            ).count(),
+            "no_capacity_date": self.no_capacity_date.isoformat(),
+        }
+
+    def _create_users(self):
         self.superadmin = self._upsert_user(
             phone="+34910000001",
             full_name="Admin AgendaSalon",
@@ -105,134 +280,22 @@ class DemoSeeder:
             pk=PlatformSettings.SINGLETON_PK,
             defaults={"updated_by": self.superadmin},
         )
-        self.professional = self._upsert_user(
-            phone="+34600111001",
-            full_name="Mari Profesional",
-            email="mari@agendasalon.local",
-            is_staff=False,
-            is_superuser=False,
-        )
-        self.secondary_professional = self._upsert_user(
-            phone="+34600222001",
-            full_name="Norte Profesional",
-            email="equipo@barberianorte.local",
-            is_staff=False,
-            is_superuser=False,
-        )
-        self.business, self.secondary_business = self._create_businesses()
-        self._create_membership()
-        self._reset_demo_appointments()
-        self._create_calendar()
-        self.services = self._create_services()
-        self.lines = self._create_work_lines()
-        self.clients = self._create_clients()
-        self._create_client_accesses()
-        self._create_representative_booking_demo()
-        self._create_holidays_and_closures()
-        appointments = self._create_appointments()
-        self._create_notifications(appointments)
-        self._create_secondary_business_demo()
-        self._create_legal_demo()
-        self._create_activity_events()
-
-        return {
-            "superadmin_phone": self.superadmin.normalized_phone,
-            "professional_phone": self.professional.normalized_phone,
-            "secondary_professional_phone": self.secondary_professional.normalized_phone,
-            "business": self.business.commercial_name,
-            "secondary_business": self.secondary_business.commercial_name,
-            "no_capacity_date": self.no_capacity_date.isoformat(),
+        self.professionals = {
+            BUSINESS_MARI: self._upsert_user(
+                phone="+34600111001",
+                full_name="Mari Profesional",
+                email="mari@agendasalon.local",
+                is_staff=False,
+                is_superuser=False,
+            ),
+            BUSINESS_NORTE: self._upsert_user(
+                phone="+34600222001",
+                full_name="Norte Profesional",
+                email="equipo@barberianorte.local",
+                is_staff=False,
+                is_superuser=False,
+            ),
         }
-
-    def _reset_demo_appointments(self):
-        InternalNotification.objects.filter(
-            business__in=(self.business, self.secondary_business)
-        ).delete()
-        Appointment.objects.filter(
-            business__in=(self.business, self.secondary_business)
-        ).delete()
-
-    def _create_activity_events(self):
-        appointment_date = self.base_date.strftime("%d/%m/%Y")
-        public_appointment_date = (self.base_date + timedelta(days=3)).strftime("%d/%m/%Y")
-        events = (
-            {
-                "business": self.business,
-                "category": BusinessActivityEvent.Category.APPOINTMENTS,
-                "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
-                "origin": BusinessActivityEvent.Origin.PHONE,
-                "summary": f"Cita creada por el equipo para el {appointment_date} a las 10:00.",
-                "actor": self.professional,
-                "entity_type": "appointment",
-                "event_at": self.activity_anchor - timedelta(hours=1),
-            },
-            {
-                "business": self.business,
-                "category": BusinessActivityEvent.Category.APPOINTMENTS,
-                "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
-                "origin": BusinessActivityEvent.Origin.PUBLIC_WEB,
-                "summary": f"Reserva online creada para el {public_appointment_date} a las 12:00.",
-                "actor_type": BusinessActivityEvent.ActorType.CUSTOMER,
-                "actor_label": "Cliente online",
-                "entity_type": "appointment",
-                "event_at": self.activity_anchor - timedelta(hours=4),
-            },
-            {
-                "business": self.business,
-                "category": BusinessActivityEvent.Category.CONFIGURATION,
-                "event_type": BusinessActivityEvent.EventType.SERVICE_UPDATED,
-                "origin": BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
-                "summary": 'Servicio "Tinte" actualizado.',
-                "actor": self.professional,
-                "entity_type": "service",
-                "event_at": self.activity_anchor - timedelta(days=1, hours=2),
-            },
-            {
-                "business": self.secondary_business,
-                "category": BusinessActivityEvent.Category.APPOINTMENTS,
-                "event_type": BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
-                "origin": BusinessActivityEvent.Origin.FRONT_DESK,
-                "summary": (
-                    "Cita creada por el equipo para el "
-                    f"{(self.base_date + timedelta(days=1)).strftime('%d/%m/%Y')} a las 17:00."
-                ),
-                "actor": self.secondary_professional,
-                "entity_type": "appointment",
-                "event_at": self.activity_anchor - timedelta(hours=2),
-            },
-            {
-                "business": self.secondary_business,
-                "category": BusinessActivityEvent.Category.CONFIGURATION,
-                "event_type": BusinessActivityEvent.EventType.AVAILABILITY_UPDATED,
-                "origin": BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
-                "summary": "Horario actualizado para Viernes de 10:00 a 19:00.",
-                "actor": self.secondary_professional,
-                "entity_type": "availability_rule",
-                "event_at": self.activity_anchor - timedelta(days=1, hours=4),
-            },
-        )
-
-        for event_data in events:
-            existing_event = BusinessActivityEvent.objects.filter(
-                business=event_data["business"],
-                event_type=event_data["event_type"],
-                origin=event_data["origin"],
-            ).first()
-            if existing_event is None:
-                record_business_activity(**event_data)
-            else:
-                BusinessActivityEvent.objects.filter(pk=existing_event.pk).update(
-                    summary=event_data["summary"],
-                    created_at=event_data["event_at"],
-                )
-
-        for business in (self.business, self.secondary_business):
-            latest_activity = (
-                business.activity_events.order_by("-created_at", "-id")
-                .values_list("created_at", flat=True)
-                .first()
-            )
-            Business.objects.filter(pk=business.pk).update(last_activity_at=latest_activity)
 
     def _upsert_user(self, *, phone, full_name, email, is_staff, is_superuser):
         User = get_user_model()
@@ -240,240 +303,520 @@ class DemoSeeder:
         user = User.objects.filter(normalized_phone=normalized_phone).first()
         if user is None:
             user = User(normalized_phone=normalized_phone, phone=phone)
-
-        # La semilla es un escenario académico reiniciable: si alguien cambia
-        # una credencial demo durante una prueba, la siguiente ejecución debe
-        # restaurar la contraseña documentada sin tocar cuentas ajenas.
         if not user.check_password(DEMO_PASSWORD):
             user.set_password(DEMO_PASSWORD)
-
         user.full_name = full_name
         user.email = email
-        user.email_verified_at = timezone.now()
+        user.email_verified_at = self.legal_anchor
         user.email_verification_required = False
         user.phone = phone
         user.is_staff = is_staff
         user.is_superuser = is_superuser
         user.is_active = True
         user.password_change_required = False
+        user.last_login = None
+        user.date_joined = self.record_origin_at
+        user.full_clean()
         user.save()
         return user
 
     def _create_businesses(self):
-        mari = _update_first_or_create(
-            Business,
-            {"slug": "peluqueria-mari"},
-            {
-                "commercial_name": "Peluquería Mari",
-                "public_description": "Salón de belleza con reserva online.",
-                "public_phone": "+34 600 111 001",
-                "public_email": "hola@peluqueriamari.local",
-                "address": "Calle Mayor 12",
-                "city": "Madrid",
-                "public_booking_enabled": True,
-                "public_image_preset": Business.PublicImagePreset.SALON,
-                "province": "Madrid",
-                "is_active": True,
-            },
-        )
-        Business.objects.filter(slug="barberia-norte-demo").delete()
-        barberia = _update_first_or_create(
-            Business,
-            {"slug": "barberia-norte"},
-            {
-                "commercial_name": "Barbería Norte",
-                "public_description": "Barbería de corte masculino con reserva online.",
-                "public_phone": "+34 600 222 001",
-                "public_email": "hola@barberianorte.local",
-                "address": "Avenida Norte 18",
-                "city": "Madrid",
-                "public_booking_enabled": True,
-                "public_image_preset": Business.PublicImagePreset.BARBERSHOP,
-                "province": "Madrid",
-                "is_active": True,
-            },
-        )
-        return mari, barberia
-
-    def _create_membership(self):
-        _update_first_or_create(
-            BusinessMembership,
-            {"business": self.business, "user": self.professional},
-            {
-                "role": BusinessMembership.Role.PROFESSIONAL_ADMIN,
-                "is_active": True,
-            },
-        )
-        _update_first_or_create(
-            BusinessMembership,
-            {"business": self.secondary_business, "user": self.secondary_professional},
-            {
-                "role": BusinessMembership.Role.PROFESSIONAL_ADMIN,
-                "is_active": True,
-            },
-        )
-
-    def _create_calendar(self):
-        _update_first_or_create(
-            BusinessCalendarSettings,
-            {"business": self.business},
-            {
-                "slot_interval_minutes": 15,
-                "apply_national_holidays": True,
-            },
-        )
-
-        weekly_rules = {
-            0: [(time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))],
-            1: [(time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))],
-            2: [(time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))],
-            3: [(time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))],
-            4: [(time(9, 0), time(14, 0)), (time(16, 0), time(20, 0))],
-            5: [(time(9, 0), time(14, 0))],
-        }
-        for weekday, intervals in weekly_rules.items():
-            for start_time, end_time in intervals:
-                rule = _update_first_or_create(
-                    AvailabilityRule,
-                    {
-                        "business": self.business,
-                        "weekday": weekday,
-                        "start_time": start_time,
-                        "end_time": end_time,
-                    },
-                    {"is_active": True},
-                )
-                rule.full_clean()
-                rule.save()
-
-    def _create_services(self):
-        definitions = [
-            ("Lavado", "Lavado y preparación del cabello.", 15, "8.00", "#08927f", True, 1),
-            ("Corte", "Corte adaptado al estilo y forma del cabello.", 30, "18.00", "#5079bd", True, 2),
-            ("Tinte", "Coloración completa con tiempo de aplicación y acabado.", 90, "48.00", "#d87093", True, 3),
-            ("Peinado", "Secado y peinado final.", 45, "26.00", "#d96f5d", True, 4),
-            ("Barba", "Perfilado y arreglo de barba.", 30, "14.00", "#8274c9", True, 5),
-            ("Tratamiento hidratante", "Cuidado intensivo para hidratar y recuperar el cabello.", 60, "35.00", "#e5a63a", True, 6),
-            ("Moldeador clásico", "Moldeado duradero con acabado clásico.", 60, "40.00", "#9a8c84", False, 7),
-        ]
-        services = {}
-        for name, description, duration, price, color, is_active, order in definitions:
-            service = _upsert_demo_service(
-                business=self.business,
-                name=name,
-                defaults={
-                    "description": description,
-                    "duration_minutes": duration,
-                    "price_amount": Decimal(price),
-                    "color_hex": color,
-                    "is_active": is_active,
-                    "display_order": order,
-                },
-            )
-            services[name] = service
-        return services
-
-    def _create_work_lines(self):
-        lines = {}
-        for number in (1, 2, 3):
-            line = _update_first_or_create(
-                WorkLine,
-                {"business": self.business, "line_number": number},
+        self.businesses = {}
+        for business_key, definition in BUSINESS_DEFINITIONS.items():
+            business = _update_first_or_create(
+                Business,
+                {"slug": definition["slug"]},
                 {
-                    "name": f"Línea {number}",
+                    "commercial_name": definition["commercial_name"],
+                    "public_description": definition["public_description"],
+                    "public_phone": definition["public_phone"],
+                    "public_email": definition["public_email"],
+                    "address": definition["address"],
+                    "city": definition["city"],
+                    "province": definition["province"],
+                    "public_booking_enabled": True,
+                    "public_image_preset": definition["public_image_preset"],
                     "is_active": True,
-                    "display_order": number,
                 },
             )
-            line.full_clean()
-            line.save()
-            lines[number] = line
-        return lines
+            _set_created_at(business, self.record_origin_at)
+            self.businesses[business_key] = business
 
-    def _create_clients(self):
-        clients = {
-            "maria": self._upsert_client("María López", "600111201", "Prefiere citas por la mañana."),
-            "lucia": self._upsert_client("Lucía Gómez", "600111202", "Suele reservar varios servicios en la misma visita."),
-            "carmen": self._upsert_client("Carmen Ruiz", "600111203", "Agradece confirmar la duración antes de cerrar la cita."),
-            "daniel": self._upsert_client(
-                "Daniel Vega",
-                "600111204",
-                "Cuidador habitual de Rosa Martín; también acude como cliente.",
-            ),
-            "rosa": self._upsert_client("Rosa Martín", "600111205", "Suele pedir cita por teléfono."),
-            "lucas": self._upsert_client(
-                "Lucas López",
-                "",
-                "Menor. Su madre, María López, gestiona sus citas.",
-            ),
-        }
-        self._upsert_authorized_contact(
-            client=clients["lucia"],
-            full_name="Ana Gómez",
-            phone="600111244",
-            relationship=BusinessClientAuthorizedContact.Relationship.MOTHER,
-            is_primary=True,
-        )
-        return clients
-
-    def _upsert_client(self, full_name, phone, internal_notes, business=None):
-        business = business or self.business
-        client_query = BusinessClient.objects.filter(business=business)
-        if phone:
-            # Los teléfonos de la semilla son identificadores estables del
-            # escenario. Esto permite corregir el nombre ficticio de una
-            # persona sin dejar una ficha antigua duplicada en la demo.
-            client_query = client_query.filter(phone_normalized=normalize_phone(phone))
-        else:
-            client_query = client_query.filter(
-                full_name_normalized=normalize_search_text(full_name),
-                phone_normalized="",
+    def _create_memberships(self):
+        for business_key, business in self.businesses.items():
+            membership = _update_first_or_create(
+                BusinessMembership,
+                {"business": business, "user": self.professionals[business_key]},
+                {
+                    "role": BusinessMembership.Role.PROFESSIONAL_ADMIN,
+                    "is_active": True,
+                },
             )
-        client = client_query.first()
-        if client is None:
-            client = BusinessClient(business=business)
-        client.business = business
-        client.full_name = full_name
-        client.phone = phone
-        client.email = ""
-        client.source = BusinessClient.Source.PROFESSIONAL
-        client.is_active = True
-        client.internal_notes = internal_notes
-        client.full_clean()
-        client.save()
-        return client
+            _set_created_at(membership, self.record_origin_at + timedelta(hours=1))
 
-    def _upsert_authorized_contact(self, *, client, full_name, phone, relationship, is_primary):
-        contact = BusinessClientAuthorizedContact.objects.filter(
-            business=self.business,
-            business_client=client,
-            phone_normalized=normalize_phone(phone),
-        ).first()
-        if contact is None:
-            contact = BusinessClientAuthorizedContact(
-                business=self.business,
+    def _reset_demo_operational_data(self):
+        businesses = tuple(self.businesses.values())
+        InternalNotification.objects.filter(business__in=businesses).delete()
+        BusinessActivityEvent.objects.filter(business__in=businesses).delete()
+        Appointment.objects.filter(business__in=businesses).delete()
+        BusinessClosure.objects.filter(business__in=businesses).delete()
+        AvailabilityRule.objects.filter(business__in=businesses).delete()
+
+        # En el entorno académico estas constancias pertenecen a identidades
+        # ficticias. Se reconstruyen de forma expresa para mantener una cronología
+        # coherente; la operativa normal del producto continúa siendo append-only.
+        CustomerPrivacyEvidence.objects.filter(business__in=businesses).delete()
+        LegalAcceptance.objects.filter(business__in=businesses).delete()
+        CustomerPrivacyEvidenceEvent._base_manager.filter(business__in=businesses).delete()
+        LegalAcceptanceEvent._base_manager.filter(business__in=businesses).delete()
+
+        # Las antiguas versiones del seed añadían un festivo nacional ficticio.
+        # Se retira solo esa fuente local; los registros reales del BOE se conservan.
+        OfficialHoliday.objects.filter(official_reference="PFM-LOCAL").delete()
+        HolidaySyncRun.objects.filter(
+            source_name__in=("Calendario local AgendaSalon", "Datos demo AgendaSalon")
+        ).delete()
+
+    def _create_calendars(self):
+        for business_key, business in self.businesses.items():
+            settings = _update_first_or_create(
+                BusinessCalendarSettings,
+                {"business": business},
+                {
+                    "slot_interval_minutes": 15,
+                    "apply_national_holidays": True,
+                },
+            )
+            settings.full_clean()
+            settings.save()
+            for weekday, intervals in BUSINESS_DEFINITIONS[business_key]["weekly_rules"].items():
+                for start_time, end_time in intervals:
+                    rule = AvailabilityRule(
+                        business=business,
+                        weekday=weekday,
+                        start_time=start_time,
+                        end_time=end_time,
+                        is_active=True,
+                    )
+                    rule.full_clean()
+                    rule.save()
+
+    def _sync_services(self):
+        self.services = {BUSINESS_MARI: {}, BUSINESS_NORTE: {}}
+        for business_key, business in self.businesses.items():
+            keep_ids = []
+            used_ids = set()
+            existing_services = list(Service.objects.filter(business=business).order_by("pk"))
+            definitions = [item for item in SERVICES if item.business == business_key]
+            aliases_by_key = LEGACY_SERVICE_ALIASES.get(business_key, {})
+
+            for definition in definitions:
+                accepted_names = (definition.name, *aliases_by_key.get(definition.key, ()))
+                accepted_normalized = {normalize_search_text(name) for name in accepted_names}
+                candidates = [
+                    service
+                    for service in existing_services
+                    if service.pk not in used_ids
+                    and normalize_search_text(service.name) in accepted_normalized
+                ]
+                service = next(
+                    (candidate for candidate in candidates if candidate.name == definition.name),
+                    candidates[0] if candidates else Service(business=business),
+                )
+                service.business = business
+                service.name = definition.name
+                service.description = definition.description
+                service.duration_minutes = definition.duration_minutes
+                service.price_amount = definition.price_amount
+                service.color_hex = definition.color_hex
+                service.is_active = definition.is_active
+                service.display_order = definition.display_order
+                service.full_clean()
+                service.save()
+                _set_created_at(
+                    service,
+                    self.record_origin_at + timedelta(days=1),
+                )
+                keep_ids.append(service.pk)
+                used_ids.add(service.pk)
+                self.services[business_key][definition.key] = service
+
+            Service.objects.filter(business=business).exclude(pk__in=keep_ids).delete()
+
+    def _sync_work_lines(self):
+        self.lines = {BUSINESS_MARI: {}, BUSINESS_NORTE: {}}
+        for business_key, business in self.businesses.items():
+            definition = BUSINESS_DEFINITIONS[business_key]
+            keep_ids = []
+            for number in range(1, definition["line_count"] + 1):
+                line = _update_first_or_create(
+                    WorkLine,
+                    {"business": business, "line_number": number},
+                    {
+                        "name": definition["line_name"].format(number=number),
+                        "is_active": True,
+                        "display_order": number,
+                    },
+                )
+                line.full_clean()
+                line.save()
+                keep_ids.append(line.pk)
+                self.lines[business_key][number] = line
+            WorkLine.objects.filter(business=business).exclude(pk__in=keep_ids).delete()
+
+    def _sync_clients(self):
+        self.clients = {BUSINESS_MARI: {}, BUSINESS_NORTE: {}}
+        for definition in CLIENTS:
+            business = self.businesses[definition.business]
+            queryset = BusinessClient.objects.filter(business=business)
+            if definition.phone:
+                queryset = queryset.filter(phone_normalized=normalize_phone(definition.phone))
+            else:
+                queryset = queryset.filter(
+                    full_name_normalized=normalize_search_text(definition.full_name),
+                    phone_normalized="",
+                )
+            client = queryset.first() or BusinessClient(business=business)
+            client.business = business
+            client.full_name = definition.full_name
+            client.phone = definition.phone
+            client.email = ""
+            client.source = BusinessClient.Source.IMPORTED_DEMO
+            client.is_active = definition.is_active
+            client.internal_notes = definition.internal_notes
+            client.last_activity_at = None
+            client.full_clean()
+            client.save()
+            _set_created_at(
+                client,
+                self.record_origin_at + timedelta(days=2),
+            )
+            self.clients[definition.business][definition.key] = client
+
+    def _sync_client_accesses(self):
+        self.accesses = {BUSINESS_MARI: {}, BUSINESS_NORTE: {}}
+        for definition in ACCESSES:
+            business = self.businesses[definition.business]
+            client = self.clients[definition.business][definition.client_key]
+            access = BusinessClientAccess.objects.filter(
+                business=business,
                 business_client=client,
+            ).first()
+            if access is None:
+                access = BusinessClientAccess(
+                    business=business,
+                    business_client=client,
+                )
+            access.business = business
+            access.business_client = client
+            access.phone = client.phone
+            access.email = definition.email
+            access.email_verified_at = self.activity_anchor if definition.email_verified else None
+            access.is_active = definition.is_active
+            access.is_pending_public_registration = False
+            access.public_registration_expires_at = None
+            access.last_login_at = None
+            if not access.check_password(definition.password):
+                access.set_password(definition.password)
+            access.full_clean()
+            access.save()
+            _set_created_at(
+                access,
+                self.record_origin_at + timedelta(days=3),
             )
-        contact.full_name = full_name
-        contact.phone = phone
-        contact.relationship_label = relationship
-        contact.is_primary_contact = is_primary
-        contact.is_active = True
-        contact.notes = "Puede pedir cita para esta clienta."
-        contact.full_clean()
-        contact.save()
-        return contact
+            client.email = definition.email
+            client.save(update_fields=["email", "updated_at"])
+            self_grant, _ = BusinessClientAccessGrant.objects.update_or_create(
+                access=access,
+                business_client=client,
+                defaults={
+                    "business": business,
+                    "authorized_contact": None,
+                    "relationship_label": BusinessClientAccessGrant.Relationship.SELF,
+                    "is_active": True,
+                },
+            )
+            _set_created_at(
+                self_grant,
+                self.record_origin_at + timedelta(days=3),
+            )
+            self.accesses[definition.business][definition.client_key] = access
 
-    def _create_client_accesses(self):
-        self._upsert_client_access(self.clients["maria"])
-        self._upsert_client_access(self.clients["lucia"])
-        self._upsert_client_access(self.clients["daniel"])
+    def _sync_representatives(self):
+        businesses = tuple(self.businesses.values())
+        BusinessClientAccessGrant.objects.filter(business__in=businesses).exclude(
+            relationship_label=BusinessClientAccessGrant.Relationship.SELF
+        ).delete()
+        BusinessClientAuthorizedContact.objects.filter(business__in=businesses).delete()
+
+        for definition in RELATIONSHIPS:
+            business = self.businesses[definition.business]
+            representative = self.clients[definition.business][definition.representative_key]
+            beneficiary = self.clients[definition.business][definition.beneficiary_key]
+            contact = BusinessClientAuthorizedContact(
+                business=business,
+                business_client=beneficiary,
+                linked_business_client=representative,
+                full_name=representative.full_name,
+                phone=representative.phone,
+                relationship_label=definition.relationship,
+                is_primary_contact=True,
+                is_active=True,
+                notes=definition.notes,
+            )
+            contact.full_clean()
+            contact.save()
+            _set_created_at(
+                contact,
+                self.record_origin_at + timedelta(days=3),
+            )
+            grant = BusinessClientAccessGrant(
+                business=business,
+                access=self.accesses[definition.business][definition.representative_key],
+                business_client=beneficiary,
+                authorized_contact=contact,
+                relationship_label=definition.relationship,
+                is_active=True,
+            )
+            grant.full_clean()
+            grant.save()
+            _set_created_at(
+                grant,
+                self.record_origin_at + timedelta(days=3),
+            )
+
+    def _create_closures(self):
+        definitions = (
+            (
+                BUSINESS_MARI,
+                3,
+                self.future_days[0],
+                time(12, 0),
+                time(14, 0),
+                BusinessClosure.ClosureType.PUNCTUAL_BLOCK,
+                "Gestión interna de mostrador.",
+            ),
+            (
+                BUSINESS_MARI,
+                None,
+                self.future_days[5],
+                None,
+                None,
+                BusinessClosure.ClosureType.LOCAL_HOLIDAY,
+                "Festivo local de demostración (no procede del BOE).",
+            ),
+            (
+                BUSINESS_MARI,
+                None,
+                self.future_days[8],
+                None,
+                None,
+                BusinessClosure.ClosureType.BUSINESS_CLOSURE,
+                "Formación interna del equipo.",
+            ),
+            (
+                BUSINESS_NORTE,
+                2,
+                self.future_days[1],
+                time(12, 0),
+                time(14, 0),
+                BusinessClosure.ClosureType.PUNCTUAL_BLOCK,
+                "Mantenimiento de una silla de trabajo.",
+            ),
+            (
+                BUSINESS_NORTE,
+                None,
+                self.future_days[5],
+                None,
+                None,
+                BusinessClosure.ClosureType.LOCAL_HOLIDAY,
+                "Festivo local de demostración (no procede del BOE).",
+            ),
+        )
+        self.closures = []
+        for (
+            business_key,
+            line_number,
+            closure_date,
+            start_time,
+            end_time,
+            closure_type,
+            reason,
+        ) in definitions:
+            closure = BusinessClosure(
+                business=self.businesses[business_key],
+                work_line=(
+                    self.lines[business_key][line_number] if line_number is not None else None
+                ),
+                date_from=closure_date,
+                date_to=closure_date,
+                start_time=start_time,
+                end_time=end_time,
+                closure_type=closure_type,
+                internal_reason=reason,
+                is_active=True,
+                created_by=self.professionals[business_key],
+            )
+            closure.full_clean()
+            closure.save()
+            _set_created_at(
+                closure,
+                self.activity_anchor - timedelta(days=1),
+            )
+            self.closures.append(closure)
+
+    def _create_appointments(self):
+        appointments = {}
+        for position, definition in enumerate(APPOINTMENTS, start=1):
+            business = self.businesses[definition.business]
+            professional = self.professionals[definition.business]
+            client = self.clients[definition.business][definition.client_key]
+            target_date = resolve_day_token(
+                definition.day_token,
+                past_days=self.past_days,
+                future_days=self.future_days,
+            )
+            starts_at = _at(target_date, time.fromisoformat(definition.start_time))
+            minutes = appointment_duration_minutes(definition)
+            ends_at = starts_at + timedelta(minutes=minutes)
+            services = [
+                self.services[definition.business][service_key]
+                for service_key in definition.service_keys
+            ]
+            is_public = definition.channel == Appointment.ManualChannel.PUBLIC_WEB
+            requester_access = (
+                self.accesses[definition.business][definition.requester_key] if is_public else None
+            )
+            requester_name = (
+                self.clients[definition.business][definition.requester_key].full_name
+                if is_public
+                else client.full_name
+            )
+            requester_relationship = (
+                BusinessClientAccessGrant.Relationship(definition.requester_relationship).label
+                if is_public
+                else "Cliente"
+            )
+            appointment = Appointment(
+                business=business,
+                business_client=client,
+                work_line=self.lines[definition.business][definition.line_number],
+                starts_at=starts_at,
+                ends_at=ends_at,
+                total_duration_minutes=minutes,
+                duration_adjustment_reason=definition.duration_adjustment_reason,
+                status=definition.status,
+                manual_channel=definition.channel,
+                created_by=None if is_public else professional,
+                requested_by_client_access=requester_access,
+                requested_by_name_snapshot=requester_name,
+                requested_by_relationship_snapshot=requester_relationship,
+                public_confirmation_reference=(
+                    uuid.uuid5(
+                        DEMO_UUID_NAMESPACE,
+                        "|".join(
+                            (
+                                business.slug,
+                                definition.key,
+                                starts_at.isoformat(),
+                            )
+                        ),
+                    )
+                    if is_public
+                    else None
+                ),
+                cancellation_reason=definition.cancellation_reason,
+                service_summary_snapshot=" + ".join(service.name for service in services),
+            )
+            if definition.status == STATUS_CANCELLED:
+                appointment.cancelled_by = professional
+                appointment.cancelled_at = starts_at - timedelta(days=1)
+            elif definition.status == STATUS_COMPLETED:
+                appointment.completed_by = professional
+                appointment.completed_at = ends_at + timedelta(minutes=5)
+            elif definition.status == STATUS_NO_SHOW:
+                appointment.no_show_marked_by = professional
+                appointment.no_show_marked_at = ends_at + timedelta(minutes=15)
+            appointment.full_clean()
+            appointment.save()
+
+            for order, service in enumerate(services, start=1):
+                item = AppointmentService(
+                    appointment=appointment,
+                    service=service,
+                    service_name_snapshot=service.name,
+                    duration_minutes_snapshot=service.duration_minutes,
+                    price_amount_snapshot=service.price_amount,
+                    color_hex_snapshot=service.color_hex,
+                    display_order=order,
+                )
+                item.full_clean()
+                item.save()
+            appointment.full_clean()
+
+            stable_offset = (position % 7) + 1
+            created_at = (
+                min(
+                    starts_at - timedelta(days=stable_offset),
+                    self.reference_now - timedelta(minutes=20 + position * 3),
+                )
+                if starts_at > self.reference_now
+                else starts_at - timedelta(days=stable_offset)
+            )
+            Appointment.objects.filter(pk=appointment.pk).update(
+                created_at=created_at,
+            )
+            appointment.created_at = created_at
+            appointments[definition.key] = appointment
+        return appointments
+
+    def _create_notifications(self, appointments):
+        chosen_keys = (
+            "MF01",
+            "MF02",
+            "MF05",
+            "MX04",
+            "MP01",
+            "MF18",
+            "NF01",
+            "NF02",
+            "NF03",
+            "NX02",
+            "NP01",
+            "NF11",
+        )
+        for key in chosen_keys:
+            appointment = appointments[key]
+            event_type = (
+                InternalNotification.EventType.APPOINTMENT_CANCELLED
+                if appointment.status == Appointment.Status.CANCELLED
+                else InternalNotification.EventType.APPOINTMENT_CONFIRMED
+            )
+            notification = InternalNotification(
+                business=appointment.business,
+                business_client=appointment.business_client,
+                appointment=appointment,
+                recipient_user=self.professionals[
+                    BUSINESS_MARI
+                    if appointment.business_id == self.businesses[BUSINESS_MARI].pk
+                    else BUSINESS_NORTE
+                ],
+                channel=InternalNotification.Channel.INTERNAL,
+                event_type=event_type,
+                content=(
+                    f"Cita cancelada para {appointment.business_client.full_name}."
+                    if appointment.status == Appointment.Status.CANCELLED
+                    else f"Cita confirmada para {appointment.business_client.full_name}."
+                ),
+                status=InternalNotification.Status.SIMULATED,
+            )
+            notification.full_clean()
+            notification.save()
 
     def _create_legal_demo(self):
         profiles = (
             (
-                self.business,
-                self.professional,
+                BUSINESS_MARI,
                 {
                     "legal_name": "Peluquería Mari · demostración",
                     "tax_identifier": "B00000001",
@@ -487,8 +830,7 @@ class DemoSeeder:
                 },
             ),
             (
-                self.secondary_business,
-                self.secondary_professional,
+                BUSINESS_NORTE,
                 {
                     "legal_name": "Barbería Norte · demostración",
                     "tax_identifier": "B00000002",
@@ -502,23 +844,23 @@ class DemoSeeder:
                 },
             ),
         )
-        for business, professional, profile_data in profiles:
+        for business_key, profile_data in profiles:
+            business = self.businesses[business_key]
             if not business.legal_compliance_enabled:
                 business.legal_compliance_enabled = True
                 business.save(update_fields=["legal_compliance_enabled", "updated_at"])
             accept_professional_legal_documents(
-                user=professional,
+                user=self.professionals[business_key],
                 business=business,
                 profile_data=profile_data,
-                action_fingerprint_source=(
-                    f"seed-demo:professional:{business.slug}:legal-v1"
-                ),
+                action_fingerprint_source=(f"seed-demo:professional:{business.slug}:legal-v1"),
+                accepted_at=self.legal_anchor,
             )
 
         document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
         if document is None:
             raise CommandError("No hay una política de privacidad de clientes vigente.")
-        for business, professional, _ in profiles:
+        for business_key, business in self.businesses.items():
             for client in BusinessClient.objects.filter(business=business).order_by("pk"):
                 access = getattr(client, "access", None)
                 action_source = f"seed-demo:customer:{business.slug}:{client.pk}:privacy-v1"
@@ -530,560 +872,504 @@ class DemoSeeder:
                         document=document,
                         legal_context_snapshot=legal_context,
                         action_fingerprint_source=action_source,
+                        acknowledged_at=self.legal_anchor,
                     )
+                else:
+                    record_customer_privacy_information(
+                        business_client=client,
+                        recorded_by=self.professionals[business_key],
+                        channel=CustomerPrivacyEvidence.Channel.IN_PERSON,
+                        informed_party_name_snapshot=client.full_name,
+                        document=document,
+                        legal_context_snapshot=legal_context,
+                        action_fingerprint_source=action_source,
+                        occurred_at=self.legal_anchor,
+                    )
+
+    def _create_activity_events(self, appointments):
+        mari = self.businesses[BUSINESS_MARI]
+        norte = self.businesses[BUSINESS_NORTE]
+        mari_professional = self.professionals[BUSINESS_MARI]
+        norte_professional = self.professionals[BUSINESS_NORTE]
+        event_rows = (
+            (
+                mari,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.VISUAL_SETTINGS_UPDATED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Apariencia del espacio profesional actualizada.",
+                mari_professional,
+                None,
+                "business",
+                "mari-visual",
+                timedelta(days=7),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.NATIONAL_HOLIDAYS_ENABLED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Festivos nacionales del BOE activados en la agenda.",
+                mari_professional,
+                None,
+                "calendar",
+                "mari-holidays",
+                timedelta(days=6),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.AVAILABILITY_UPDATED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Horario semanal revisado para la próxima quincena.",
+                mari_professional,
+                None,
+                "availability_rule",
+                "mari-schedule",
+                timedelta(days=5),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.SERVICE_UPDATED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                'Servicio "Color completo" actualizado.',
+                mari_professional,
+                self.services[BUSINESS_MARI]["full_color"],
+                "service",
+                "mari-service-update",
+                timedelta(days=4),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.SERVICE_PAUSED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                'Servicio "Alisado orgánico" pausado temporalmente.',
+                mari_professional,
+                self.services[BUSINESS_MARI]["straightening"],
+                "service",
+                "mari-service-paused",
+                timedelta(days=3),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.ACCESS,
+                BusinessActivityEvent.EventType.CLIENT_ACCESS_ACTIVATED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Cuenta online de Elena Sánchez activada.",
+                mari_professional,
+                self.accesses[BUSINESS_MARI]["elena"],
+                "client_access",
+                "mari-access",
+                timedelta(days=2),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.CLOSURE_CREATED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Bloqueo puntual creado para la línea 3.",
+                mari_professional,
+                self.closures[0],
+                "closure",
+                "mari-closure",
+                timedelta(days=1),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_COMPLETED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Cita de María López marcada como atendida.",
+                mari_professional,
+                appointments["MC21"],
+                "appointment",
+                "mari-completed",
+                timedelta(hours=18),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_NO_SHOW,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Ausencia registrada en una cita anterior.",
+                mari_professional,
+                appointments["MN04"],
+                "appointment",
+                "mari-no-show",
+                timedelta(hours=12),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_CANCELLED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Reserva online cancelada desde el panel tras solicitar un cambio de fecha.",
+                mari_professional,
+                appointments["MX04"],
+                "appointment",
+                "mari-cancelled",
+                timedelta(hours=8),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                BusinessActivityEvent.Origin.PHONE,
+                f"Cita creada por teléfono para el {appointments['MF03'].starts_at:%d/%m/%Y} a las {appointments['MF03'].starts_at:%H:%M}.",
+                mari_professional,
+                appointments["MF03"],
+                "appointment",
+                "mari-phone",
+                timedelta(hours=3),
+            ),
+            (
+                mari,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                BusinessActivityEvent.Origin.PUBLIC_WEB,
+                f"Reserva online creada para el {appointments['MF01'].starts_at:%d/%m/%Y} a las {appointments['MF01'].starts_at:%H:%M}.",
+                None,
+                appointments["MF01"],
+                "appointment",
+                "mari-web",
+                timedelta(minutes=25),
+            ),
+            (
+                norte,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.AVAILABILITY_UPDATED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Horario semanal de Barbería Norte actualizado.",
+                norte_professional,
+                None,
+                "availability_rule",
+                "norte-schedule",
+                timedelta(days=6),
+            ),
+            (
+                norte,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.SERVICE_UPDATED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                'Servicio "Degradado/fade" actualizado.',
+                norte_professional,
+                self.services[BUSINESS_NORTE]["fade"],
+                "service",
+                "norte-service-update",
+                timedelta(days=5),
+            ),
+            (
+                norte,
+                BusinessActivityEvent.Category.CONFIGURATION,
+                BusinessActivityEvent.EventType.SERVICE_PAUSED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                'Servicio "Color/mechas" pausado temporalmente.',
+                norte_professional,
+                self.services[BUSINESS_NORTE]["color"],
+                "service",
+                "norte-service-paused",
+                timedelta(days=4),
+            ),
+            (
+                norte,
+                BusinessActivityEvent.Category.ACCESS,
+                BusinessActivityEvent.EventType.CLIENT_ACCESS_ACTIVATED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Cuenta online de Álvaro Santos activada.",
+                norte_professional,
+                self.accesses[BUSINESS_NORTE]["alvaro"],
+                "client_access",
+                "norte-access",
+                timedelta(days=3),
+            ),
+            (
+                norte,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_COMPLETED,
+                BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                "Cita de Javier Martín marcada como atendida.",
+                norte_professional,
+                appointments["NC14"],
+                "appointment",
+                "norte-completed",
+                timedelta(days=2),
+            ),
+            (
+                norte,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_CANCELLED,
+                BusinessActivityEvent.Origin.EMAIL,
+                "Cita cancelada tras recibir un correo del cliente.",
+                norte_professional,
+                appointments["NX04"],
+                "appointment",
+                "norte-cancelled",
+                timedelta(days=1),
+            ),
+            (
+                norte,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                BusinessActivityEvent.Origin.FRONT_DESK,
+                f"Cita creada en mostrador para el {appointments['NF06'].starts_at:%d/%m/%Y} a las {appointments['NF06'].starts_at:%H:%M}.",
+                norte_professional,
+                appointments["NF06"],
+                "appointment",
+                "norte-front-desk",
+                timedelta(hours=2),
+            ),
+            (
+                norte,
+                BusinessActivityEvent.Category.APPOINTMENTS,
+                BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                BusinessActivityEvent.Origin.PUBLIC_WEB,
+                f"Reserva online creada para el {appointments['NF01'].starts_at:%d/%m/%Y} a las {appointments['NF01'].starts_at:%H:%M}.",
+                None,
+                appointments["NF01"],
+                "appointment",
+                "norte-web",
+                timedelta(minutes=40),
+            ),
+        )
+
+        for (
+            business,
+            category,
+            event_type,
+            origin,
+            summary,
+            actor,
+            entity,
+            entity_type,
+            demo_key,
+            age,
+        ) in sorted(event_rows, key=lambda row: row[-1], reverse=True):
+            record_business_activity(
+                business=business,
+                category=category,
+                event_type=event_type,
+                origin=origin,
+                summary=summary,
+                actor=actor,
+                actor_type=(
+                    BusinessActivityEvent.ActorType.CUSTOMER
+                    if actor is None and origin == BusinessActivityEvent.Origin.PUBLIC_WEB
+                    else None
+                ),
+                actor_label=(
+                    "Cliente online"
+                    if actor is None and origin == BusinessActivityEvent.Origin.PUBLIC_WEB
+                    else None
+                ),
+                entity=entity,
+                entity_type=entity_type,
+                changes={"demo_seed_key": demo_key},
+                event_at=self.activity_anchor - age,
+            )
+
+    def _update_client_activity(self):
+        for business_key, clients in self.clients.items():
+            for client in clients.values():
+                latest = (
+                    Appointment.objects.filter(
+                        business=self.businesses[business_key],
+                        business_client=client,
+                    )
+                    .order_by("-created_at", "-pk")
+                    .values_list("created_at", flat=True)
+                    .first()
+                )
+                BusinessClient.objects.filter(pk=client.pk).update(last_activity_at=latest)
+
+    def _validate_postflight(self):
+        """Aborta la transacción si la escritura no deja el manifiesto canónico."""
+
+        errors = []
+
+        def expect(label, actual, expected):
+            if actual != expected:
+                errors.append(f"{label}: esperado {expected!r}, obtenido {actual!r}")
+
+        User = get_user_model()
+        expect("usuarios internos", User.objects.count(), 3)
+        expect("negocios", Business.objects.count(), 2)
+        expect("membresías", BusinessMembership.objects.count(), 2)
+        expect("calendarios", BusinessCalendarSettings.objects.count(), 2)
+        expect("reglas horarias", AvailabilityRule.objects.count(), 22)
+        expect("servicios", Service.objects.count(), 28)
+        expect("servicios activos", Service.objects.filter(is_active=True).count(), 25)
+        expect("líneas de trabajo", WorkLine.objects.count(), 5)
+        expect("clientes", BusinessClient.objects.count(), 36)
+        expect("clientes inactivos", BusinessClient.objects.filter(is_active=False).count(), 1)
+        expect(
+            "clientes sin teléfono", BusinessClient.objects.filter(phone_normalized="").count(), 1
+        )
+        expect("accesos cliente", BusinessClientAccess.objects.count(), 11)
+        expect("accesos activos", BusinessClientAccess.objects.filter(is_active=True).count(), 11)
+        expect("permisos de reserva", BusinessClientAccessGrant.objects.count(), 15)
+        expect("personas autorizadas", BusinessClientAuthorizedContact.objects.count(), 4)
+        expect("cierres", BusinessClosure.objects.count(), 5)
+        expect("citas", Appointment.objects.count(), 90)
+        expect("snapshots de servicio", AppointmentService.objects.count(), 103)
+        expect("notificaciones", InternalNotification.objects.count(), 12)
+        expect("movimientos", BusinessActivityEvent.objects.count(), 20)
+        expect("perfiles legales", BusinessLegalProfile.objects.count(), 2)
+        expect("aceptaciones legales", LegalAcceptance.objects.count(), 17)
+        expect("eventos de aceptación", LegalAcceptanceEvent.objects.count(), 17)
+        expect("constancias de privacidad", CustomerPrivacyEvidence.objects.count(), 36)
+        expect(
+            "eventos de privacidad",
+            CustomerPrivacyEvidenceEvent.objects.count(),
+            36,
+        )
+
+        for business_key, business in self.businesses.items():
+            expected_services = {
+                definition.name for definition in SERVICES if definition.business == business_key
+            }
+            expected_clients = {
+                definition.full_name
+                for definition in CLIENTS
+                if definition.business == business_key
+            }
+            expect(
+                f"catálogo de {business.slug}",
+                set(business.services.values_list("name", flat=True)),
+                expected_services,
+            )
+            expect(
+                f"clientes de {business.slug}",
+                set(business.clients.values_list("full_name", flat=True)),
+                expected_clients,
+            )
+
+        invalid_self_grants = [
+            grant.pk
+            for grant in BusinessClientAccessGrant.objects.filter(
+                relationship_label=BusinessClientAccessGrant.Relationship.SELF
+            ).select_related("access")
+            if grant.access.business_client_id != grant.business_client_id
+        ]
+        if invalid_self_grants:
+            errors.append(
+                "permisos titulares vinculados a otra ficha: "
+                + ", ".join(map(str, invalid_self_grants))
+            )
+
+        status_counts = Counter(Appointment.objects.values_list("status", flat=True))
+        expect(
+            "estados de cita",
+            status_counts,
+            Counter(
+                {
+                    Appointment.Status.COMPLETED: 37,
+                    Appointment.Status.NO_SHOW: 6,
+                    Appointment.Status.CANCELLED: 9,
+                    Appointment.Status.CONFIRMED: 38,
+                }
+            ),
+        )
+        confirmed = Appointment.objects.filter(status=Appointment.Status.CONFIRMED)
+        expect(
+            "confirmadas transcurridas",
+            confirmed.filter(ends_at__lte=self.reference_now).count(),
+            7,
+        )
+        expect(
+            "confirmadas futuras",
+            confirmed.filter(starts_at__gt=self.reference_now).count(),
+            31,
+        )
+
+        public_appointments = list(
+            Appointment.objects.filter(
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB
+            ).select_related("requested_by_client_access")
+        )
+        expect("reservas web", len(public_appointments), 30)
+        expect(
+            "reservas web representadas",
+            sum(
+                appointment.requested_by_client_access.business_client_id
+                != appointment.business_client_id
+                for appointment in public_appointments
+                if appointment.requested_by_client_access_id
+            ),
+            8,
+        )
+        if any(
+            appointment.created_by_id is not None
+            or appointment.requested_by_client_access_id is None
+            or appointment.public_confirmation_reference is None
+            for appointment in public_appointments
+        ):
+            errors.append("alguna reserva web no conserva su autoría o referencia")
+        if (
+            Appointment.objects.exclude(manual_channel=Appointment.ManualChannel.PUBLIC_WEB)
+            .filter(created_by__isnull=True)
+            .exists()
+        ):
+            errors.append("alguna cita manual carece de profesional creador")
+        if AppointmentService.objects.filter(
+            service__is_active=False,
+            appointment__starts_at__gt=self.reference_now,
+        ).exists():
+            errors.append("un servicio pausado aparece en una cita futura")
+
+        active_rows = Appointment.objects.exclude(status=Appointment.Status.CANCELLED).order_by(
+            "business_id", "work_line_id", "starts_at", "pk"
+        )
+        previous_by_line = {}
+        for appointment in active_rows:
+            line_key = (appointment.business_id, appointment.work_line_id)
+            previous = previous_by_line.get(line_key)
+            if previous is not None and previous.ends_at > appointment.starts_at:
+                errors.append(f"solape entre citas {previous.pk} y {appointment.pk}")
+            previous_by_line[line_key] = appointment
+
+        for closure in BusinessClosure.objects.filter(is_active=True):
+            candidates = Appointment.objects.exclude(status=Appointment.Status.CANCELLED).filter(
+                business=closure.business,
+                starts_at__date__gte=closure.date_from,
+                starts_at__date__lte=closure.date_to,
+            )
+            if closure.work_line_id:
+                candidates = candidates.filter(work_line=closure.work_line)
+            for appointment in candidates:
+                if closure.start_time is None:
+                    errors.append(f"la cita {appointment.pk} coincide con el cierre {closure.pk}")
                     continue
-                record_customer_privacy_information(
-                    business_client=client,
-                    recorded_by=professional,
-                    channel=CustomerPrivacyEvidence.Channel.IN_PERSON,
-                    informed_party_name_snapshot=client.full_name,
-                    document=document,
-                    legal_context_snapshot=legal_context,
-                    action_fingerprint_source=action_source,
-                )
+                starts_at = appointment.starts_at.astimezone(MADRID).time()
+                ends_at = appointment.ends_at.astimezone(MADRID).time()
+                if starts_at < closure.end_time and ends_at > closure.start_time:
+                    errors.append(f"la cita {appointment.pk} coincide con el bloqueo {closure.pk}")
 
-    def _create_representative_booking_demo(self):
-        self._upsert_online_representative(
-            beneficiary=self.clients["lucas"],
-            representative=self.clients["maria"],
-            relationship=BusinessClientAuthorizedContact.Relationship.MOTHER,
-            notes="Su madre gestiona las citas presenciales, telefónicas y online.",
+        first_appointment_created_at = (
+            Appointment.objects.order_by("created_at").values_list("created_at", flat=True).first()
         )
-        self._upsert_online_representative(
-            beneficiary=self.clients["rosa"],
-            representative=self.clients["daniel"],
-            relationship=BusinessClientAuthorizedContact.Relationship.CAREGIVER,
-            notes="Su cuidador habitual puede pedir y reservar citas en su nombre.",
-        )
+        if first_appointment_created_at is not None:
+            if BusinessClient.objects.filter(created_at__gt=first_appointment_created_at).exists():
+                errors.append("alguna ficha se creó después de su historial de citas")
+            if LegalAcceptance.objects.filter(
+                accepted_at__gt=first_appointment_created_at
+            ).exists():
+                errors.append("alguna aceptación legal es posterior al historial importado")
+            if CustomerPrivacyEvidence.objects.filter(
+                occurred_at__gt=first_appointment_created_at
+            ).exists():
+                errors.append("alguna constancia de privacidad es posterior al historial importado")
 
-    def _upsert_online_representative(
-        self,
-        *,
-        beneficiary,
-        representative,
-        relationship,
-        notes,
-    ):
-        access = BusinessClientAccess.objects.get(
-            business=self.business,
-            business_client=representative,
-        )
-        contact = beneficiary.authorized_contacts.filter(
-            linked_business_client=representative,
-        ).first()
-        if contact is None:
-            # Rosa ya tenía un supuesto genérico en versiones anteriores de la
-            # demo. Se reutiliza ese registro para convertirlo en un caso real
-            # y no dejar dos historias incompatibles en producción.
-            contact = beneficiary.authorized_contacts.filter(is_primary_contact=True).first()
-        if contact is None:
-            contact = BusinessClientAuthorizedContact(
-                business=self.business,
-                business_client=beneficiary,
-            )
-        contact.linked_business_client = representative
-        contact.full_name = representative.full_name
-        contact.phone = representative.phone
-        contact.relationship_label = relationship
-        contact.is_primary_contact = True
-        contact.is_active = True
-        contact.notes = notes
-        contact.full_clean()
-        contact.save()
+        if Business.objects.filter(slug="barberia-norte-demo").exists():
+            errors.append("persiste el slug heredado barberia-norte-demo")
+        if OfficialHoliday.objects.filter(official_reference="PFM-LOCAL").exists():
+            errors.append("persiste el antiguo festivo ficticio PFM-LOCAL")
 
-        grant = BusinessClientAccessGrant.objects.filter(
-            business=self.business,
-            business_client=beneficiary,
-            authorized_contact=contact,
-        ).first()
-        if grant is None:
-            grant = BusinessClientAccessGrant.objects.filter(
-                business=self.business,
-                business_client=beneficiary,
-            ).exclude(relationship_label=BusinessClientAccessGrant.Relationship.SELF).first()
-        if grant is None:
-            grant = BusinessClientAccessGrant(
-                business=self.business,
-                business_client=beneficiary,
+        if errors:
+            raise CommandError(
+                "El escenario demo no superó el postflight:\n- " + "\n- ".join(errors)
             )
-        grant.access = access
-        grant.authorized_contact = contact
-        grant.relationship_label = relationship
-        grant.is_active = True
-        grant.full_clean()
-        grant.save()
-
-    def _upsert_client_access(self, client):
-        business = client.business
-        access = BusinessClientAccess.objects.filter(
-            business=business,
-            phone_normalized=normalize_phone(client.phone),
-        ).first()
-        if access is None:
-            access = BusinessClientAccess(
-                business=business,
-                business_client=client,
-                phone=client.phone,
-            )
-        access.business = business
-        access.business_client = client
-        access.phone = client.phone
-        access.email = client.email or f"cliente{client.pk}@agendasalon.local"
-        access.email_verified_at = timezone.now()
-        if client.email != access.email:
-            client.email = access.email
-            client.save(update_fields=["email", "updated_at"])
-        access.is_active = True
-        access.set_password(DEMO_PASSWORD)
-        access.full_clean()
-        access.save()
-        BusinessClientAccessGrant.objects.update_or_create(
-            access=access,
-            business_client=client,
-            defaults={
-                "business": business,
-                "relationship_label": BusinessClientAccessGrant.Relationship.SELF,
-                "is_active": True,
-            },
-        )
-        return access
-
-    def _create_secondary_business_demo(self):
-        business = self.secondary_business
-        _update_first_or_create(
-            BusinessCalendarSettings,
-            {"business": business},
-            {
-                "slot_interval_minutes": 15,
-                "apply_national_holidays": True,
-            },
-        )
-
-        weekly_rules = {
-            0: [(time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))],
-            1: [(time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))],
-            2: [(time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))],
-            3: [(time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))],
-            4: [(time(10, 0), time(14, 0)), (time(16, 0), time(21, 0))],
-            5: [(time(10, 0), time(14, 0))],
-        }
-        for weekday, intervals in weekly_rules.items():
-            for start_time, end_time in intervals:
-                rule = _update_first_or_create(
-                    AvailabilityRule,
-                    {
-                        "business": business,
-                        "weekday": weekday,
-                        "start_time": start_time,
-                        "end_time": end_time,
-                    },
-                    {"is_active": True},
-                )
-                rule.full_clean()
-                rule.save()
-
-        service_definitions = [
-            ("Corte caballero", "Corte personalizado con acabado y peinado.", 30, "18.00", "#2f6f73", 1),
-            ("Degradado", "Degradado trabajado con ajuste de contornos.", 45, "24.00", "#5079bd", 2),
-            ("Arreglo de barba", "Recorte, perfilado y acabado de barba.", 30, "14.00", "#8f6b4a", 3),
-            ("Corte y barba", "Servicio combinado de corte y arreglo de barba.", 60, "32.00", "#08927f", 4),
-            ("Afeitado clásico", "Afeitado tradicional con preparación de la piel.", 45, "26.00", "#e5a63a", 5),
-        ]
-        for name, description, duration, price, color, order in service_definitions:
-            _upsert_demo_service(
-                business=business,
-                name=name,
-                defaults={
-                    "description": description,
-                    "duration_minutes": duration,
-                    "price_amount": Decimal(price),
-                    "color_hex": color,
-                    "is_active": True,
-                    "display_order": order,
-                },
-            )
-
-        for number in (1, 2):
-            line = _update_first_or_create(
-                WorkLine,
-                {"business": business, "line_number": number},
-                {
-                    "name": f"Silla {number}",
-                    "is_active": True,
-                    "display_order": number,
-                },
-            )
-            line.full_clean()
-            line.save()
-
-        javier = self._upsert_client("Javier Martín", "600222201", "Suele reservar corte y barba juntos.", business=business)
-        marcos = self._upsert_client("Marcos Ruiz", "600222202", "Prefiere las citas a última hora de la tarde.", business=business)
-        self._upsert_client_access(javier)
-
-        services = {
-            service.name: service
-            for service in Service.objects.filter(business=business)
-        }
-        lines = {
-            line.line_number: line
-            for line in WorkLine.objects.filter(business=business)
-        }
-        self._upsert_appointment(
-            business=business,
-            created_by=self.secondary_professional,
-            client=javier,
-            line=lines[1],
-            start_at=_at(self.past_date, time(10, 0)),
-            minutes=60,
-            services=[services["Corte y barba"]],
-            channel=Appointment.ManualChannel.FRONT_DESK,
-            status=Appointment.Status.COMPLETED,
-            completed=True,
-        )
-        self._upsert_appointment(
-            business=business,
-            created_by=self.secondary_professional,
-            client=marcos,
-            line=lines[2],
-            start_at=_at(self.base_date + timedelta(days=1), time(18, 0)),
-            minutes=45,
-            services=[services["Degradado"]],
-            channel=Appointment.ManualChannel.PHONE,
-        )
-        self._upsert_appointment(
-            business=business,
-            created_by=self.secondary_professional,
-            client=javier,
-            line=lines[1],
-            start_at=_at(self.base_date + timedelta(days=3), time(17, 0)),
-            minutes=30,
-            services=[services["Arreglo de barba"]],
-            channel=Appointment.ManualChannel.PUBLIC_WEB,
-            status=Appointment.Status.CANCELLED,
-            cancellation_reason="El cliente reorganizó su semana.",
-        )
-
-    def _create_holidays_and_closures(self):
-        holiday_date = self.base_date + timedelta(days=4)
-        calendar_loaded_at = timezone.now()
-        OfficialHoliday.objects.filter(date=holiday_date, name="Festivo nacional demo").delete()
-        HolidaySyncRun.objects.filter(year=holiday_date.year, source_name="Datos demo AgendaSalon").delete()
-        _update_first_or_create(
-            OfficialHoliday,
-            {
-                "date": holiday_date,
-                "name": "Fiesta nacional",
-                "scope": OfficialHoliday.Scope.NATIONAL,
-            },
-            {
-                "year": holiday_date.year,
-                "source_name": "Calendario local AgendaSalon",
-                "source_url": "",
-                "official_reference": "PFM-LOCAL",
-            },
-        )
-        _update_first_or_create(
-            HolidaySyncRun,
-            {
-                "year": holiday_date.year,
-                "source_name": "Calendario local AgendaSalon",
-            },
-            {
-                "source_url": "",
-                "status": HolidaySyncRun.Status.SUCCESS,
-                "started_at": self.activity_anchor,
-                "finished_at": calendar_loaded_at,
-                "items_loaded": 1,
-                "error_detail": "",
-                "created_by": self.superadmin,
-            },
-        )
-        _update_first_or_create(
-            BusinessClosure,
-            {
-                "business": self.business,
-                "work_line": self.lines[3],
-                "date_from": self.base_date,
-                "date_to": self.base_date,
-                "start_time": time(12, 0),
-                "end_time": time(14, 0),
-            },
-            {
-                "closure_type": BusinessClosure.ClosureType.PUNCTUAL_BLOCK,
-                "internal_reason": "Gestión interna de mostrador.",
-                "is_active": True,
-                "created_by": self.professional,
-            },
-        )
-        _update_first_or_create(
-            BusinessClosure,
-            {
-                "business": self.business,
-                "work_line": None,
-                "date_from": self.base_date + timedelta(days=5),
-                "date_to": self.base_date + timedelta(days=5),
-                "start_time": None,
-                "end_time": None,
-            },
-            {
-                "closure_type": BusinessClosure.ClosureType.BUSINESS_CLOSURE,
-                "internal_reason": "Formación interna del equipo.",
-                "is_active": True,
-                "created_by": self.professional,
-            },
-        )
-
-    def _create_appointments(self):
-        appointments = []
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["maria"],
-                line=self.lines[1],
-                start_at=_at(self.base_date, time(9, 0)),
-                minutes=30,
-                services=[self.services["Corte"]],
-                channel=Appointment.ManualChannel.PUBLIC_WEB,
-                requested_by_client_access=self.clients["maria"].access,
-                requested_by_name=self.clients["maria"].full_name,
-                requested_by_relationship=BusinessClientAccessGrant.Relationship.SELF.label,
-            )
-        )
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["lucas"],
-                line=self.lines[2],
-                start_at=_at(self.base_date, time(9, 0)),
-                minutes=30,
-                services=[self.services["Corte"]],
-                channel=Appointment.ManualChannel.PUBLIC_WEB,
-                requested_by_client_access=self.clients["maria"].access,
-                requested_by_name=self.clients["maria"].full_name,
-                requested_by_relationship=BusinessClientAccessGrant.Relationship.MOTHER.label,
-            )
-        )
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["carmen"],
-                line=self.lines[1],
-                start_at=_at(self.base_date, time(10, 0)),
-                minutes=90,
-                services=[self.services["Tinte"]],
-                channel=Appointment.ManualChannel.PHONE,
-            )
-        )
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["lucia"],
-                line=self.lines[2],
-                start_at=_at(self.base_date, time(16, 0)),
-                minutes=180,
-                services=[
-                    self.services["Lavado"],
-                    self.services["Tinte"],
-                    self.services["Corte"],
-                    self.services["Peinado"],
-                ],
-                channel=Appointment.ManualChannel.WHATSAPP,
-                summary="Lavado + tinte + corte + peinado",
-            )
-        )
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["daniel"],
-                line=self.lines[1],
-                start_at=_at(self.base_date + timedelta(days=1), time(11, 0)),
-                minutes=30,
-                services=[self.services["Barba"]],
-                channel=Appointment.ManualChannel.PHONE,
-                status=Appointment.Status.CANCELLED,
-                cancellation_reason="Cliente avisa que no puede acudir.",
-            )
-        )
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["rosa"],
-                line=self.lines[1],
-                start_at=_at(self.base_date + timedelta(days=1), time(16, 0)),
-                minutes=45,
-                services=[self.services["Corte"]],
-                channel=Appointment.ManualChannel.PUBLIC_WEB,
-                duration_adjustment_reason="Margen extra previsto por las necesidades de la clienta.",
-                requested_by_client_access=self.clients["daniel"].access,
-                requested_by_name=self.clients["daniel"].full_name,
-                requested_by_relationship=BusinessClientAccessGrant.Relationship.CAREGIVER.label,
-            )
-        )
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["carmen"],
-                line=self.lines[1],
-                start_at=_at(self.base_date + timedelta(days=3), time(12, 0)),
-                minutes=30,
-                services=[self.services["Corte"]],
-                channel=Appointment.ManualChannel.PUBLIC_WEB,
-            )
-        )
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["maria"],
-                line=self.lines[2],
-                start_at=_at(self.past_date, time(10, 0)),
-                minutes=60,
-                services=[self.services["Tratamiento hidratante"]],
-                channel=Appointment.ManualChannel.FRONT_DESK,
-                status=Appointment.Status.COMPLETED,
-                completed=True,
-            )
-        )
-        appointments.append(
-            self._upsert_appointment(
-                client=self.clients["lucia"],
-                line=self.lines[2],
-                start_at=_at(self.past_date, time(12, 0)),
-                minutes=30,
-                services=[self.services["Corte"]],
-                channel=Appointment.ManualChannel.PHONE,
-                status=Appointment.Status.NO_SHOW,
-                no_show=True,
-            )
-        )
-        appointments.extend(self._create_no_capacity_appointments())
-        return appointments
-
-    def _create_no_capacity_appointments(self):
-        day = self.no_capacity_date
-        definitions = [
-            (1, "daniel", time(9, 0), 150, ["Tinte", "Tratamiento hidratante"]),
-            (1, "rosa", time(12, 0), 120, ["Tinte", "Corte"]),
-            (1, "maria", time(16, 0), 120, ["Tinte", "Corte"]),
-            (1, "lucia", time(18, 30), 90, ["Tinte"]),
-            (2, "carmen", time(9, 0), 90, ["Tinte"]),
-            (2, "maria", time(11, 0), 120, ["Tinte", "Corte"]),
-            (2, "lucia", time(13, 30), 30, ["Corte"]),
-            (2, "daniel", time(16, 0), 105, ["Tratamiento hidratante", "Peinado"]),
-            (2, "rosa", time(18, 15), 105, ["Tratamiento hidratante", "Peinado"]),
-            (3, "carmen", time(9, 0), 180, ["Lavado", "Tinte", "Corte", "Peinado"]),
-            (3, "maria", time(16, 0), 180, ["Lavado", "Tinte", "Corte", "Peinado"]),
-        ]
-        appointments = []
-        for line_number, client_key, start_time, minutes, service_names in definitions:
-            appointments.append(
-                self._upsert_appointment(
-                    client=self.clients[client_key],
-                    line=self.lines[line_number],
-                    start_at=_at(day, start_time),
-                    minutes=minutes,
-                    services=[self.services[name] for name in service_names],
-                    channel=Appointment.ManualChannel.PHONE,
-                    summary=" + ".join(service_names),
-                )
-            )
-        return appointments
-
-    def _upsert_appointment(
-        self,
-        *,
-        business=None,
-        created_by=None,
-        client,
-        line,
-        start_at,
-        minutes,
-        services,
-        channel,
-        status=Appointment.Status.CONFIRMED,
-        duration_adjustment_reason="",
-        cancellation_reason="",
-        completed=False,
-        no_show=False,
-        summary="",
-        requested_by_client_access=None,
-        requested_by_name="",
-        requested_by_relationship="",
-    ):
-        business = business or self.business
-        created_by = created_by or self.professional
-        appointment = Appointment.objects.filter(
-            business=business,
-            business_client=client,
-            work_line=line,
-            starts_at=start_at,
-        ).first()
-        if appointment is None:
-            appointment = Appointment(
-                business=business,
-                business_client=client,
-                work_line=line,
-                starts_at=start_at,
-            )
-        appointment.ends_at = start_at + timedelta(minutes=minutes)
-        appointment.total_duration_minutes = minutes
-        appointment.status = status
-        appointment.manual_channel = channel
-        appointment.created_by = created_by
-        appointment.requested_by_client_access = requested_by_client_access
-        appointment.requested_by_name_snapshot = requested_by_name
-        appointment.requested_by_relationship_snapshot = requested_by_relationship
-        appointment.duration_adjustment_reason = duration_adjustment_reason
-        appointment.cancellation_reason = cancellation_reason
-        appointment.service_summary_snapshot = summary or " + ".join(service.name for service in services)
-        appointment.cancelled_by = created_by if status == Appointment.Status.CANCELLED else None
-        appointment.cancelled_at = start_at - timedelta(days=1) if status == Appointment.Status.CANCELLED else None
-        appointment.completed_by = created_by if completed else None
-        appointment.completed_at = appointment.ends_at if completed else None
-        appointment.no_show_marked_by = created_by if no_show else None
-        appointment.no_show_marked_at = appointment.ends_at if no_show else None
-        appointment.full_clean()
-        appointment.save()
-
-        for order, service in enumerate(services, start=1):
-            item = AppointmentService.objects.filter(
-                appointment=appointment,
-                display_order=order,
-            ).first()
-            if item is None:
-                item = AppointmentService(appointment=appointment, display_order=order)
-            item.service = service
-            item.service_name_snapshot = service.name
-            item.duration_minutes_snapshot = service.duration_minutes
-            item.price_amount_snapshot = service.price_amount
-            item.color_hex_snapshot = service.color_hex
-            item.full_clean()
-            item.save()
-        appointment.full_clean()
-        return appointment
-
-    def _create_notifications(self, appointments):
-        for appointment in appointments[:4]:
-            event_type = (
-                InternalNotification.EventType.APPOINTMENT_CANCELLED
-                if appointment.status == Appointment.Status.CANCELLED
-                else InternalNotification.EventType.APPOINTMENT_CONFIRMED
-            )
-            _update_first_or_create(
-                InternalNotification,
-                {
-                    "business": self.business,
-                    "appointment": appointment,
-                    "event_type": event_type,
-                    "channel": InternalNotification.Channel.INTERNAL,
-                },
-                {
-                    "business_client": appointment.business_client,
-                    "recipient_user": self.professional,
-                    "content": (
-                        f"Cita cancelada para {appointment.business_client.full_name}."
-                        if appointment.status == Appointment.Status.CANCELLED
-                        else f"Cita confirmada para {appointment.business_client.full_name}."
-                    ),
-                    "status": InternalNotification.Status.SIMULATED,
-                    "read_at": None,
-                },
-            )
-
-
-def _current_or_next_monday(today):
-    return today + timedelta(days=(7 - today.weekday()) % 7)
 
 
 def _update_first_or_create(model, lookup, defaults):
@@ -1096,37 +1382,26 @@ def _update_first_or_create(model, lookup, defaults):
     return instance
 
 
-def _upsert_demo_service(*, business, name, defaults):
-    normalized_name = normalize_search_text(name)
-    matching_services = [
-        service
-        for service in Service.objects.filter(business=business).order_by("pk")
-        if normalize_search_text(service.name) == normalized_name
-    ]
+def _set_created_at(instance, value):
+    """Fija la fecha narrativa de una entidad demo con ``auto_now_add``."""
 
-    if matching_services:
-        service = max(
-            matching_services,
-            key=lambda candidate: (
-                candidate.appointment_services.exists(),
-                candidate.name == name,
-                -candidate.pk,
-            ),
+    type(instance).objects.filter(pk=instance.pk).update(created_at=value)
+    instance.created_at = value
+
+
+def _acquire_demo_seed_lock():
+    """Evita dos regeneraciones simultáneas cuando se usa PostgreSQL."""
+
+    if connection.vendor != "postgresql":
+        return
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)",
+            [4_147_326_341_001],
         )
-        for duplicate in matching_services:
-            if duplicate.pk == service.pk:
-                continue
-            duplicate.appointment_services.update(service=service)
-            duplicate.delete()
-    else:
-        service = Service(business=business)
-
-    service.name = name
-    for field, value in defaults.items():
-        setattr(service, field, value)
-    service.full_clean()
-    service.save()
-    return service
+        acquired = cursor.fetchone()[0]
+    if not acquired:
+        raise CommandError("Ya hay otra regeneración del escenario demo en curso.")
 
 
 def _at(target_date: date, target_time: time) -> datetime:
