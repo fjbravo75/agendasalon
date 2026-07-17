@@ -31,7 +31,10 @@ from apps.core.demo_scenario import (
     APPOINTMENTS,
     BUSINESS_MARI,
     BUSINESS_NORTE,
+    CANONICAL_PLATFORM_SETTINGS,
+    CANONICAL_PROFESSIONAL_THEMES,
     CLIENTS,
+    DEMO_ADVISORY_LOCK_ID,
     DEMO_PASSWORD,
     RELATIONSHIPS,
     SERVICES,
@@ -65,6 +68,7 @@ from apps.legal.services import (
     accept_professional_legal_documents,
     acknowledge_customer_privacy,
     business_legal_snapshot,
+    customer_privacy_action_fingerprint,
     get_active_document,
     record_customer_privacy_information,
 )
@@ -171,7 +175,7 @@ class Command(BaseCommand):
         reference_now = (
             min(
                 current_now,
-                datetime.combine(anchor_date, time(2, 5), tzinfo=MADRID),
+                datetime.combine(anchor_date, time(4, 5), tzinfo=MADRID),
             )
             if options["base_date"]
             else current_now
@@ -224,7 +228,7 @@ class DemoSeeder:
             excluded_dates=excluded_holidays,
         )
         self.no_capacity_date = self.future_days[2]
-        anchor_start = datetime.combine(anchor_date, time(2, 5), tzinfo=MADRID)
+        anchor_start = datetime.combine(anchor_date, time(4, 5), tzinfo=MADRID)
         self.activity_anchor = min(self.reference_now, anchor_start)
         earliest_scenario_day = self.past_days[-1]
         self.record_origin_at = _at(
@@ -276,10 +280,18 @@ class DemoSeeder:
             is_staff=True,
             is_superuser=True,
         )
-        PlatformSettings.objects.get_or_create(
-            pk=PlatformSettings.SINGLETON_PK,
-            defaults={"updated_by": self.superadmin},
+        platform_settings = _update_first_or_create(
+            PlatformSettings,
+            {"pk": PlatformSettings.SINGLETON_PK},
+            {
+                **CANONICAL_PLATFORM_SETTINGS,
+                "updated_by": self.superadmin,
+            },
         )
+        # Una imagen personalizada seleccionada prevalece sobre el preset. La
+        # deseleccionamos para que el aspecto real coincida con el contrato
+        # canónico, conservando el fichero como historial no activo.
+        platform_settings.login_images.filter(is_selected=True).update(is_selected=False)
         self.professionals = {
             BUSINESS_MARI: self._upsert_user(
                 phone="+34600111001",
@@ -335,6 +347,7 @@ class DemoSeeder:
                     "city": definition["city"],
                     "province": definition["province"],
                     "public_booking_enabled": True,
+                    "professional_theme": CANONICAL_PROFESSIONAL_THEMES[business_key],
                     "public_image_preset": definition["public_image_preset"],
                     "is_active": True,
                 },
@@ -785,7 +798,7 @@ class DemoSeeder:
             "NP01",
             "NF11",
         )
-        for key in chosen_keys:
+        for position, key in enumerate(chosen_keys):
             appointment = appointments[key]
             event_type = (
                 InternalNotification.EventType.APPOINTMENT_CANCELLED
@@ -812,6 +825,10 @@ class DemoSeeder:
             )
             notification.full_clean()
             notification.save()
+            _set_created_at(
+                notification,
+                self.activity_anchor - timedelta(hours=len(chosen_keys) - position),
+            )
 
     def _create_legal_demo(self):
         profiles = (
@@ -860,31 +877,35 @@ class DemoSeeder:
         document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
         if document is None:
             raise CommandError("No hay una política de privacidad de clientes vigente.")
-        for business_key, business in self.businesses.items():
-            for client in BusinessClient.objects.filter(business=business).order_by("pk"):
-                access = getattr(client, "access", None)
-                action_source = f"seed-demo:customer:{business.slug}:{client.pk}:privacy-v1"
-                legal_context = business_legal_snapshot(business)
-                if access is not None:
-                    acknowledge_customer_privacy(
-                        client_access=access,
-                        context=LegalAcceptance.Context.CLIENT_REGISTRATION,
-                        document=document,
-                        legal_context_snapshot=legal_context,
-                        action_fingerprint_source=action_source,
-                        acknowledged_at=self.legal_anchor,
-                    )
-                else:
-                    record_customer_privacy_information(
-                        business_client=client,
-                        recorded_by=self.professionals[business_key],
-                        channel=CustomerPrivacyEvidence.Channel.IN_PERSON,
-                        informed_party_name_snapshot=client.full_name,
-                        document=document,
-                        legal_context_snapshot=legal_context,
-                        action_fingerprint_source=action_source,
-                        occurred_at=self.legal_anchor,
-                    )
+        for definition in CLIENTS:
+            business_key = definition.business
+            business = self.businesses[business_key]
+            client = self.clients[business_key][definition.key]
+            access = getattr(client, "access", None)
+            action_source = (
+                f"seed-demo:customer:{business.slug}:{definition.key}:privacy-v1"
+            )
+            legal_context = business_legal_snapshot(business)
+            if access is not None:
+                acknowledge_customer_privacy(
+                    client_access=access,
+                    context=LegalAcceptance.Context.CLIENT_REGISTRATION,
+                    document=document,
+                    legal_context_snapshot=legal_context,
+                    action_fingerprint_source=action_source,
+                    acknowledged_at=self.legal_anchor,
+                )
+            else:
+                record_customer_privacy_information(
+                    business_client=client,
+                    recorded_by=self.professionals[business_key],
+                    channel=CustomerPrivacyEvidence.Channel.IN_PERSON,
+                    informed_party_name_snapshot=client.full_name,
+                    document=document,
+                    legal_context_snapshot=legal_context,
+                    action_fingerprint_source=action_source,
+                    occurred_at=self.legal_anchor,
+                )
 
     def _create_activity_events(self, appointments):
         mari = self.businesses[BUSINESS_MARI]
@@ -1225,6 +1246,32 @@ class DemoSeeder:
             36,
         )
 
+        platform_settings = PlatformSettings.objects.filter(
+            pk=PlatformSettings.SINGLETON_PK
+        ).first()
+        expect("ajustes de plataforma", PlatformSettings.objects.count(), 1)
+        if platform_settings is None:
+            errors.append("faltan los ajustes canónicos de plataforma")
+        else:
+            expect(
+                "apariencia de plataforma",
+                {
+                    "admin_theme": platform_settings.admin_theme,
+                    "login_image_preset": platform_settings.login_image_preset,
+                },
+                CANONICAL_PLATFORM_SETTINGS,
+            )
+            expect(
+                "autor de ajustes de plataforma",
+                platform_settings.updated_by_id,
+                self.superadmin.pk,
+            )
+            expect(
+                "imágenes personalizadas activas de plataforma",
+                platform_settings.login_images.filter(is_selected=True).count(),
+                0,
+            )
+
         for business_key, business in self.businesses.items():
             expected_services = {
                 definition.name for definition in SERVICES if definition.business == business_key
@@ -1243,6 +1290,37 @@ class DemoSeeder:
                 f"clientes de {business.slug}",
                 set(business.clients.values_list("full_name", flat=True)),
                 expected_clients,
+            )
+            expect(
+                f"tema profesional de {business.slug}",
+                business.professional_theme,
+                CANONICAL_PROFESSIONAL_THEMES[business_key],
+            )
+
+        privacy_document = get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY)
+        if privacy_document is None:
+            errors.append("falta la política de privacidad activa de clientes")
+        else:
+            expected_privacy_fingerprints = {
+                customer_privacy_action_fingerprint(
+                    (
+                        "seed-demo:customer:"
+                        f"{self.businesses[definition.business].slug}:"
+                        f"{definition.key}:privacy-v1"
+                    ),
+                    document=privacy_document,
+                )
+                for definition in CLIENTS
+            }
+            expect(
+                "huellas canónicas de privacidad",
+                set(
+                    CustomerPrivacyEvidenceEvent.objects.values_list(
+                        "action_fingerprint",
+                        flat=True,
+                    )
+                ),
+                expected_privacy_fingerprints,
             )
 
         invalid_self_grants = [
@@ -1397,7 +1475,7 @@ def _acquire_demo_seed_lock():
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT pg_try_advisory_xact_lock(%s)",
-            [4_147_326_341_001],
+            [DEMO_ADVISORY_LOCK_ID],
         )
         acquired = cursor.fetchone()[0]
     if not acquired:

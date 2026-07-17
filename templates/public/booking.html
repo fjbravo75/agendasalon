@@ -160,7 +160,7 @@
             <span>1</span>
             <div>
               <h2>Elige tus servicios</h2>
-              <p>Consulta las horas disponibles sin registrarte.</p>
+              <p>{% if client_access %}Tu cuenta ya está iniciada; elige servicios y consulta horas reales disponibles.{% else %}Consulta las horas disponibles sin registrarte.{% endif %}</p>
             </div>
           </header>
 
@@ -217,7 +217,7 @@
           </div>
 
           <button class="button button--wide" type="submit">Ver horas disponibles</button>
-          <p class="booking-search__account-note">Te pediremos entrar o crear una cuenta únicamente cuando hayas elegido la hora.</p>
+          <p class="booking-search__account-note">{% if client_access %}Ya estás dentro de tu cuenta. Solo tendrás que revisar los datos antes de confirmar la cita.{% else %}Te pediremos entrar o crear una cuenta únicamente cuando hayas elegido la hora.{% endif %}</p>
         </form>
 
         <div class="assistant-results">
@@ -290,12 +290,12 @@
             <section class="assistant-empty assistant-empty--guided">
               <div class="assistant-empty__inner">
                 <span>Reserva sin llamadas</span>
-                <h2>Tú eliges antes de crear la cuenta</h2>
-                <p>Selecciona servicios y fecha. Verás horas reales disponibles y solo te identificarás al preparar la confirmación.</p>
+                <h2>{% if client_access %}Tu cuenta ya está lista{% else %}Tú eliges antes de crear la cuenta{% endif %}</h2>
+                <p>{% if client_access %}Selecciona servicios y fecha. Verás horas reales disponibles y revisarás la cita antes de confirmarla.{% else %}Selecciona servicios y fecha. Verás horas reales disponibles y solo te identificarás al preparar la confirmación.{% endif %}</p>
                 <div class="assistant-empty__steps" aria-label="Cómo reservar">
                   <div><strong>1</strong><span>Servicios</span><small>Compara duración y precio.</small></div>
                   <div><strong>2</strong><span>Hora</span><small>Elige entre opciones disponibles.</small></div>
-                  <div><strong>3</strong><span>Confirma</span><small>Entra o crea tu cuenta.</small></div>
+                  <div><strong>3</strong><span>Confirma</span><small>{% if client_access %}Revisa y confirma.{% else %}Entra o crea tu cuenta.{% endif %}</small></div>
                 </div>
               </div>
             </section>

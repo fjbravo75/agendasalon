@@ -20,6 +20,7 @@ class ProductionEntrypointTests(SimpleTestCase):
         "AGENDA_PLATFORM_LEGAL_DEMO",
         "AGENDA_BACKUP_SCHEDULE_CONFIGURED",
         "AGENDA_TRANSACTIONAL_EMAIL_ENABLED",
+        "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL",
         "EMAIL_HOST",
         "EMAIL_PORT",
         "EMAIL_HOST_USER",
@@ -61,6 +62,7 @@ class ProductionEntrypointTests(SimpleTestCase):
             "AGENDA_PLATFORM_LEGAL_DEMO": "1",
             "AGENDA_BACKUP_SCHEDULE_CONFIGURED": "0",
             "AGENDA_TRANSACTIONAL_EMAIL_ENABLED": "0",
+            "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL": "0",
         }
         environment.update(overrides)
         return environment
@@ -173,6 +175,7 @@ assert prod.AGENDA_PLATFORM_LEGAL_ADDRESS == ""
             """
 from config.settings import prod
 assert prod.AGENDA_TRANSACTIONAL_EMAIL_ENABLED is True
+assert prod.AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL is False
 assert prod.EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
 assert prod.EMAIL_USE_TLS is True
 assert prod.EMAIL_USE_SSL is False
@@ -192,6 +195,68 @@ assert prod.AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS == 120
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_disabled_transactional_email_uses_a_non_smtp_backend(self):
+        result = self._run_code(
+            """
+from config.settings import prod
+assert prod.AGENDA_TRANSACTIONAL_EMAIL_ENABLED is False
+assert prod.AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL is False
+assert prod.EMAIL_BACKEND == "django.core.mail.backends.dummy.EmailBackend"
+""",
+            **self._base_environment(),
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_demo_suppression_overrides_a_complete_smtp_configuration(self):
+        result = self._run_code(
+            """
+from config.settings import prod
+assert prod.AGENDA_TRANSACTIONAL_EMAIL_ENABLED is True
+assert prod.AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL is True
+assert prod.EMAIL_BACKEND == "django.core.mail.backends.dummy.EmailBackend"
+""",
+            **self._base_environment(
+                AGENDA_TRANSACTIONAL_EMAIL_ENABLED="1",
+                AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL="1",
+                EMAIL_HOST="smtp.example.test",
+                EMAIL_PORT="587",
+                EMAIL_HOST_USER="agenda@example.test",
+                EMAIL_HOST_PASSWORD="test-only-password",
+                DEFAULT_FROM_EMAIL="AgendaSalon <agenda@example.test>",
+                EMAIL_USE_TLS="1",
+                EMAIL_USE_SSL="0",
+            ),
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_demo_suppression_rejects_an_invalid_flag(self):
+        result = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL="quizas"),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL must be one of", result.stderr)
+
+    def test_demo_suppression_is_rejected_outside_academic_demo_mode(self):
+        result = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(
+                AGENDA_PLATFORM_LEGAL_DEMO="0",
+                AGENDA_PLATFORM_TAX_ID="B12345678",
+                AGENDA_PLATFORM_LEGAL_ADDRESS="Calle Real, 1, Madrid",
+                AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL="1",
+            ),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL can only be enabled in academic demo mode",
+            result.stderr,
+        )
 
     def test_transactional_email_requires_a_lease_longer_than_its_timeout(self):
         result = self._run_import(

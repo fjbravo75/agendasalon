@@ -18,8 +18,13 @@
           <div class="client-auth-business-signal">Invitación verificada</div>
           <h1>Verifica tu<br>correo.</h1>
           <p>
-            Hola, {{ business_client.full_name }}. Indica tu correo para recibir el enlace seguro de
-            {{ business.commercial_name }}. Crearás la contraseña después de demostrar que el correo es tuyo.
+            {% if transactional_email_enabled %}
+              Hola, {{ business_client.full_name }}. Indica tu correo para recibir el enlace seguro de
+              {{ business.commercial_name }}. Crearás la contraseña después de demostrar que el correo es tuyo.
+            {% else %}
+              Hola, {{ business_client.full_name }}. Puedes revisar este paso del flujo real, pero la
+              demostración académica no entregará el enlace de activación fuera de AgendaSalon.
+            {% endif %}
           </p>
         </div>
 
@@ -27,6 +32,7 @@
           <div class="login-panel__inner">
             <div class="client-auth-panel-context">{{ business.commercial_name }}</div>
             <h2 class="visually-hidden">Verificar correo</h2>
+            {% include "includes/demo_email_notice.html" %}
             <form method="post" class="login-form-stack" novalidate>
               {% csrf_token %}
               <p class="required-fields-note"><span aria-hidden="true">*</span> Todos los campos son obligatorios.</p>
@@ -38,21 +44,21 @@
               <div class="login-field{% if activation_form.email.errors %} is-error{% endif %}">
                 <label for="{{ activation_form.email.id_for_label }}">CORREO ELECTRÓNICO <span aria-hidden="true">*</span></label>
                 {{ activation_form.email }}
-                <small>Lo verificaremos antes de activar las reservas online.</small>
+                <small>{% if transactional_email_enabled %}Lo verificaremos antes de activar las reservas online.{% else %}El dato puede registrarse, pero esta demo no enviará el enlace de verificación.{% endif %}</small>
                 {% if activation_form.email.errors %}<div class="login-field-error" role="alert">{{ activation_form.email.errors }}</div>{% endif %}
               </div>
 
               {% if business.legal_compliance_enabled %}
                 <div class="legal-consent">
                   <p>
-                    Al verificar el correo te pediremos confirmar que has recibido la
+                    {% if transactional_email_enabled %}Al verificar el correo te pediremos confirmar que has recibido la{% else %}En el funcionamiento completo, la activación incluye la confirmación de la{% endif %}
                     <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">información sobre el tratamiento de tus datos<span class="legal-new-tab-note"> (se abre en otra pestaña)</span></a>
                     para gestionar la cuenta y las reservas. No incluye consentimiento para publicidad.
                   </p>
                 </div>
               {% endif %}
 
-              <button class="login-button" type="submit">Enviar correo de activación</button>
+              <button class="login-button" type="submit">{% if transactional_email_enabled %}Enviar correo de activación{% else %}Continuar sin envío externo{% endif %}</button>
             </form>
             <nav class="legal-inline-links" aria-label="Información legal">
               <a href="{% url 'legal:business_privacy' business.slug %}">Privacidad</a>
