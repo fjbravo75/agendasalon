@@ -17,7 +17,7 @@ AgendaSalon es una aplicación web multiempresa para organizar citas en salones 
 
 La solución concentra en una misma plataforma la agenda profesional, la reserva online, la gestión de clientes, los servicios, los horarios, las líneas de trabajo y la supervisión de los negocios asociados. El producto aplica un enfoque **Django-first**: Django gobierna la autenticación, los permisos, las reglas de negocio y la persistencia, mientras que React se utiliza de manera contenida en dos vistas con alta densidad de interacción: la agenda profesional y el dashboard del superadministrador.
 
-El resultado implementado incluye aislamiento por negocio, acceso profesional por teléfono, cuentas de cliente separadas por salón, motor de disponibilidad, reservas manuales y online, revalidación de huecos, trazabilidad operativa, personalización visual, modo oscuro y medidas específicas de seguridad. La demostración académica está desplegada en una URL pública con HTTPS, PostgreSQL, Gunicorn, Nginx, correo transaccional y copias locales verificadas. El destino externo cifrado de las copias permanece identificado como riesgo residual y no se presenta como resuelto.
+El resultado implementado incluye aislamiento por negocio, acceso profesional por teléfono, cuentas de cliente separadas por salón, motor de disponibilidad, reservas manuales y online, revalidación de huecos, trazabilidad operativa, personalización visual, modo oscuro y medidas específicas de seguridad. La demostración académica está desplegada en una URL pública con HTTPS, PostgreSQL, Gunicorn, Nginx, correo transaccional y copias locales verificadas. P2 quedó publicada y aceptada el 17 de julio de 2026 mediante la PR `#10`, la ejecución de CI `29589984747` y el SHA funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`. El destino externo cifrado de las copias permanece identificado como riesgo residual y no se presenta como resuelto.
 
 ## 1. Introducción
 
@@ -326,9 +326,9 @@ verificado.
 ### 12.3 CSRF, XSS y navegador
 
 - Middleware CSRF de Django y token en formularios.
-- Mutaciones de formularios mediante POST; la verificación posterior del correo
-  profesional por enlace conserva una excepción GET declarada y pendiente de
-  migrar a confirmación POST con CSRF en P2.
+- Mutaciones de formularios mediante POST. En la verificación del correo
+  profesional, `GET` y `HEAD` son de solo lectura y no cambian el estado; la
+  confirmación efectiva exige `POST` protegido por CSRF.
 - Autoescape de plantillas.
 - Política CSP y bloqueo de contenido activo no autorizado.
 - `Permissions-Policy`, protección frente a marcos y política de recursos del mismo origen.
@@ -353,9 +353,10 @@ Producción exige secreto, hosts, orígenes CSRF y PostgreSQL mediante variables
 
 La verificación actual incluye:
 
-- 329 pruebas Django, con cinco pruebas exclusivas de PostgreSQL omitidas cuando
-  ese motor no está disponible localmente.
-- 21 pruebas frontend: 17 unitarias y 4 de componentes React.
+- 596 pruebas backend correctas en SQLite y 596 de 596 correctas en PostgreSQL
+  17.
+- 34 de 34 pruebas frontend correctas.
+- 85 % de cobertura de ramas, por encima del umbral exigido.
 - Compilación Vite de producción.
 - Comprobación de migraciones pendientes.
 - Auditorías de dependencias Python y Node sin vulnerabilidades conocidas en la fecha de revisión.
@@ -372,7 +373,9 @@ La auditoría móvil se realizó con un viewport de 390 × 844 píxeles. No se d
 La demostración académica está publicada desde el 14 de julio de 2026 en
 `https://agendasalon.brvsoftwarestudio.com`. Usa PostgreSQL, Gunicorn por socket,
 Nginx, HTTPS de Let's Encrypt, correo transaccional mediante Brevo y tareas
-systemd para outbox y copias.
+systemd para outbox y copias. El bloque P2 desplegado y aceptado corresponde al
+SHA funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`, integrado mediante la
+PR `#10` después de superar la ejecución de CI `29589984747`.
 
 ### 14.2 Infraestructura verificada
 

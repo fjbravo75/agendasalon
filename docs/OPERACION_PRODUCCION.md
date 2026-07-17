@@ -5,26 +5,31 @@ demo académica quedó publicada el 14 de julio de 2026 en
 `https://agendasalon.brvsoftwarestudio.com`; los comandos siguen requiriendo una
 ejecución deliberada y no se activan por leer este documento.
 
-Estado al cierre operativo de P1: el SHA funcional
-`105531945452b5529be6891ee47034c164e804f3` está desplegado y aceptado en
-producción. La integración pasó por las PR #7 (merge `c4f60c8`) y #8 (merge
-`1055319`); las ejecuciones de CI `29573943958` y `29574584566` finalizaron
-correctamente.
+Estado al cierre operativo de P2: el SHA funcional
+`ed07e8e1d47eb55620df297636cd26ee10fe25c3` está desplegado y aceptado en
+producción. La integración pasó por la PR #10 y la ejecución de CI
+`29589984747` finalizó correctamente en sus cuatro trabajos. P1 se conserva
+como antecedente trazable en las PR #7, #8 y #9.
 
 El despliegue se protegió con la copia fría
-`agendasalon-20260717T105047Z` y el snapshot
-`pre-agendasalon-p1-robustez-2026-07-17-1051Z`, ID `237297105`, acción
-`3295909145`, creado el 17 de julio de 2026 a las 10:51:55 UTC. La copia
-posterior verificada es `agendasalon-20260717T105901Z`.
+`agendasalon-20260717T150928Z`, conservada fuera de la retención automática, y
+el snapshot `pre-agendasalon-p2-experiencia-2026-07-17-1512Z`, ID `237312606`,
+acción `3296249201`, creado el 17 de julio de 2026 a las 15:12:36 UTC con el
+Droplet apagado. Debe conservarse al menos hasta el
+`2026-07-21T15:12:36Z`. La copia posterior autenticada, verificada y validada
+con `pg_restore --list` es `agendasalon-20260717T153403Z`.
 
-La comprobación posterior conservó exactamente 2 negocios, 3 usuarios, 8
-clientes, 4 accesos, 23 citas, 5 sesiones, outbox vacío y ninguna solicitud de
-alta. Los libros legales mantuvieron sus correspondencias 6/6 y 8/8; las 23
-citas históricas conservaron a `null` su referencia pública. Servicios y
-temporizadores quedaron activos; la primera ejecución automática del correo
-tras el rearme, a las 11:11:27 UTC, terminó correctamente con 0 procesados,
-enviados, reprogramados, fallidos y cancelados. La aceptación pública se limitó
-a GET y consultas de solo lectura, sin crear datos ni dejar residuo.
+Se aplicaron exclusivamente
+`holidays.0005_holidayappointmentreview` y
+`customers.0015_businessclientaccess_public_registration_expires_at`. La
+primera purga controlada no encontró candidatas y la limpieza retiró cinco
+sesiones caducadas. La comprobación final conservó exactamente 2 negocios, 3
+usuarios, 8 clientes, 4 accesos y 23 citas; quedaron 2 sesiones activas y 0
+caducadas, outbox vacío, 0 solicitudes de alta, 0 altas públicas pendientes y
+0 revisiones de citas en festivo. Gunicorn, Nginx, PostgreSQL y los cinco
+temporizadores operativos quedaron activos y habilitados, sin unidades fallidas
+ni errores nuevos en el diario. La aceptación pública se limitó a GET y
+consultas de solo lectura, sin crear datos ni dejar residuo.
 
 ## Perfil de producción
 
@@ -488,8 +493,9 @@ el árbol limpio.
 ```bash
 curl -fsSI http://agendasalon.brvsoftwarestudio.com/
 for path in / /entrar/ /solicitar-alta/ /reservar/peluqueria-mari/ /legal/ /legal/negocios/peluqueria-mari/privacidad/; do
-  curl -fsSI "https://agendasalon.brvsoftwarestudio.com${path}"
+  curl -fsS -o /dev/null -w "${path} %{http_code}\n" "https://agendasalon.brvsoftwarestudio.com${path}"
 done
+curl -fsS -D - -o /dev/null "https://agendasalon.brvsoftwarestudio.com/legal/negocios/peluqueria-mari/privacidad/"
 test -S /run/agendasalon/gunicorn.sock
 nginx -t
 pg_isready
@@ -497,9 +503,11 @@ git rev-parse HEAD
 git status --short
 ```
 
-La primera respuesta debe redirigir con `301`; las HTTPS deben ser correctas y
-la última ruta legal debe incluir `Cache-Control: no-store`. `git status --short`
-no debe devolver ninguna línea.
+La primera respuesta debe redirigir con `301`; las rutas HTTPS deben responder
+con `200` o con la redirección de acceso prevista para `/`, y la última ruta
+legal debe incluir `Cache-Control: no-store`. Se usa GET real porque
+`/solicitar-alta/` admite GET y POST, pero rechaza HEAD con `405`; ese `405` no
+es un fallo de la pantalla. `git status --short` no debe devolver ninguna línea.
 
 ### Rollback de P2
 
@@ -593,7 +601,7 @@ python manage.py backup_agendasalon \
   --media-root /var/www/agendasalon/shared/media \
   --destination external_encrypted
 
-python ops/backup_restore.py verify \
+python -m ops.backup_restore verify \
   --backup-dir /var/backups/agendasalon/agendasalon-AAAAMMDDTHHMMSSZ
 ```
 
@@ -637,6 +645,20 @@ python -m ops.backup_restore retention \
 El borrado requiere añadir `--apply`. En el servidor lo ejecuta únicamente la
 unidad versionada en `ops/systemd/backup-agendasalon.service`.
 
+La raíz `/var/backups/agendasalon` contiene solo copias ordinarias gestionadas
+por esa retención. Los hitos que deban sobrevivir a la selección 7/4/6 se
+guardan en `/var/backups/agendasalon-protected`, fuera del patrón gestionado,
+con directorios `root:root` `0700` y archivos `root:root` `0600`. No se eliminan
+automáticamente: cada uno requiere verificación y autorización expresa.
+
+Esta separación se fijó después de una incidencia controlada durante P2. Una
+copia nueva se creó y verificó, pero `ExecStartPost` no pudo retirar un hito P1
+propiedad de `root` que todavía estaba dentro de la raíz ordinaria. No se borró
+ninguna copia ni se afectó a la aplicación. Los hitos se verificaron, se movieron
+a la raíz protegida y la unidad se repitió con `Result=success` y
+`ExecMainStatus=0`. La regla operativa es no mezclar copias protegidas con la
+raíz sobre la que el usuario `agendasalon` aplica retención.
+
 `check-agendasalon-backup.timer` ejecuta cada día:
 
 ```bash
@@ -661,7 +683,7 @@ una URL que apunte expresamente a ese destino:
 ```bash
 export DJANGO_DATABASE_URL='postgresql://usuario:contraseña@servidor:5432/agendasalon_restore?sslmode=require'
 
-python ops/backup_restore.py restore \
+python -m ops.backup_restore restore \
   --backup-dir /var/backups/agendasalon/agendasalon-AAAAMMDDTHHMMSSZ \
   --media-target /var/www/agendasalon/shared/media-restaurada \
   --confirm-restore
@@ -718,6 +740,21 @@ La aceptación pública se limita a peticiones GET y superficies de solo lectura
 cabeceras, salud, estáticos y comparación de los recuentos tomados antes del
 despliegue. Si una comprobación exigiera escribir, se realiza en una copia
 desechable, nunca sobre la base canónica de producción.
+
+## Migraciones aditivas aplicadas en P2
+
+El despliegue de P2 aplicó únicamente estas operaciones y en este orden:
+
+1. `holidays.0005_holidayappointmentreview`;
+2. `customers.0015_businessclientaccess_public_registration_expires_at`.
+
+La primera crea la tabla vacía de confirmaciones profesionales sobre citas en
+festivo. La segunda añade la caducidad de altas públicas y su backfill defensivo;
+en la demo canónica no encontró altas pendientes que reescribir. Antes de abrir
+tráfico, `migrate --check` y el plan quedaron vacíos, la purga informó 0
+candidatas y los recuentos de negocio permanecieron invariantes. Los nuevos
+temporizadores de purga y limpieza de sesiones se instalaron, verificaron y
+ejecutaron manualmente antes de habilitarse.
 
 ## Reversión que cruce `booking.0006`
 
