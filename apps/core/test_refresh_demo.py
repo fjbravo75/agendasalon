@@ -305,7 +305,19 @@ class DemoRefreshGuardUnitTests(SimpleTestCase):
             )
 
             resolved_media = guard._validate_media_root()
-            parsed = guard._validate_marker(resolved_media)
+            real_path_stat = Path.stat
+
+            def stat_with_root_owned_marker(path, *args, **kwargs):
+                result = real_path_stat(path, *args, **kwargs)
+                if path == marker:
+                    return SimpleNamespace(st_mode=result.st_mode, st_uid=0)
+                return result
+
+            # El runner de CI usa un usuario sin privilegios. Simulamos solo
+            # el propietario del marcador; la guarda de producción continúa
+            # exigiendo UID 0 y el resto de rutas conserva su stat real.
+            with patch.object(Path, "stat", new=stat_with_root_owned_marker):
+                parsed = guard._validate_marker(resolved_media)
 
             self.assertEqual(parsed.run_id, run_id)
             self.assertEqual(parsed.backup_dir, backup.resolve())
