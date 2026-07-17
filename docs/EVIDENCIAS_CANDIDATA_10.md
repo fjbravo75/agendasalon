@@ -13,12 +13,27 @@ Este índice separa hechos reproducibles, validaciones pendientes de entorno y t
 | Acceso cliente | `apps/customers/services.py` | Rama de cuenta ausente ejecuta una comprobación Argon2 ficticia para reducir enumeración temporal |
 | Copias | `ops/backup_restore.py` | CLI exige una clave separada y autentica el manifiesto mediante HMAC-SHA-256 antes de restaurar |
 
-## Evidencia que necesita entorno definitivo
+## Evidencia comprobada en el despliegue académico
 
-- HTTPS, HSTS y cookies `Secure` sobre el dominio real.
-- RTO/RPO medidos desde una copia almacenada fuera del servidor.
-- Monitorización, alertas y retención automatizada.
-- Prueba de carga sobre la infraestructura elegida, no solo sobre el portátil local.
+- HTTPS, redirección HTTP, cookies `Secure` y HSTS inicial sobre el dominio real;
+  `preload` permanece desactivado de forma deliberada hasta estabilizar dominio
+  y subdominios.
+- PostgreSQL, Nginx y Gunicorn activos, con cero unidades fallidas en la
+  aceptación final.
+- Copias locales autenticadas, retención 7/4/6, control de frescura y
+  temporizadores operativos verificados.
+- P2 publicada y aceptada con 596 pruebas backend en SQLite y PostgreSQL 17, 34
+  pruebas frontend y 85 % de cobertura de ramas.
+
+## Evidencia que todavía necesita operación o escala real
+
+- RTO/RPO medidos desde una copia cifrada almacenada fuera del Droplet y un
+  simulacro integral de restauración desde ese destino.
+- Monitorización y alertas centralizadas para disponibilidad, errores, correo,
+  tareas, BOE, copias y rendimiento; la vigilancia local actual no sustituye
+  esa capa.
+- Prueba de carga sobre la infraestructura elegida, no solo sobre el portátil
+  local o la matriz funcional de CI.
 
 ## Evidencia humana pendiente
 
