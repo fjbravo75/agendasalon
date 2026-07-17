@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timedelta
-from threading import Event
+from threading import Event, Lock
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
@@ -26,8 +26,14 @@ from apps.booking.services import (
 )
 from apps.businesses.models import Business, BusinessMembership
 from apps.customers.models import BusinessClient
+from apps.holidays import appointment_reviews
+from apps.holidays.appointment_reviews import acknowledge_holiday_appointment
 from apps.holidays import services as holiday_services
-from apps.holidays.models import HolidaySyncRun, OfficialHoliday
+from apps.holidays.models import (
+    HolidayAppointmentReview,
+    HolidaySyncRun,
+    OfficialHoliday,
+)
 from apps.holidays.services import (
     BoeSyncError,
     BoeHolidayResolution,
@@ -596,6 +602,318 @@ class PostgreSQLBoeCalendarConcurrencyTests(TransactionTestCase):
         self.assertEqual(appointment.status, Appointment.Status.CANCELLED)
         self.assertEqual(run.affected_appointments, 0)
         self.assertEqual(run.affected_businesses, 0)
+
+    def test_sync_first_makes_holiday_acknowledgement_wait_and_revalidate(self):
+        appointment = self._create_confirmed_appointment()
+        snapshot_started = Event()
+        acknowledgement_lock_started = Event()
+        acknowledgement_finished = Event()
+        state = {"acknowledgement_finished_before_sync": None}
+        real_snapshot = holiday_services._locked_affected_future_appointments
+        real_calendar_lock = appointment_reviews.lock_business_calendar
+
+        def held_snapshot(*args, **kwargs):
+            snapshot_started.set()
+            if not acknowledgement_lock_started.wait(timeout=5):
+                raise AssertionError("El acuse no intentó bloquear la agenda.")
+            state["acknowledgement_finished_before_sync"] = (
+                acknowledgement_finished.wait(timeout=0.25)
+            )
+            return real_snapshot(*args, **kwargs)
+
+        def observed_calendar_lock(business):
+            acknowledgement_lock_started.set()
+            return real_calendar_lock(business)
+
+        def sync_worker():
+            connections.close_all()
+            try:
+                with patch(
+                    "apps.holidays.services._locked_affected_future_appointments",
+                    side_effect=held_snapshot,
+                ):
+                    return sync_boe_national_holidays(
+                        self.target_date.year,
+                        service=self._holiday_service(),
+                    ).run.pk
+            finally:
+                connections.close_all()
+
+        def acknowledgement_worker():
+            connections.close_all()
+            try:
+                if not snapshot_started.wait(timeout=5):
+                    raise AssertionError("La sincronización no alcanzó el resumen.")
+                with patch(
+                    "apps.holidays.appointment_reviews.lock_business_calendar",
+                    side_effect=observed_calendar_lock,
+                ):
+                    result = acknowledge_holiday_appointment(
+                        business=Business.objects.get(pk=self.business.pk),
+                        appointment_id=appointment.pk,
+                        reviewed_by=User.objects.get(pk=self.user.pk),
+                    )
+                return result.review.pk
+            finally:
+                acknowledgement_finished.set()
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            sync_future = executor.submit(sync_worker)
+            acknowledgement_future = executor.submit(acknowledgement_worker)
+            run_id = sync_future.result(timeout=10)
+            review_id = acknowledgement_future.result(timeout=10)
+
+        run = HolidaySyncRun.objects.get(pk=run_id)
+        review = HolidayAppointmentReview.objects.get(pk=review_id)
+        self.assertFalse(state["acknowledgement_finished_before_sync"])
+        self.assertEqual(run.affected_appointments, 1)
+        self.assertEqual(run.affected_businesses, 1)
+        self.assertEqual(review.appointment_id, appointment.pk)
+        self.assertEqual(review.holiday_date, self.target_date)
+        self.assertEqual(review.reviewed_by_id, self.user.pk)
+
+    def test_acknowledgement_waiting_for_sync_rejects_if_the_start_time_passes(self):
+        starts_at = timezone.now() + timedelta(seconds=3)
+        holiday_day = timezone.localtime(starts_at).date()
+        appointment = Appointment.objects.create(
+            business=self.business,
+            business_client=self.client_file,
+            work_line=self.work_line,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=30),
+            total_duration_minutes=30,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            created_by=self.user,
+        )
+        service = FixedHolidayService(
+            BoeHolidayResolution(
+                identifier="BOE-A-ACK-CROSSES-START",
+                title="Calendario para cruce de inicio",
+                url_html=(
+                    "https://www.boe.es/diario_boe/"
+                    "txt.php?id=BOE-A-ACK-CROSSES-START"
+                ),
+            ),
+            (OfficialHolidayImport(holiday_day, "Festivo durante el cruce"),),
+        )
+        snapshot_locked = Event()
+        acknowledgement_lock_started = Event()
+        acknowledgement_finished = Event()
+        state = {
+            "acknowledgement_started_before_appointment": None,
+            "acknowledgement_finished_before_sync": None,
+        }
+        real_snapshot = holiday_services._locked_affected_future_appointments
+        real_calendar_lock = appointment_reviews.lock_business_calendar
+
+        def held_snapshot(*args, **kwargs):
+            result = real_snapshot(*args, **kwargs)
+            snapshot_locked.set()
+            if not acknowledgement_lock_started.wait(timeout=5):
+                raise AssertionError("El acuse no intentó bloquear la agenda.")
+            wait_until_after_start = max(
+                0.0,
+                (starts_at - timezone.now()).total_seconds(),
+            ) + 0.3
+            state["acknowledgement_finished_before_sync"] = (
+                acknowledgement_finished.wait(timeout=wait_until_after_start)
+            )
+            return result
+
+        def observed_calendar_lock(business):
+            state["acknowledgement_started_before_appointment"] = (
+                timezone.now() < starts_at
+            )
+            acknowledgement_lock_started.set()
+            return real_calendar_lock(business)
+
+        def sync_worker():
+            connections.close_all()
+            try:
+                with patch(
+                    "apps.holidays.services._locked_affected_future_appointments",
+                    side_effect=held_snapshot,
+                ):
+                    return sync_boe_national_holidays(
+                        holiday_day.year,
+                        service=service,
+                    ).run.pk
+            finally:
+                connections.close_all()
+
+        def acknowledgement_worker():
+            connections.close_all()
+            try:
+                if not snapshot_locked.wait(timeout=5):
+                    raise AssertionError("La sincronización no bloqueó el resumen.")
+                try:
+                    with patch(
+                        "apps.holidays.appointment_reviews.lock_business_calendar",
+                        side_effect=observed_calendar_lock,
+                    ):
+                        acknowledge_holiday_appointment(
+                            business=Business.objects.get(pk=self.business.pk),
+                            appointment_id=appointment.pk,
+                            reviewed_by=User.objects.get(pk=self.user.pk),
+                        )
+                except ValidationError as error:
+                    return str(error)
+                return "created"
+            finally:
+                acknowledgement_finished.set()
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            sync_future = executor.submit(sync_worker)
+            acknowledgement_future = executor.submit(acknowledgement_worker)
+            run_id = sync_future.result(timeout=15)
+            acknowledgement_result = acknowledgement_future.result(timeout=15)
+
+        run = HolidaySyncRun.objects.get(pk=run_id)
+        self.assertTrue(state["acknowledgement_started_before_appointment"])
+        self.assertFalse(state["acknowledgement_finished_before_sync"])
+        self.assertIn("ya ha comenzado", acknowledgement_result)
+        self.assertEqual(run.affected_appointments, 1)
+        self.assertFalse(
+            HolidayAppointmentReview.objects.filter(appointment=appointment).exists()
+        )
+
+    def test_different_years_fetch_concurrently_but_reconcile_one_at_a_time(self):
+        first_year = self.target_date.year
+        second_year = first_year + 1
+        first_holiday = OfficialHolidayImport(
+            date(first_year, 2, 1),
+            "Festivo del primer año",
+        )
+        second_holiday = OfficialHolidayImport(
+            date(second_year, 2, 1),
+            "Festivo del segundo año",
+        )
+        first_fetch_started = Event()
+        second_fetch_started = Event()
+
+        class CoordinatedService:
+            def __init__(
+                inner_self,
+                *,
+                resolution,
+                holiday,
+                own_fetch_started,
+                other_fetch_started,
+            ):
+                inner_self.resolution = resolution
+                inner_self.holiday = holiday
+                inner_self.own_fetch_started = own_fetch_started
+                inner_self.other_fetch_started = other_fetch_started
+
+            def fetch_national_holidays(inner_self, target_year):
+                inner_self.own_fetch_started.set()
+                if not inner_self.other_fetch_started.wait(timeout=5):
+                    raise AssertionError(
+                        "Las consultas externas de años distintos no coincidieron."
+                    )
+                return inner_self.resolution, (inner_self.holiday,)
+
+        first_service = CoordinatedService(
+            resolution=BoeHolidayResolution(
+                identifier="BOE-A-GLOBAL-FIRST",
+                title="Calendario del primer año",
+                url_html="https://www.boe.es/diario_boe/txt.php?id=BOE-A-GLOBAL-FIRST",
+            ),
+            holiday=first_holiday,
+            own_fetch_started=first_fetch_started,
+            other_fetch_started=second_fetch_started,
+        )
+        second_service = CoordinatedService(
+            resolution=BoeHolidayResolution(
+                identifier="BOE-A-GLOBAL-SECOND",
+                title="Calendario del segundo año",
+                url_html="https://www.boe.es/diario_boe/txt.php?id=BOE-A-GLOBAL-SECOND",
+            ),
+            holiday=second_holiday,
+            own_fetch_started=second_fetch_started,
+            other_fetch_started=first_fetch_started,
+        )
+
+        order_guard = Lock()
+        first_transaction_locked = Event()
+        second_transaction_attempted = Event()
+        second_transaction_locked = Event()
+        state = {
+            "lock_calls": 0,
+            "second_locked_before_first_reconciled": None,
+        }
+        real_transaction_lock = holiday_services._lock_boe_reconciliation_transaction
+
+        def observed_transaction_lock():
+            with order_guard:
+                state["lock_calls"] += 1
+                position = state["lock_calls"]
+
+            if position == 1:
+                real_transaction_lock()
+                first_transaction_locked.set()
+                if not second_transaction_attempted.wait(timeout=5):
+                    raise AssertionError(
+                        "La segunda reconciliación no intentó tomar el bloqueo global."
+                    )
+                state["second_locked_before_first_reconciled"] = (
+                    second_transaction_locked.wait(timeout=0.25)
+                )
+                return
+
+            if not first_transaction_locked.wait(timeout=5):
+                raise AssertionError(
+                    "La primera reconciliación no tomó el bloqueo global."
+                )
+            second_transaction_attempted.set()
+            real_transaction_lock()
+            second_transaction_locked.set()
+
+        def sync_worker(year, service):
+            connections.close_all()
+            try:
+                return sync_boe_national_holidays(year, service=service).run.pk
+            finally:
+                connections.close_all()
+
+        with patch(
+            "apps.holidays.services._lock_boe_reconciliation_transaction",
+            side_effect=observed_transaction_lock,
+        ), ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(sync_worker, first_year, first_service)
+            second_future = executor.submit(sync_worker, second_year, second_service)
+            first_run_id = first_future.result(timeout=15)
+            second_run_id = second_future.result(timeout=15)
+
+        self.assertTrue(first_fetch_started.is_set())
+        self.assertTrue(second_fetch_started.is_set())
+        self.assertTrue(first_transaction_locked.is_set())
+        self.assertTrue(second_transaction_locked.is_set())
+        self.assertFalse(state["second_locked_before_first_reconciled"])
+        self.assertEqual(state["lock_calls"], 2)
+        self.assertEqual(
+            set(
+                HolidaySyncRun.objects.filter(
+                    pk__in=(first_run_id, second_run_id)
+                ).values_list("status", flat=True)
+            ),
+            {HolidaySyncRun.Status.SUCCESS},
+        )
+        self.assertTrue(
+            OfficialHoliday.objects.filter(
+                date=first_holiday.day,
+                scope=OfficialHoliday.Scope.NATIONAL,
+            ).exists()
+        )
+        self.assertTrue(
+            OfficialHoliday.objects.filter(
+                date=second_holiday.day,
+                scope=OfficialHoliday.Scope.NATIONAL,
+            ).exists()
+        )
 
 
 @skipUnlessDBFeature("has_select_for_update")

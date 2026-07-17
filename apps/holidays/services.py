@@ -17,6 +17,7 @@ from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 
 BOE_NATIONAL_SOURCE_NAME = "BOE - calendario laboral nacional"
 BOE_ADVISORY_LOCK_NAMESPACE = 0x4147424F
+BOE_TRANSACTION_ADVISORY_LOCK_ID = 0x4147424F5032
 BOE_INTERRUPTED_RUN_ERROR = (
     "La sincronización anterior se interrumpió antes de terminar. "
     "No se aplicó un resultado completo."
@@ -267,6 +268,7 @@ def sync_boe_national_holidays(
         try:
             resolution, holidays = sync_service.fetch_national_holidays(target_year)
             with transaction.atomic():
+                _lock_boe_reconciliation_transaction()
                 locked_calendars = _lock_all_business_calendars()
                 counts = _reconcile_national_holidays(
                     target_year,
@@ -424,6 +426,22 @@ def _lock_all_business_calendars():
     return tuple(lock_business_calendar(business) for business in businesses)
 
 
+def _lock_boe_reconciliation_transaction():
+    """Serialize downloaded BOE reconciliations before taking the global SHARE lock."""
+
+    database_connection = transaction.get_connection()
+    if not database_connection.in_atomic_block:
+        raise RuntimeError("La reconciliación BOE requiere una transacción atómica.")
+    if database_connection.vendor != "postgresql":
+        return
+
+    with database_connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            [BOE_TRANSACTION_ADVISORY_LOCK_ID],
+        )
+
+
 def _reconcile_national_holidays(target_year, resolution, holidays):
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("La reconciliación BOE requiere una transacción atómica.")
@@ -542,7 +560,7 @@ def _locked_affected_future_appointments(holidays, *, locked_calendars, at):
         .filter(
             business_id__in=enabled_business_ids,
             status=Appointment.Status.CONFIRMED,
-            starts_at__gte=at,
+            starts_at__gt=at,
             starts_at__date__in=holiday_dates,
         )
         .order_by("business_id", "pk")

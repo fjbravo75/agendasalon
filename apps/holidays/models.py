@@ -120,4 +120,60 @@ class HolidaySyncRun(models.Model):
     def __str__(self):
         return f"{self.year} - {self.source_name} ({self.presentation_status})"
 
+
+class HolidayAppointmentReview(models.Model):
+    """Explicit professional acknowledgement for one appointment on a holiday."""
+
+    appointment = models.ForeignKey(
+        "booking.Appointment",
+        on_delete=models.CASCADE,
+        related_name="national_holiday_reviews",
+        verbose_name="cita",
+    )
+    holiday = models.ForeignKey(
+        OfficialHoliday,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="appointment_reviews",
+        verbose_name="festivo oficial",
+    )
+    holiday_date = models.DateField("fecha festiva")
+    holiday_name = models.CharField("festivo registrado", max_length=180)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="holiday_appointment_reviews",
+        verbose_name="revisado por",
+    )
+    reviewed_at = models.DateTimeField("fecha de revisión")
+
+    class Meta:
+        verbose_name = "revisión de cita en festivo"
+        verbose_name_plural = "revisiones de citas en festivo"
+        ordering = ["-reviewed_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["appointment", "holiday_date"],
+                name="unique_holiday_review_per_appointment_date",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(holiday_name=""),
+                name="holiday_review_name_not_empty",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.holiday_id and self.holiday.date != self.holiday_date:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(
+                {"holiday_date": "La fecha revisada debe coincidir con el festivo oficial."}
+            )
+
+    def __str__(self):
+        return f"{self.appointment} - {self.holiday_date}"
+
 # Create your models here.

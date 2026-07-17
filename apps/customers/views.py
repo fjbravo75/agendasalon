@@ -65,8 +65,10 @@ from apps.customers.services import (
     find_available_invitation,
     get_claimed_invitation,
     get_session_client_access,
+    lock_pending_public_registration_for_resend,
     login_client_access,
     logout_client_access,
+    public_registration_expiry,
     revoke_client_access_invitation,
     set_authorized_contact_active,
     set_client_access_active,
@@ -93,6 +95,7 @@ from apps.notifications.services import (
     unverified_client_from_token,
     verified_client_from_token,
 )
+from apps.notifications.models import OutboundEmail
 
 
 CLIENT_EMAIL_PENDING_SESSION_KEY = "client_email_verification_pending"
@@ -182,7 +185,24 @@ def _queue_client_verification_if_allowed(
         return None
     # Encolamos sin SMTP síncrono: la respuesta no delata por latencia si la
     # dirección corresponde a una cuenta y el timer entrega los correos debidos.
-    return queue_client_email_verification(access)
+    if not access.is_pending_public_registration:
+        return queue_client_email_verification(access)
+    with transaction.atomic():
+        access = lock_pending_public_registration_for_resend(access=access)
+        if access is None:
+            return None
+        email = queue_client_email_verification(access)
+        lease_is_active = bool(
+            email.status == OutboundEmail.Status.PROCESSING
+            and email.lease_expires_at is not None
+            and email.lease_expires_at > timezone.now()
+        )
+        if not lease_is_active:
+            access.public_registration_expires_at = public_registration_expiry()
+            access.save(
+                update_fields=["public_registration_expires_at", "updated_at"]
+            )
+        return email
 
 
 @login_required
@@ -1164,7 +1184,10 @@ def client_register(request, slug):
                 ),
             )
         )
-        registration_form = ClientRegistrationForm(request.POST, business=business)
+        registration_form = ClientRegistrationForm(
+            request.POST,
+            business=business,
+        )
         if not reservation.allowed:
             registration_form.is_valid()
             registration_form.add_error(None, THROTTLE_MESSAGE)
@@ -1175,39 +1198,31 @@ def client_register(request, slug):
             except FormValidationError:
                 # La respuesta pública no distingue una dirección ya usada de
                 # un alta recién creada. Tampoco se enlaza ni modifica la cuenta previa.
-                pending_access = (
-                    BusinessClientAccess.objects.select_related("business", "business_client")
-                    .filter(
-                        business=business,
-                        email_normalized=registration_form.cleaned_data["email"].lower(),
-                        email_verified_at__isnull=True,
-                        is_active=True,
-                    )
-                    .filter(
-                        Q(business_client__is_active=True) | Q(is_pending_public_registration=True)
-                    )
-                    .first()
-                )
+                session_access = None
                 _store_pending_email_verification(
                     request,
-                    pending_access,
+                    session_access,
                     next_url,
                     business=business,
                     email=registration_form.cleaned_data["email"],
                 )
                 _queue_client_verification_if_allowed(
                     request,
-                    pending_access,
+                    session_access,
                     business=business,
                     email=registration_form.cleaned_data["email"],
                 )
                 return redirect("customers:client_email_pending", slug=business.slug)
             else:
-                _store_pending_email_verification(request, access, next_url)
+                _store_pending_email_verification(
+                    request,
+                    access,
+                    next_url,
+                )
                 _queue_client_verification_if_allowed(request, access)
                 return redirect("customers:client_email_pending", slug=business.slug)
 
-    return render(
+    response = render(
         request,
         "customers/client_register.html",
         {
@@ -1220,6 +1235,8 @@ def client_register(request, slug):
         },
         status=response_status,
     )
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def _store_pending_email_verification(
@@ -1244,12 +1261,16 @@ def client_email_pending(request, slug):
     pending = request.session.get(CLIENT_EMAIL_PENDING_SESSION_KEY, {})
     if pending.get("business_id") != business.pk or not pending.get("email"):
         return redirect("customers:client_access", slug=business.slug)
-    access = BusinessClientAccess.objects.filter(
-        pk=pending.get("access_id"),
-        business=business,
-        is_active=True,
-        email_verified_at__isnull=True,
-    ).first()
+    access = (
+        BusinessClientAccess.objects.select_related("business_client")
+        .filter(
+            pk=pending.get("access_id"),
+            business=business,
+            is_active=True,
+            email_verified_at__isnull=True,
+        )
+        .first()
+    )
     if request.method == "POST":
         _queue_client_verification_if_allowed(
             request,
@@ -1264,7 +1285,6 @@ def client_email_pending(request, slug):
         "customers/client_email_pending.html",
         {
             "business": business,
-            "access": access,
             "pending_email": pending["email"],
             "account_only": not business.accepts_public_bookings(),
             "client_auth_theme": get_business_visual_theme(business),
@@ -1300,6 +1320,7 @@ def client_email_verify(request, slug, token):
     verification_form = ClientEmailVerificationForm(
         request.POST or None,
         business=business,
+        access=access,
     )
     verification_form_is_valid = (
         verification_form.is_valid() if request.method == "POST" else False
@@ -1338,6 +1359,8 @@ def client_email_verify(request, slug, token):
                         token,
                         business=locked_business,
                         password=verification_form.cleaned_data["password"],
+                        full_name=verification_form.cleaned_data.get("full_name"),
+                        phone=verification_form.cleaned_data.get("phone"),
                         privacy_acknowledged=verification_form.cleaned_data.get(
                             "privacy_acknowledged",
                             False,
@@ -1468,6 +1491,9 @@ def client_email_verify(request, slug, token):
                 CUSTOMER_PRIVACY_UNAVAILABLE_EMAIL_MESSAGE
             ),
             "customer_privacy_unavailable_class": "login-form-error",
+            "can_correct_public_profile": (
+                verification_form.can_correct_public_profile
+            ),
             "registration_activation_paused": (
                 access.is_pending_public_registration and not business.accepts_public_bookings()
             ),

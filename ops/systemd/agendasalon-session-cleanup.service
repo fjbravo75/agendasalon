@@ -1,0 +1,26 @@
+[Unit]
+Description=AgendaSalon expired Django session cleanup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=agendasalon
+Group=www-data
+WorkingDirectory=/var/www/agendasalon/app
+EnvironmentFile=/etc/agendasalon/agendasalon.env
+Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
+UMask=0077
+ExecStart=/var/www/agendasalon/.venv/bin/python /var/www/agendasalon/app/manage.py clearsessions --settings=config.settings.prod
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true

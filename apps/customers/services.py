@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import lru_cache
 
@@ -9,8 +10,10 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db import models
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
+from apps.businesses.models import Business
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
 from apps.customers.models import (
@@ -28,9 +31,264 @@ CLIENT_ACCESS_PASSWORD_SESSION_KEY = "business_client_access_password_fingerprin
 CLIENT_INVITATION_CLAIM_SESSION_KEY = "business_client_invitation_claim"
 CLIENT_ACCESS_IDLE_SECONDS = 60 * 60
 CLIENT_INVITATION_LIFETIME_HOURS = 24
+PUBLIC_REGISTRATION_RETENTION_SECONDS = 48 * 60 * 60
 PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE = (
     "No podemos crear una cuenta con esos datos. Contacta con el negocio para activar tu acceso."
 )
+
+
+def public_registration_expiry(*, now=None):
+    return (now or timezone.now()) + timedelta(
+        seconds=PUBLIC_REGISTRATION_RETENTION_SECONDS
+    )
+
+
+@dataclass(frozen=True)
+class PublicRegistrationPurgeResult:
+    candidates: int = 0
+    eligible: int = 0
+    purged: int = 0
+    skipped: int = 0
+
+    def merged(self, other):
+        return PublicRegistrationPurgeResult(
+            candidates=self.candidates + other.candidates,
+            eligible=self.eligible + other.eligible,
+            purged=self.purged + other.purged,
+            skipped=self.skipped + other.skipped,
+        )
+
+
+def _pending_registration_has_unsafe_usage(client, access):
+    """Impide borrar una identidad pendiente que ya tenga actividad ajena al alta."""
+
+    return (
+        client.last_activity_at is not None
+        or access.last_login_at is not None
+        or client.appointments.exists()
+        or access.requested_appointments.exists()
+        or client.notifications.exists()
+        or client.access_invitations.exists()
+        or client.authorized_contacts.exists()
+        or client.authorizations_as_contact.exists()
+        or client.privacy_evidence.exists()
+        or client.privacy_evidence_events.exists()
+        or access.legal_acceptances.exists()
+        or access.legal_acceptance_events.exists()
+        or access.privacy_evidence.exists()
+        or access.privacy_evidence_events.exists()
+        or access.data_rights_requests.exists()
+        or client.online_booking_grants.exclude(access=access).exists()
+        or access.booking_grants.exclude(business_client=client).exists()
+    )
+
+
+def _pending_registration_outbox_is_safe_to_purge(
+    access,
+    *,
+    now,
+    dry_run=False,
+):
+    """Devuelve (purgable, acción sobre lease caducado).
+
+    La segunda posición también es verdadera en ``dry_run`` cuando la ejecución
+    real cancelaría al menos una reserva ``PROCESSING`` caducada. Así el límite
+    del lote representa las mismas acciones útiles en simulación y en purga.
+    """
+
+    from apps.notifications.models import OutboundEmail
+
+    emails = tuple(
+        OutboundEmail.objects.select_for_update()
+        .filter(client_access=access)
+        .only("pk", "kind", "status", "lease_token", "lease_expires_at")
+        .order_by("pk")
+    )
+    if any(
+        email.kind != OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION
+        for email in emails
+    ):
+        return False, False
+
+    processing = tuple(
+        email for email in emails if email.status == OutboundEmail.Status.PROCESSING
+    )
+    if not processing:
+        return True, False
+
+    stale_ids = tuple(
+        email.pk
+        for email in processing
+        if email.lease_expires_at is None or email.lease_expires_at <= now
+    )
+    if stale_ids and not dry_run:
+        OutboundEmail.objects.filter(
+            pk__in=stale_ids,
+            status=OutboundEmail.Status.PROCESSING,
+        ).update(
+            status=OutboundEmail.Status.CANCELLED,
+            lease_token=None,
+            lease_expires_at=None,
+            last_error=(
+                "La reserva de envío había caducado al limpiar el alta pendiente."
+            ),
+            updated_at=now,
+        )
+    # Incluso una reserva caducada se conserva durante esta ejecución. Así un
+    # worker rezagado puede comprobar que ya no posee el lease antes de que la
+    # siguiente pasada elimine el grafo completo.
+    return False, bool(stale_ids)
+
+
+def _purge_expired_public_registrations_for_locked_business(
+    business,
+    *,
+    now,
+    email_normalized=None,
+    batch_size=None,
+    dry_run=False,
+):
+    """Procesa hasta ``batch_size`` acciones útiles, no primeras candidatas.
+
+    Una acción útil es una eliminación efectiva —o purgable en simulación— o la
+    cancelación, real o simulada, de un lease ``PROCESSING`` caducado. Las altas
+    protegidas se examinan y cuentan como omitidas, pero nunca consumen el lote.
+    El recorrido por clave primaria evita que un prefijo protegido impida llegar
+    indefinidamente a registros posteriores que sí pueden limpiarse.
+    """
+
+    legacy_cutoff = now - timedelta(seconds=PUBLIC_REGISTRATION_RETENTION_SECONDS)
+    expired_filter = models.Q(public_registration_expires_at__lte=now) | models.Q(
+        public_registration_expires_at__isnull=True,
+        created_at__lte=legacy_cutoff,
+    )
+    candidates = BusinessClient.objects.filter(
+        business=business,
+        source=BusinessClient.Source.OTHER,
+        is_active=False,
+        access__is_pending_public_registration=True,
+        access__email_verified_at__isnull=True,
+    ).filter(models.Q(access__public_registration_expires_at__lte=now) | models.Q(
+        access__public_registration_expires_at__isnull=True,
+        access__created_at__lte=legacy_cutoff,
+    ))
+    if email_normalized:
+        candidates = candidates.filter(access__email_normalized=email_normalized)
+
+    candidates_examined = 0
+    eligible = 0
+    purged = 0
+    skipped = 0
+    useful_actions = 0
+    last_client_id = 0
+    limit_reached = False
+
+    while not limit_reached:
+        client_ids = tuple(
+            candidates.filter(pk__gt=last_client_id)
+            .order_by("pk")
+            .values_list("pk", flat=True)[:200]
+        )
+        if not client_ids:
+            break
+
+        for client_id in client_ids:
+            last_client_id = client_id
+            candidates_examined += 1
+            client = BusinessClient.objects.select_for_update().get(
+                pk=client_id,
+                business=business,
+            )
+            access = (
+                BusinessClientAccess.objects.select_for_update()
+                .filter(
+                    business=business,
+                    business_client=client,
+                    is_pending_public_registration=True,
+                    email_verified_at__isnull=True,
+                )
+                .filter(expired_filter)
+                .first()
+            )
+            if (
+                access is None
+                or client.is_active
+                or _pending_registration_has_unsafe_usage(client, access)
+            ):
+                skipped += 1
+                continue
+
+            outbox_is_safe, stale_lease_action = (
+                _pending_registration_outbox_is_safe_to_purge(
+                    access,
+                    now=now,
+                    dry_run=dry_run,
+                )
+            )
+            if stale_lease_action:
+                useful_actions += 1
+            if not outbox_is_safe:
+                skipped += 1
+            else:
+                eligible += 1
+                if dry_run:
+                    useful_actions += 1
+                else:
+                    try:
+                        with transaction.atomic():
+                            client.delete()
+                    except ProtectedError:
+                        skipped += 1
+                    else:
+                        purged += 1
+                        useful_actions += 1
+
+            if batch_size is not None and useful_actions >= batch_size:
+                limit_reached = True
+                break
+
+    return PublicRegistrationPurgeResult(
+        candidates=candidates_examined,
+        eligible=eligible,
+        purged=purged,
+        skipped=skipped,
+    )
+
+
+def purge_expired_public_registrations(
+    *,
+    business_id=None,
+    now=None,
+    batch_size=200,
+    dry_run=False,
+):
+    """Purga altas caducadas con un lote de acciones útiles por negocio.
+
+    Las candidatas omitidas por seguridad no consumen ``batch_size``.
+    """
+
+    now = now or timezone.now()
+    if batch_size is not None and batch_size <= 0:
+        raise ValueError("batch_size debe ser mayor que cero.")
+    businesses = Business.objects.order_by("pk").values_list("pk", flat=True)
+    if business_id is not None:
+        businesses = businesses.filter(pk=business_id)
+
+    result = PublicRegistrationPurgeResult()
+    for current_business_id in businesses.iterator():
+        with transaction.atomic():
+            locked_business = Business.objects.select_for_update().get(
+                pk=current_business_id
+            )
+            result = result.merged(
+                _purge_expired_public_registrations_for_locked_business(
+                    locked_business,
+                    now=now,
+                    batch_size=batch_size,
+                    dry_run=dry_run,
+                )
+            )
+    return result
 
 
 def ensure_self_booking_grant(access):
@@ -342,8 +600,15 @@ def register_client_access(
     if email_verified and not password:
         raise ValidationError("Una cuenta ya verificada necesita contraseña.")
     email_normalized = email.strip().lower()
+    locked_business = Business.objects.select_for_update().get(pk=business.pk)
+    now = timezone.now()
+    _purge_expired_public_registrations_for_locked_business(
+        locked_business,
+        now=now,
+        email_normalized=email_normalized,
+    )
     if BusinessClientAccess.objects.filter(
-        business=business,
+        business=locked_business,
         email_normalized=email_normalized,
     ).exists():
         raise ValidationError(PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE)
@@ -353,7 +618,7 @@ def register_client_access(
         # una ficha profesional a partir de un teléfono, que es solo contacto.
         with transaction.atomic():
             client = BusinessClient(
-                business=business,
+                business=locked_business,
                 full_name=full_name,
                 phone=phone,
                 email=email,
@@ -365,13 +630,16 @@ def register_client_access(
             client.save()
 
             access = BusinessClientAccess(
-                business=business,
+                business=locked_business,
                 business_client=client,
                 phone=phone,
                 email=email,
-                email_verified_at=timezone.now() if email_verified else None,
+                email_verified_at=now if email_verified else None,
                 is_active=True,
                 is_pending_public_registration=not email_verified,
+                public_registration_expires_at=(
+                    None if email_verified else public_registration_expiry(now=now)
+                ),
             )
             access.set_password(password if email_verified else None)
             access.full_clean()
@@ -380,6 +648,51 @@ def register_client_access(
         raise ValidationError(PUBLIC_REGISTRATION_UNAVAILABLE_MESSAGE) from exc
     ensure_self_booking_grant(access)
     return access
+
+
+@transaction.atomic
+def lock_pending_public_registration_for_resend(*, access, now=None):
+    """Bloquea una alta vigente antes de reencolar y decidir si renueva."""
+
+    now = now or timezone.now()
+    locked_business = Business.objects.select_for_update().get(pk=access.business_id)
+    client_id = (
+        BusinessClientAccess.objects.filter(
+            pk=access.pk,
+            business=locked_business,
+        )
+        .values_list("business_client_id", flat=True)
+        .first()
+    )
+    if client_id is None:
+        return None
+    client = BusinessClient.objects.select_for_update().get(
+        pk=client_id,
+        business=locked_business,
+    )
+    legacy_cutoff = now - timedelta(seconds=PUBLIC_REGISTRATION_RETENTION_SECONDS)
+    locked_access = (
+        BusinessClientAccess.objects.select_for_update()
+        .filter(
+            pk=access.pk,
+            business=locked_business,
+            business_client=client,
+            email_verified_at__isnull=True,
+            is_active=True,
+            is_pending_public_registration=True,
+        )
+        .filter(
+            models.Q(public_registration_expires_at__gt=now)
+            | models.Q(
+                public_registration_expires_at__isnull=True,
+                created_at__gt=legacy_cutoff,
+            )
+        )
+        .first()
+    )
+    if locked_access is None or client.is_active:
+        return None
+    return locked_access
 
 
 @transaction.atomic

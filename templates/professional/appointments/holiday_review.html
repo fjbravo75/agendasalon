@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}Citas en festivos nacionales - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="professional-dashboard" aria-labelledby="holiday-review-page-title">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Calendario oficial</span>
+        <h1 id="holiday-review-page-title" class="page-title page-title--compact">Citas en festivos nacionales</h1>
+        <p>
+          Revisa cada cita con calma. AgendaSalon no la cambia por su cuenta:
+          primero acuerda con el cliente si se mantiene o si necesita otra hora.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        {% if holiday_impacts %}
+          <span class="ops-status ops-status--warning">
+            {{ holiday_impacts|length }} pendiente{% if holiday_impacts|length != 1 %}s{% endif %}
+          </span>
+        {% else %}
+          <span class="ops-status ops-status--ready">Todo revisado</span>
+        {% endif %}
+        <a class="button button--secondary" href="{% url 'booking:professional_schedule' %}#festivos-nacionales">Volver a horarios</a>
+      </div>
+    </header>
+
+    {% if holiday_impacts %}
+      <section class="ops-attention ops-attention--full" aria-labelledby="holiday-review-list-title">
+        <div class="ops-attention__head">
+          <div>
+            <span>Necesita tu decisión</span>
+            <h2 id="holiday-review-list-title">Citas confirmadas</h2>
+            <p>
+              Abre cada cita para confirmar que se mantiene o buscar otra hora antes de cancelarla.
+            </p>
+          </div>
+          <strong>{{ holiday_impacts|length }}</strong>
+        </div>
+        <div class="ops-attention__list ops-attention__list--single" role="list">
+          {% for impact in holiday_impacts %}
+            <article class="ops-attention__item" role="listitem">
+              <time datetime="{{ impact.local_starts_at|date:'c' }}">
+                {{ impact.local_starts_at|date:"j M Y · H:i" }}
+              </time>
+              <div>
+                <strong>{{ impact.appointment.business_client.full_name }}</strong><br>
+                <small>{{ impact.holiday.name }} · {{ impact.appointment.service_summary_snapshot|default:"Servicios guardados en la cita" }}</small><br>
+                <small>
+                  {% if impact.appointment.business_client.phone %}
+                    Teléfono: {{ impact.appointment.business_client.phone|format_phone }}
+                  {% else %}
+                    Consulta la ficha del cliente para confirmar el contacto.
+                  {% endif %}
+                </small>
+              </div>
+              <a href="{% url 'booking:professional_appointment_detail' impact.appointment.id %}" aria-label="Gestionar cita de {{ impact.appointment.business_client.full_name }} el {{ impact.local_starts_at|date:'d/m/Y' }} a las {{ impact.local_starts_at|date:'H:i' }}">Gestionar cita</a>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% else %}
+      <div class="empty">
+        No quedan citas confirmadas pendientes de revisión en festivos nacionales.
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

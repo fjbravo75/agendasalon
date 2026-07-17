@@ -23,6 +23,7 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 from apps.booking.models import Appointment
+from apps.accounts.tokens import professional_email_verification_token_generator
 from apps.businesses.models import Business
 from apps.customers.models import BusinessClient, BusinessClientAccess
 from apps.customers.services import client_password_fingerprint
@@ -299,9 +300,9 @@ def cancel_appointment_emails(appointment):
     )
 
 
-def _professional_token_url(user, route_name):
+def _professional_token_url(user, route_name, *, token_generator=default_token_generator):
     uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = default_token_generator.make_token(user)
+    token = token_generator.make_token(user)
     return _absolute_url(reverse(route_name, args=[uid, token]))
 
 
@@ -343,7 +344,7 @@ def unverified_client_from_token(token, *, business, lock=False):
         return None
     queryset = BusinessClientAccess.objects.select_related("business", "business_client")
     if lock:
-        queryset = queryset.select_for_update()
+        queryset = queryset.select_for_update(of=("self",))
     access = queryset.filter(
         pk=payload.get("access_id"),
         email_normalized=payload.get("email"),
@@ -354,6 +355,13 @@ def unverified_client_from_token(token, *, business, lock=False):
     if (
         access is None
         or (not access.business_client.is_active and not access.is_pending_public_registration)
+        or (
+            access.is_pending_public_registration
+            and (
+                access.public_registration_expires_at is None
+                or access.public_registration_expires_at <= timezone.now()
+            )
+        )
         or not hmac.compare_digest(
             str(payload.get("password_fingerprint") or ""),
             client_password_fingerprint(access),
@@ -369,6 +377,8 @@ def verified_client_from_token(
     *,
     business,
     password,
+    full_name=None,
+    phone=None,
     privacy_acknowledged=False,
     privacy_document=None,
     privacy_legal_context=None,
@@ -411,21 +421,35 @@ def verified_client_from_token(
     if was_pending_public_registration:
         locked_client.is_active = True
         client_update_fields.append("is_active")
+        if full_name is not None:
+            locked_client.full_name = full_name.strip()
+            client_update_fields.extend(["full_name", "full_name_normalized"])
+        if phone is not None:
+            locked_client.phone = phone.strip()
+            access.phone = phone.strip()
+            client_update_fields.extend(["phone", "phone_normalized"])
     if (locked_client.email or "").strip() != (access.email or "").strip():
         locked_client.email = access.email
         client_update_fields.append("email")
     if client_update_fields:
+        locked_client.full_clean()
         locked_client.save(update_fields=[*client_update_fields, "updated_at"])
     access.set_password(password)
     access.email_verified_at = timezone.now()
     access.is_pending_public_registration = False
+    access.public_registration_expires_at = None
+    access_update_fields = [
+        "password_hash",
+        "email_verified_at",
+        "is_pending_public_registration",
+        "public_registration_expires_at",
+        "updated_at",
+    ]
+    if was_pending_public_registration and phone is not None:
+        access_update_fields.extend(["phone", "phone_normalized"])
+    access.full_clean()
     access.save(
-        update_fields=[
-            "password_hash",
-            "email_verified_at",
-            "is_pending_public_registration",
-            "updated_at",
-        ]
+        update_fields=access_update_fields
     )
     if locked_business.legal_compliance_enabled:
         from apps.legal.models import LegalAcceptance
@@ -485,7 +509,10 @@ def client_password_reset_access_from_token(token, *, business, lock=False):
         return None
     queryset = BusinessClientAccess.objects.select_related("business", "business_client")
     if lock:
-        queryset = queryset.select_for_update()
+        # El negocio y la ficha se bloquean antes en el servicio de reset. En
+        # PostgreSQL limitamos este último FOR UPDATE al acceso para conservar
+        # de forma explícita el orden negocio -> ficha -> acceso.
+        queryset = queryset.select_for_update(of=("self",))
     access = queryset.filter(
         pk=payload.get("access_id"),
         business=business,
@@ -503,12 +530,32 @@ def client_password_reset_access_from_token(token, *, business, lock=False):
 
 @transaction.atomic
 def reset_client_password_from_token(token, *, business, password):
+    locked_business = Business.objects.select_for_update().filter(pk=business.pk).first()
+    if locked_business is None:
+        return None
+    candidate = client_password_reset_access_from_token(
+        token,
+        business=locked_business,
+    )
+    if candidate is None:
+        return None
+    locked_client = (
+        BusinessClient.objects.select_for_update()
+        .filter(
+            pk=candidate.business_client_id,
+            business=locked_business,
+            is_active=True,
+        )
+        .first()
+    )
+    if locked_client is None:
+        return None
     access = client_password_reset_access_from_token(
         token,
-        business=business,
+        business=locked_business,
         lock=True,
     )
-    if access is None:
+    if access is None or access.business_client_id != locked_client.pk:
         return None
     access.set_password(password)
     access.save(update_fields=["password_hash", "updated_at"])
@@ -531,6 +578,7 @@ def _delivery_context(email):
             action_url=_professional_token_url(
                 email.recipient_user,
                 "accounts:professional_email_verify",
+                token_generator=professional_email_verification_token_generator,
             ),
         )
     elif email.kind == OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION:
@@ -575,7 +623,11 @@ def _is_still_valid(email):
             and access.is_active
             and (
                 access.business_client.is_active
-                or access.is_pending_public_registration
+                or (
+                    access.is_pending_public_registration
+                    and access.public_registration_expires_at is not None
+                    and access.public_registration_expires_at > timezone.now()
+                )
             )
             and access.email_verified_at is None
             and access.email_normalized == email.recipient_email.lower()

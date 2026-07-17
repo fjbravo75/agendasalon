@@ -280,6 +280,45 @@ class LegalExperienceTests(TestCase):
         self.assertContains(response, "está terminando su configuración", status_code=503)
         self.assertContains(response, "No se ha guardado ningún dato", status_code=503)
 
+    def test_professional_legal_surfaces_never_cache_personal_data_or_redirects(self):
+        self.client.force_login(self.professional)
+        onboarding_url = reverse("legal:professional_onboarding")
+
+        page = self.client.get(onboarding_url)
+        response = self.client.post(
+            onboarding_url,
+            {
+                **self.legal_onboarding_payload(),
+                "legal_presentation_token": page.context["legal_presentation_token"],
+            },
+        )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("no-store", page["Cache-Control"])
+        self.assertIn("private", page["Cache-Control"])
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertIn("private", response["Cache-Control"])
+
+        center = self.client.get(reverse("legal:professional_center"))
+        self.assertEqual(center.status_code, 200)
+        self.assertIn("no-store", center["Cache-Control"])
+        self.assertIn("private", center["Cache-Control"])
+
+    def test_legal_surfaces_reject_unsupported_methods_without_caching(self):
+        self.client.force_login(self.professional)
+
+        onboarding = self.client.put(reverse("legal:professional_onboarding"))
+        center = self.client.post(reverse("legal:professional_center"))
+        public_privacy = self.client.patch(
+            reverse("legal:business_privacy", args=[self.business.slug])
+        )
+
+        for response in (onboarding, center, public_privacy):
+            self.assertEqual(response.status_code, 405)
+            self.assertIn("no-store", response["Cache-Control"])
+            self.assertIn("private", response["Cache-Control"])
+
     def test_professional_onboarding_records_profile_and_exact_acceptances(self):
         response = self.complete_legal_onboarding()
 
@@ -1181,6 +1220,26 @@ class LegalExperienceTests(TestCase):
             "Estas constancias no se pueden modificar ni borrar desde la aplicación",
         )
 
+    def test_business_privacy_never_caches_anonymous_content_or_redirects(self):
+        self.client.logout()
+        url = reverse("legal:business_privacy", args=[self.business.slug])
+
+        page = self.client.get(url)
+        redirect_response = self.client.post(
+            url,
+            {
+                "request_type": DataRightsRequest.RequestType.ACCESS,
+                "detail": "Solicitud que requiere iniciar sesión.",
+            },
+        )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("no-store", page["Cache-Control"])
+        self.assertIn("private", page["Cache-Control"])
+        self.assertEqual(redirect_response.status_code, 302)
+        self.assertIn("no-store", redirect_response["Cache-Control"])
+        self.assertIn("private", redirect_response["Cache-Control"])
+
     def test_business_privacy_page_registers_a_client_rights_request(self):
         self.complete_legal_onboarding()
         self.client.logout()
@@ -1212,6 +1271,8 @@ class LegalExperienceTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "La solicitud queda registrada")
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertIn("private", response["Cache-Control"])
         rights_request = DataRightsRequest.objects.get(business=self.business)
         self.assertEqual(rights_request.client_access, access)
         self.assertEqual(rights_request.status, DataRightsRequest.Status.RECEIVED)
@@ -1247,6 +1308,8 @@ class LegalExperienceTests(TestCase):
         self.assertContains(page, "El canal de contacto y el ejercicio de tus derechos")
         self.assertContains(page, "Tus derechos siguen activos")
         self.assertContains(page, "Registrar solicitud")
+        self.assertIn("no-store", page["Cache-Control"])
+        self.assertIn("private", page["Cache-Control"])
 
         response = self.client.post(
             url,
@@ -1278,6 +1341,8 @@ class LegalExperienceTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Privacidad")
+        self.assertIn("no-store", response["Cache-Control"])
+        self.assertIn("private", response["Cache-Control"])
 
     def test_professional_can_update_a_request_from_the_privacy_center(self):
         self.complete_legal_onboarding()

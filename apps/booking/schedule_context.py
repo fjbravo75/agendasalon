@@ -10,6 +10,7 @@ from apps.booking.models import (
     BusinessClosure,
     WorkLine,
 )
+from apps.holidays.appointment_reviews import pending_holiday_appointment_count
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 
 
@@ -135,4 +136,7 @@ def build_schedule_management_context(
         ),
         "upcoming_national_holidays": upcoming_national_holidays,
         "latest_holiday_sync": latest_holiday_sync,
+        "holiday_appointments_pending_count": pending_holiday_appointment_count(
+            business=business
+        ),
     }

@@ -97,6 +97,11 @@ referencia pública. Servicios y temporizadores quedaron activos y el correo se
 rearmó; su primera ejecución automática, a las 11:11:27 UTC, terminó
 correctamente con 0 procesados, enviados, reprogramados, fallidos y cancelados.
 
+P2 permanece como candidato local y aislado, con su validación local
+completamente cerrada. Todavía no forma parte de `main` ni de la demostración
+pública: producción continúa alineada con P1 y con el SHA final
+`1e4c6cdbeaca72ca3df4c6b5c8c0f138ef02f489`.
+
 Base Django creada con configuración separada por entorno, usuario personalizado
 interno desde el inicio, núcleo de modelos SaaS/agenda y entrada autenticada por
 teléfono normalizado.
@@ -260,6 +265,15 @@ En una alta pública, la ficha permanece inactiva y el acceso conserva
 incompleto no contamina la reutilización de fichas del panel profesional y no se
 activa si el negocio ha pausado entretanto las nuevas reservas.
 
+En el candidato P2, cada alta pública pendiente caduca lógicamente a las 48 horas
+de su creación o del último enlace realmente encolado que renueve el plazo. Un
+temporizador independiente intenta después su purga segura cada quince minutos y
+otro elimina las sesiones Django caducadas cada seis horas. Las 48 horas no
+prometen un borrado físico exacto: un envío activo, una relación que deba
+conservarse o la cancelación previa de un `lease` caducado pueden aplazarlo. El
+contrato completo, incluido el backfill y la puerta previa a las migraciones, se
+documenta en [Operación en producción](docs/OPERACION_PRODUCCION.md#caducidad-de-altas-públicas-pendientes).
+
 Las contraseñas nuevas usan Argon2id y los hashes PBKDF2 anteriores se actualizan
 después de un acceso correcto. Los intentos de acceso se limitan por identidad e
 IP sin guardar esos identificadores en claro. La sesión cliente rota al entrar y
@@ -279,6 +293,13 @@ cambiar su contraseña desde `Mi cuenta`: el cambio comprueba la contraseña
 actual, conserva la sesión presente e invalida las demás sesiones. El mecanismo
 anterior de contraseña temporal se mantiene solo como compatibilidad para
 cuentas heredadas o intervenciones administrativas controladas.
+
+La verificación posterior del correo profesional usa GET y HEAD únicamente para
+validar y presentar el paso. Solo un POST protegido por CSRF confirma la
+dirección. Su token específico no depende de `last_login`, por lo que iniciar o
+cerrar sesión no lo inutiliza; sí queda invalidado al cambiar la contraseña o el
+correo, al consumirlo o al superar su caducidad. Los enlaces heredados ya
+emitidos conservan una compatibilidad limitada mientras sigan siendo válidos.
 
 Las cuentas cliente también verifican su correo antes de reservar. Cambiar el
 correo canónico desde la gestión profesional retira esa verificación, deja la
@@ -419,6 +440,8 @@ caducados o acumulados. Para una fecha reproducible puede usarse
 - `/profesional/agenda/mes/`: disponibilidad mensual JSON protegida.
 - `/profesional/citas/nueva/`: asistente de nueva cita.
 - `/profesional/citas/pendientes/`: revisión completa de citas pendientes de cierre.
+- `/profesional/citas/festivos/`: bandeja privada de citas futuras afectadas por
+  festivos nacionales, con revisión manual e idempotente.
 - `/profesional/servicios/`: catálogo profesional.
 - `/profesional/horarios/`: disponibilidad, cierres, líneas y aplicación del
   calendario nacional sincronizado.
@@ -462,17 +485,16 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La verificación local más reciente deja la batería en 534 pruebas Django con
-resultado correcto: en SQLite se omiten 25 casos exclusivos de PostgreSQL y la
-cobertura con ramas alcanza el 84,16 %; en PostgreSQL 17 se ejecutan las 534 sin
-omisiones. El frontend suma 34 de 34 pruebas correctas y build Vite completado.
-Ruff, `manage.py check`, migraciones, `git diff --check`, `pip-audit`,
-`npm audit`, `pip check` y la revisión de secretos y seguridad finalizaron sin
-bloqueos. La
-QA visual y funcional resultó apta en escritorio y móvil sobre copias
-desechables, incluidos los formularios con CSRF real, y la base canónica
-permaneció intacta. `pip-audit` y `npm audit` cerraron con cero vulnerabilidades
-conocidas.
+La verificación local del candidato P2 ejecutó 596 pruebas Django sobre el árbol
+definitivo. SQLite terminó correctamente con 35 omisiones exclusivas de
+PostgreSQL y PostgreSQL 17 completó 596 de 596 sin omisiones. La cobertura con
+ramas alcanzó el 85 %; el frontend completó 34 de 34 pruebas y el build Vite
+finalizó correctamente. Ruff, `manage.py check`, migraciones, `git diff --check`,
+`pip-audit`, `npm audit`, `pip check` y la revisión de secretos y seguridad
+finalizaron sin bloqueos. La QA visual y funcional resultó apta en escritorio y
+móvil sobre copias desechables, incluidos los formularios con CSRF real, y la
+base canónica permaneció intacta. Estas cifras acreditan el candidato local; no
+acreditan todavía CI ni producción, que continúan en P1.
 
 Como referencia histórica, el bloque P0 quedó validado el 16 de julio de 2026
 con 396 pruebas Django, nueve omisiones, 29 pruebas frontend y 83 % de cobertura.
@@ -595,9 +617,26 @@ La sincronización registra la referencia oficial, reconcilia cambios sin
 duplicar fechas y contabiliza citas futuras afectadas sin cancelarlas ni
 moverlas. Una exclusión mutua por año se adquiere antes de consultar el BOE y se
 mantiene hasta cerrar la reconciliación y sus contadores. Solo después de la
-consulta externa, la transacción toma en PostgreSQL un bloqueo breve del registro
-de negocios antes de enumerarlos y bloquea sus calendarios en orden estable.
+consulta externa, el tramo transaccional se serializa globalmente y toma en
+PostgreSQL un bloqueo breve del registro de negocios antes de enumerarlos y
+bloquea sus calendarios en orden estable. Las descargas de años distintos pueden
+seguir ejecutándose a la vez; solo la reconciliación que modifica datos entra de
+una en una.
 Así, las altas concurrentes esperan al commit y la fotografía global no omite
-negocios nacidos durante la operación. Una resolución asistida por cada cita
-afectada permanece como mejora posterior de experiencia, no como grieta del
-snapshot.
+negocios nacidos durante la operación.
+
+En el candidato P2 local, todavía no desplegado, los contadores de cada ejecución
+se presentan como una fotografía histórica. La revisión operativa se calcula, en
+cambio, desde el estado vivo: citas confirmadas futuras, festivo nacional vigente
+y preferencia actual de cada negocio. El superadministrador solo recibe
+agregados por negocio de todas las anualidades futuras, aunque esté consultando
+un calendario concreto. El agregado conserva también los pendientes de negocios
+pausados o sin profesional activo y señala que no existe acceso profesional
+disponible para resolverlos. Cada profesional revisa exclusivamente sus citas y
+puede confirmar que mantiene una de ellas sin moverla, cancelarla ni enviar
+mensajes automáticamente.
+
+El bloqueo global `SHARE` se mantiene porque cierra las carreras con altas y
+mutaciones concurrentes. Su recorrido por negocio no se optimiza en P2 sin un
+benchmark representativo: cualquier refactor deberá conservar el mismo orden de
+bloqueo y superar las pruebas PostgreSQL de concurrencia antes de publicarse.
