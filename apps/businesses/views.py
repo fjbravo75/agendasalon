@@ -35,6 +35,7 @@ from apps.businesses.services import (
     get_primary_business_for_user,
 )
 from apps.holidays.forms import NationalHolidaySyncForm
+from apps.holidays.appointment_reviews import pending_holiday_business_summaries
 from apps.holidays.models import OfficialHoliday
 from apps.holidays.services import (
     BOE_NETWORK_ERROR,
@@ -623,6 +624,7 @@ def superadmin_platform_settings(request):
         .values_list("year", flat=True)
         .distinct()
     )
+    holiday_business_impacts = pending_holiday_business_summaries()
 
     return render(
         request,
@@ -639,6 +641,10 @@ def superadmin_platform_settings(request):
             "holiday_years": holiday_years,
             "national_holidays": national_holidays,
             "latest_holiday_run": latest_boe_national_holiday_run(year=holiday_year),
+            "holiday_business_impacts": holiday_business_impacts,
+            "holiday_business_impact_total": sum(
+                item.appointment_count for item in holiday_business_impacts
+            ),
         },
     )
 
@@ -690,11 +696,11 @@ def superadmin_holiday_sync(request):
                 if run.affected_businesses == 1
                 else f"{run.affected_businesses} negocios"
             )
-            agreement = "coincide" if run.affected_appointments == 1 else "coinciden"
+            detected = "se detectó" if run.affected_appointments == 1 else "se detectaron"
             messages.warning(
                 request,
                 (
-                    f"Hay {appointment_text} que {agreement} con estos festivos en "
+                    f"Al terminar {detected} {appointment_text} en "
                     f"{business_text}. No se ha cancelado ni movido ninguna."
                 ),
             )

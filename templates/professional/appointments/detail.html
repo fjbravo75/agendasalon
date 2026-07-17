@@ -21,6 +21,46 @@
       </div>
     </header>
 
+    {% if holiday_impact %}
+      <section class="ops-attention" aria-labelledby="holiday-appointment-title">
+        <div class="ops-attention__head">
+          <div>
+            <span>Festivo nacional</span>
+            <h2 id="holiday-appointment-title">{{ holiday_impact.holiday.name }}</h2>
+            <p>
+              Esta cita cae en una jornada cerrada para nuevas reservas.
+              No se ha cancelado ni movido automáticamente.
+            </p>
+          </div>
+          {% if holiday_impact.review %}
+            <span class="ops-status ops-status--ready">Se mantiene</span>
+          {% else %}
+            <span class="ops-status ops-status--warning">Por revisar</span>
+          {% endif %}
+        </div>
+        <div class="ops-attention__form">
+          {% if holiday_impact.review %}
+            <p class="soft-note">
+              Revisada el {{ holiday_impact.review.reviewed_at|date:"d/m/Y H:i" }}{% if holiday_impact.review.reviewed_by %} por {{ holiday_impact.review.reviewed_by.full_name|default:holiday_impact.review.reviewed_by.normalized_phone }}{% endif %}.
+              La cita continúa confirmada en su hora actual.
+            </p>
+          {% else %}
+            <p class="soft-note">
+              Habla primero con el cliente. Esta revisión no envía avisos ni realiza cambios por sí sola.
+              Si acordáis otra hora, crea la nueva cita y cancela esta después.
+            </p>
+            <div class="ops-attention__actions">
+              <a class="button button--secondary" href="{{ holiday_rebook_url }}">Buscar otra hora</a>
+              <form method="post" action="{% url 'booking:professional_holiday_appointment_acknowledge' appointment.id %}" data-confirm-message="La cita seguirá confirmada en este festivo. Confirma primero la decisión con el cliente. ¿Quieres continuar?">
+                {% csrf_token %}
+                <button class="button" type="submit">Confirmar que se mantiene</button>
+              </form>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
+
     <div class="appointment-metric-grid" aria-label="Resumen de la cita">
       <article class="appointment-metric appointment-metric--primary">
         <span>Estado</span>

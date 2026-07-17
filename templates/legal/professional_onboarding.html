@@ -37,13 +37,36 @@
             <div class="legal-field">{{ onboarding_form.retention_criteria.label_tag }}{{ onboarding_form.retention_criteria }}<small>{{ onboarding_form.retention_criteria.help_text }}</small>{{ onboarding_form.retention_criteria.errors }}</div>
             {% if legal_documents_available %}
               <div class="legal-checks">
-                <label class="legal-check">{{ onboarding_form.platform_privacy_acknowledged }}<span>He leído la información sobre el <a class="legal-text-link" href="{% url 'legal:platform_document' documents.platform_privacy.slug %}" target="_blank" rel="noopener">tratamiento de mis datos profesionales</a> (versión {{ documents.platform_privacy.version }}).</span></label>
+                <div class="legal-check">
+                  {{ onboarding_form.platform_privacy_acknowledged }}
+                  <div class="legal-check__body">
+                    <label for="{{ onboarding_form.platform_privacy_acknowledged.id_for_label }}">He leído la información sobre el tratamiento de mis datos profesionales (versión {{ documents.platform_privacy.version }}).</label>
+                    <a class="legal-text-link" href="{% url 'legal:platform_document' documents.platform_privacy.slug %}" target="_blank" rel="noopener">Consultar la información de privacidad<span class="legal-new-tab-note"> (se abre en otra pestaña)</span></a>
+                  </div>
+                </div>
                 {{ onboarding_form.platform_privacy_acknowledged.errors }}
-                <label class="legal-check">{{ onboarding_form.terms_accepted }}<span>He leído y acepto las <a class="legal-text-link" href="{% url 'legal:platform_document' documents.terms.slug %}" target="_blank" rel="noopener">condiciones del servicio de AgendaSalon</a> (versión {{ documents.terms.version }}).</span></label>
+                <div class="legal-check">
+                  {{ onboarding_form.terms_accepted }}
+                  <div class="legal-check__body">
+                    <label for="{{ onboarding_form.terms_accepted.id_for_label }}">He leído y acepto las condiciones del servicio de AgendaSalon (versión {{ documents.terms.version }}).</label>
+                    <a class="legal-text-link" href="{% url 'legal:platform_document' documents.terms.slug %}" target="_blank" rel="noopener">Consultar las condiciones del servicio<span class="legal-new-tab-note"> (se abre en otra pestaña)</span></a>
+                  </div>
+                </div>
                 {{ onboarding_form.terms_accepted.errors }}
-                <label class="legal-check">{{ onboarding_form.data_processing_accepted }}<span>Acepto el <a class="legal-text-link" href="{% url 'legal:platform_document' documents.data_processing.slug %}" target="_blank" rel="noopener">acuerdo de encargo de tratamiento</a> (versión {{ documents.data_processing.version }}) en nombre del negocio.</span></label>
+                <div class="legal-check">
+                  {{ onboarding_form.data_processing_accepted }}
+                  <div class="legal-check__body">
+                    <label for="{{ onboarding_form.data_processing_accepted.id_for_label }}">Acepto el acuerdo de encargo de tratamiento (versión {{ documents.data_processing.version }}) en nombre del negocio.</label>
+                    <a class="legal-text-link" href="{% url 'legal:platform_document' documents.data_processing.slug %}" target="_blank" rel="noopener">Consultar el acuerdo de encargo de tratamiento<span class="legal-new-tab-note"> (se abre en otra pestaña)</span></a>
+                  </div>
+                </div>
                 {{ onboarding_form.data_processing_accepted.errors }}
-                <label class="legal-check">{{ onboarding_form.authority_declared }}<span>{{ onboarding_form.authority_declared.label }}</span></label>
+                <div class="legal-check">
+                  {{ onboarding_form.authority_declared }}
+                  <div class="legal-check__body">
+                    <label for="{{ onboarding_form.authority_declared.id_for_label }}">{{ onboarding_form.authority_declared.label }}</label>
+                  </div>
+                </div>
                 {{ onboarding_form.authority_declared.errors }}
               </div>
               <p class="legal-form-note">Se guardan la versión, la huella del contenido, la fecha y la identidad de quien realiza esta declaración.</p>

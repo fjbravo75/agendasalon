@@ -251,6 +251,71 @@ class NationalHolidayReconciliationTests(TransactionTestCase):
         self.assertEqual(result.run.affected_appointments, 1)
         self.assertEqual(result.run.affected_businesses, 1)
 
+    def test_sync_snapshot_excludes_an_appointment_at_the_exact_capture_instant(self):
+        business = Business.objects.create(
+            commercial_name="Salón Frontera",
+            slug="salon-frontera",
+        )
+        BusinessCalendarSettings.objects.create(
+            business=business,
+            apply_national_holidays=True,
+        )
+        client = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente Frontera",
+        )
+        exact_line = WorkLine.objects.create(
+            business=business,
+            line_number=1,
+            name="Línea exacta",
+        )
+        future_line = WorkLine.objects.create(
+            business=business,
+            line_number=2,
+            name="Línea futura",
+        )
+        holiday_date = timezone.localdate() + timedelta(days=40)
+        captured_at = timezone.make_aware(
+            datetime.combine(holiday_date, datetime.min.time().replace(hour=10))
+        )
+        for line, starts_at in (
+            (exact_line, captured_at),
+            (future_line, captured_at + timedelta(minutes=1)),
+        ):
+            Appointment.objects.create(
+                business=business,
+                business_client=client,
+                work_line=line,
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(minutes=30),
+                total_duration_minutes=30,
+                status=Appointment.Status.CONFIRMED,
+                manual_channel=Appointment.ManualChannel.PHONE,
+            )
+        service = FixedHolidayService(
+            BoeHolidayResolution(
+                identifier="BOE-A-TEST-EXACT-BOUNDARY",
+                title="Calendario de frontera",
+                url_html=(
+                    "https://www.boe.es/diario_boe/"
+                    "txt.php?id=BOE-A-TEST-EXACT-BOUNDARY"
+                ),
+            ),
+            (OfficialHolidayImport(holiday_date, "Festivo nacional"),),
+        )
+
+        with patch(
+            "apps.holidays.services.timezone.now",
+            return_value=captured_at,
+        ):
+            result = sync_boe_national_holidays(
+                holiday_date.year,
+                service=service,
+            )
+
+        self.assertEqual(result.run.affected_appointments, 1)
+        self.assertEqual(result.run.affected_businesses, 1)
+
     def test_failed_sync_leaves_a_failure_run(self):
         class FailingService:
             def fetch_national_holidays(self, target_year):

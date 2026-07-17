@@ -185,7 +185,7 @@ público requiere una actuación de despliegue deliberada. En la demo publicada,
 la unidad quedó instalada, habilitada y activa el 14 de julio de 2026; la mera
 existencia de estos archivos en otros entornos no activa por sí sola el correo.
 
-Estado de referencia del despliegue de correo:
+Estado histórico de referencia del despliegue inicial de correo:
 
 - commit de aplicación: `ed509e2e59fa1721ef9abf3951951cc8bf999547`;
 - migraciones aplicadas: `accounts.0005`, `customers.0010` y
@@ -193,7 +193,327 @@ Estado de referencia del despliegue de correo:
 - `agendasalon-email.timer`: habilitado y activo;
 - comando de outbox verificado: 0 procesados, 0 enviados y 0 pendientes o
   fallidos;
+- accesos sin verificar ligados a fichas de origen `other`: 0 en aquella
+  fotografía inicial;
 - cuentas y citas demo preservadas sin ejecutar de nuevo `seed_demo`.
+
+Las migraciones y el SHA actuales de producción se comprueban siempre en el
+preflight del despliegue correspondiente; esta referencia histórica no sustituye
+esa comprobación.
+
+### Caducidad de altas públicas pendientes
+
+Las altas públicas que todavía no han verificado el correo caducan lógicamente
+a las 48 horas de su creación o del último enlace realmente encolado que renueve
+el plazo. Desde ese instante el token y el correo pendiente dejan de ser válidos.
+No significa que nombre, teléfono y
+grafo asociado se borren físicamente en ese mismo segundo: la eliminación se
+intenta en una pasada posterior del temporizador y solo cuando puede hacerse sin
+dañar actividad legítima. Un correo que permanece con un `lease` de envío activo
+no renueva el plazo. Las cuentas verificadas, las fichas profesionales y
+cualquier identidad con citas, evidencias o actividad ajena al propio registro
+quedan fuera de esta purga automática y requieren conservación o revisión según
+su finalidad.
+
+La pantalla pendiente y sus acciones mantienen la misma respuesta visible para
+un correo nuevo, pendiente o ya existente. El registro no precarga ni modifica
+datos de una identidad previa. La corrección de nombre y teléfono solo aparece
+al abrir un token de verificación válido, cuando ya se ha demostrado la posesión
+del correo; esa dirección se muestra como identidad inmutable.
+
+Si una reserva de envío `PROCESSING` ya ha caducado, la primera pasada la marca
+como cancelada y limpia su `lease`, pero conserva el alta durante esa ejecución.
+La siguiente pasada puede eliminarla. Así, un trabajador rezagado puede
+comprobar que ya no posee la reserva antes de que desaparezca el grafo asociado.
+Por tanto, las 48 horas son el límite de validez lógica, no un máximo físico de
+conservación: el intervalo del temporizador, un envío activo, la doble pasada de
+un `lease` caducado o una excepción de seguridad pueden retrasar o impedir la
+eliminación automática.
+
+#### Precondición de migración y backfill
+
+La producción P1 aceptada ya tiene aplicadas `customers.0014` y
+`holidays.0004`. P2 añade `customers.0015`, además de `holidays.0005`. El
+preflight se ejecuta todavía sobre el árbol P1: debe demostrar en el servidor,
+sin apoyarse solo en la documentación, que ambas migraciones P1 están aplicadas
+y que `migrate --plan` no propone ninguna pendiente. El árbol P1 aún no puede
+conocer los ficheros de migración de P2.
+
+Todos los comandos manuales de esta ventana se ejecutan desde
+`/var/www/agendasalon/app`, con el archivo protegido cargado sin imprimirlo y
+con el perfil de producción indicado también en cada llamada:
+
+```bash
+set -a
+. /etc/agendasalon/agendasalon.env
+set +a
+export DJANGO_SETTINGS_MODULE=config.settings.prod
+python manage.py shell --settings=config.settings.prod -c "from django.conf import settings; from django.db import connection; print({'settings': 'config.settings.prod', 'debug': settings.DEBUG, 'database_vendor': connection.vendor})"
+```
+
+La salida aceptable es `debug=False` y `database_vendor='postgresql'`. El plan
+se comprueba antes y después de detener los escritores:
+
+```bash
+python manage.py showmigrations customers holidays booking businesses legal notifications --plan --settings=config.settings.prod
+python manage.py migrate --plan --settings=config.settings.prod
+```
+
+En este primer plan, todavía con P1 instalado, no debe aparecer ninguna
+migración pendiente. Tras instalar el SHA exacto de P2 dentro de la ventana
+fría se repite el plan: solo entonces deben aparecer pendientes exclusivamente
+`customers.0015_businessclientaccess_public_registration_expires_at` y
+`holidays.0005_holidayappointmentreview`. Cualquier otra diferencia bloquea el
+despliegue.
+
+Antes de detener la ventana se comprueban también estos dos recuentos:
+
+```bash
+python manage.py shell --settings=config.settings.prod -c "from apps.customers.models import BusinessClientAccess; print({'pending_public': BusinessClientAccess.objects.filter(is_pending_public_registration=True, email_verified_at__isnull=True).count(), 'legacy_other': BusinessClientAccess.objects.filter(email_verified_at__isnull=True, business_client__source='other').count()})"
+```
+
+Ambos deben ser cero en la fotografía canónica P1. Si alguno no es cero, el
+despliegue se detiene para inventariar esas filas; no se aplica el backfill ni se
+ejecuta una purga automática sobre datos históricos sin revisión humana.
+
+La fotografía previa, sin nombres, teléfonos, correos ni tokens, incluye
+negocios, usuarios, clientes, accesos, citas, solicitudes de alta, outbox total y
+`PROCESSING`, sesiones activas y caducadas, altas pendientes y filas legacy. Si
+una alta pendiente existe, el inventario muestra únicamente sus identificadores
+internos, negocio, ficha, `created_at`, actividad y estados para decidirla antes
+de continuar.
+
+El orden controlado es:
+
+1. verificar SHA, CI, estado limpio, migraciones y recuentos P1;
+2. detener Gunicorn, el temporizador de correo y cualquier otro escritor;
+3. crear y verificar copia fría y snapshot;
+4. repetir los recuentos con los escritores detenidos;
+5. instalar el SHA exacto de P2 y verificar que el nuevo plan contiene
+   únicamente `customers.0015` y `holidays.0005`;
+6. aplicar únicamente `customers.0015` y `holidays.0005`;
+7. comprobar `migrate --check`, `check --deploy` y que no quedan migraciones;
+8. ejecutar la simulación de purga, su primera pasada real controlada y la
+   limpieza de sesiones antes de habilitar los nuevos temporizadores;
+9. rearmar escritores y completar la aceptación funcional, de datos y servicios.
+
+La ventana fría no se deja a interpretación. Primero se impiden nuevas
+ejecuciones y se espera a que cualquier `oneshot` ya iniciado termine; no se
+interrumpe una copia o un envío a mitad:
+
+```bash
+systemctl disable --now agendasalon-email.timer backup-agendasalon.timer check-agendasalon-backup.timer
+for service in agendasalon-email.service backup-agendasalon.service check-agendasalon-backup.service; do
+  while systemctl is-active --quiet "$service"; do sleep 2; done
+done
+systemctl disable --now gunicorn-agendasalon.service
+test "$(systemctl is-active gunicorn-agendasalon.service)" = "inactive"
+for unit in gunicorn-agendasalon.service agendasalon-email.timer backup-agendasalon.timer check-agendasalon-backup.timer; do
+  test "$(systemctl is-enabled "$unit")" = "disabled"
+done
+```
+
+Con los escritores detenidos se repiten los recuentos, se ejecuta y verifica la
+copia fría y se crea el snapshot. Antes de apagar puede lanzarse la copia manual
+con `systemctl start backup-agendasalon.service`; su `Result` debe ser `success`
+y su `ExecMainStatus`, `0`. Tras volver a encender el droplet se comprueba otra
+vez que Gunicorn y los tres temporizadores siguen deshabilitados e inactivos.
+Solo entonces se instala el SHA exacto de P2. Ya con sus ficheros de migración
+presentes, el primer plan debe mostrar exclusivamente las dos migraciones P2;
+si aparece cualquier otra, no se ejecuta ninguna:
+
+```bash
+python manage.py migrate --plan --settings=config.settings.prod
+python manage.py migrate holidays 0005 --noinput --settings=config.settings.prod
+python manage.py migrate customers 0015 --noinput --settings=config.settings.prod
+python manage.py migrate --check --settings=config.settings.prod
+python manage.py check --deploy --settings=config.settings.prod
+python manage.py migrate --plan --settings=config.settings.prod
+```
+
+Se crea primero la tabla aditiva y vacía de revisiones de festivos; el backfill
+de caducidades se ejecuta después. El último plan debe quedar vacío. No se
+arranca el código P2 mientras una de las dos migraciones siga pendiente.
+
+`customers.0015` añade el campo de caducidad y contiene un backfill defensivo
+para otras instalaciones: si encontrara un alta que `0013` hubiese marcado como
+pendiente, fijaría su caducidad en `created_at + 48 horas`. En la línea P1
+aceptada ese conjunto es cero, por lo que el backfill no debe reescribir altas.
+
+La comprobación manual sin borrado es:
+
+```bash
+python manage.py purge_expired_public_registrations --dry-run --batch-size 200 --settings=config.settings.prod
+```
+
+`--batch-size` limita acciones útiles por negocio: eliminaciones efectivas —o
+purgables en simulación— y cancelaciones de reservas `PROCESSING` caducadas. Las
+altas que se conservan por actividad, evidencias, envío activo u otra protección
+se examinan y se contabilizan como omitidas, pero no consumen el lote. El
+recorrido continúa por clave primaria, de modo que un prefijo de registros
+protegidos no puede dejar indefinidamente sin revisar una alta purgable posterior.
+
+La ejecución real omite `--dry-run`. Si la simulación informa de una sola
+candidata en la fotografía canónica P1, se detiene el despliegue y se revisa. El
+comando devuelve éxito aunque encuentre candidatas, por lo que su salida es una
+puerta de aceptación, no un mensaje informativo que pueda ignorarse.
+
+Las unidades versionadas `ops/systemd/agendasalon-registration-purge.service` y
+`ops/systemd/agendasalon-registration-purge.timer` fijan expresamente el perfil
+`config.settings.prod` y programan la purga cada quince minutos. La instalación
+controlada es:
+
+```bash
+install -o root -g root -m 0644 ops/systemd/agendasalon-registration-purge.service /etc/systemd/system/
+install -o root -g root -m 0644 ops/systemd/agendasalon-registration-purge.timer /etc/systemd/system/
+systemd-analyze verify /etc/systemd/system/agendasalon-registration-purge.service /etc/systemd/system/agendasalon-registration-purge.timer
+systemctl daemon-reload
+systemctl disable --now agendasalon-registration-purge.timer
+test "$(systemctl is-active agendasalon-registration-purge.timer)" = "inactive"
+test "$(systemctl is-enabled agendasalon-registration-purge.timer)" = "disabled"
+systemctl start agendasalon-registration-purge.service
+systemctl show agendasalon-registration-purge.service -p Result -p ExecMainStatus
+test "$(systemctl show agendasalon-registration-purge.service -p Result --value)" = "success"
+test "$(systemctl show agendasalon-registration-purge.service -p ExecMainStatus --value)" = "0"
+systemctl enable agendasalon-registration-purge.timer
+systemctl start agendasalon-registration-purge.timer
+```
+
+La primera ejecución del servicio se hace con el temporizador aún deshabilitado.
+Solo si termina con `Result=success`, `ExecMainStatus=0` y cero datos inesperados
+se habilita el calendario. Un servicio `oneshot` queda normalmente `inactive`
+entre pasadas; eso no es un fallo.
+
+### Limpieza de sesiones caducadas
+
+La sesión pendiente no conserva nombre ni teléfono, pero sí el correo enviado
+por la propia persona para poder mostrar una respuesta genérica. Django no
+elimina automáticamente de la tabla `django_session` las filas que ya han
+caducado. Por eso esta limpieza se ejecuta de forma independiente:
+
+```bash
+python manage.py clearsessions --settings=config.settings.prod
+```
+
+Las unidades `ops/systemd/agendasalon-session-cleanup.service` y
+`ops/systemd/agendasalon-session-cleanup.timer` fijan también el perfil de
+producción y programan el comando a las 00:20, 06:20, 12:20 y 18:20, con
+`Persistent=true`. No se acopla a la purga de altas pendientes: un fallo en una
+tarea no debe bloquear la otra. Se instalan y verifican con el mismo patrón:
+
+```bash
+install -o root -g root -m 0644 ops/systemd/agendasalon-session-cleanup.service /etc/systemd/system/
+install -o root -g root -m 0644 ops/systemd/agendasalon-session-cleanup.timer /etc/systemd/system/
+systemd-analyze verify /etc/systemd/system/agendasalon-session-cleanup.service /etc/systemd/system/agendasalon-session-cleanup.timer
+systemctl daemon-reload
+systemctl disable --now agendasalon-session-cleanup.timer
+test "$(systemctl is-active agendasalon-session-cleanup.timer)" = "inactive"
+test "$(systemctl is-enabled agendasalon-session-cleanup.timer)" = "disabled"
+systemctl start agendasalon-session-cleanup.service
+systemctl show agendasalon-session-cleanup.service -p Result -p ExecMainStatus
+test "$(systemctl show agendasalon-session-cleanup.service -p Result --value)" = "success"
+test "$(systemctl show agendasalon-session-cleanup.service -p ExecMainStatus --value)" = "0"
+systemctl enable agendasalon-session-cleanup.timer
+systemctl start agendasalon-session-cleanup.timer
+systemctl list-timers --all agendasalon-registration-purge.timer agendasalon-session-cleanup.timer
+```
+
+### Aceptación operativa de P2
+
+Antes de abrir tráfico se repite la fotografía sin PII. Deben conservarse los
+recuentos canónicos de negocios, usuarios, clientes, accesos, citas y solicitudes;
+no puede haber altas pendientes sin caducidad, caducidades en accesos que ya no
+estén pendientes, correos `PROCESSING` con un `lease` incoherente ni revisiones de
+festivos recién creadas. Las sesiones activas se comparan por separado; las
+caducadas son estado efímero y `clearsessions` debe retirarlas.
+
+```bash
+python manage.py shell --settings=config.settings.prod <<'PY'
+from django.contrib.auth import get_user_model
+from django.contrib.sessions.models import Session
+from django.utils import timezone
+from apps.booking.models import Appointment
+from apps.businesses.models import Business, BusinessSignupRequest
+from apps.customers.models import BusinessClient, BusinessClientAccess
+from apps.holidays.models import HolidayAppointmentReview
+from apps.notifications.models import OutboundEmail
+
+now = timezone.now()
+print({
+    "businesses": Business.objects.count(),
+    "users": get_user_model().objects.count(),
+    "clients": BusinessClient.objects.count(),
+    "accesses": BusinessClientAccess.objects.count(),
+    "appointments": Appointment.objects.count(),
+    "signup_requests": BusinessSignupRequest.objects.count(),
+    "outbox_total": OutboundEmail.objects.count(),
+    "outbox_processing": OutboundEmail.objects.filter(status=OutboundEmail.Status.PROCESSING).count(),
+    "active_leases": OutboundEmail.objects.filter(status=OutboundEmail.Status.PROCESSING, lease_expires_at__gt=now).count(),
+    "sessions_active": Session.objects.filter(expire_date__gt=now).count(),
+    "sessions_expired": Session.objects.filter(expire_date__lte=now).count(),
+    "pending_without_expiry": BusinessClientAccess.objects.filter(is_pending_public_registration=True, email_verified_at__isnull=True, public_registration_expires_at__isnull=True).count(),
+    "expiry_outside_pending": BusinessClientAccess.objects.filter(is_pending_public_registration=False, public_registration_expires_at__isnull=False).count(),
+    "holiday_reviews": HolidayAppointmentReview.objects.count(),
+})
+PY
+```
+
+Justo antes de abrir tráfico, `pending_without_expiry`,
+`expiry_outside_pending`, `holiday_reviews`, `outbox_processing` y
+`active_leases` deben ser cero. El resto se contrasta con la fotografía previa;
+en la demo canónica P1 eran 2 negocios, 3 usuarios, 8 clientes, 4 accesos, 23
+citas y 0 solicitudes de alta y correos.
+
+Después se rearman los servicios previos y se comprueban todos, incluidos los
+nuevos:
+
+```bash
+systemctl enable gunicorn-agendasalon.service agendasalon-email.timer backup-agendasalon.timer check-agendasalon-backup.timer
+systemctl start gunicorn-agendasalon.service agendasalon-email.timer backup-agendasalon.timer check-agendasalon-backup.timer
+systemctl is-enabled gunicorn-agendasalon.service agendasalon-email.timer backup-agendasalon.timer check-agendasalon-backup.timer agendasalon-registration-purge.timer agendasalon-session-cleanup.timer
+systemctl is-active gunicorn-agendasalon.service agendasalon-email.timer backup-agendasalon.timer check-agendasalon-backup.timer agendasalon-registration-purge.timer agendasalon-session-cleanup.timer
+systemctl list-timers --all agendasalon-email.timer backup-agendasalon.timer check-agendasalon-backup.timer agendasalon-registration-purge.timer agendasalon-session-cleanup.timer
+systemctl show agendasalon-registration-purge.service agendasalon-session-cleanup.service -p Result -p ExecMainStatus
+systemctl --failed
+journalctl -u gunicorn-agendasalon.service -u agendasalon-registration-purge.service -u agendasalon-session-cleanup.service --since "<inicio-despliegue>" --no-pager
+```
+
+La aceptación HTTP es de solo lectura: redirección de HTTP a HTTPS, respuesta
+correcta de `/`, `/entrar/`, `/solicitar-alta/`, reserva pública y documentos
+legales; la privacidad del negocio debe devolver `Cache-Control: no-store`.
+También se comprueban el socket interno, Nginx y PostgreSQL. Por último se crea y
+verifica una copia posterior autenticada y se confirma de nuevo el SHA exacto y
+el árbol limpio.
+
+```bash
+curl -fsSI http://agendasalon.brvsoftwarestudio.com/
+for path in / /entrar/ /solicitar-alta/ /reservar/peluqueria-mari/ /legal/ /legal/negocios/peluqueria-mari/privacidad/; do
+  curl -fsSI "https://agendasalon.brvsoftwarestudio.com${path}"
+done
+test -S /run/agendasalon/gunicorn.sock
+nginx -t
+pg_isready
+git rev-parse HEAD
+git status --short
+```
+
+La primera respuesta debe redirigir con `301`; las HTTPS deben ser correctas y
+la última ruta legal debe incluir `Cache-Control: no-store`. `git status --short`
+no debe devolver ninguna línea.
+
+### Rollback de P2
+
+Si cualquiera de los servicios o temporizadores falla, se detiene y deshabilita
+antes de reabrir tráfico. Desde el momento en que se aplica una migración P2, el
+procedimiento estándar de rollback es restaurar la protección previa completa;
+no se bajan migraciones de forma automática. Tras abrir tráfico pueden existir
+caducidades renovadas o revisiones profesionales que el reverso perdería, aunque
+la purga no haya eliminado ninguna fila.
+
+El rollback seguro exige detener y deshabilitar todos los escritores y
+temporizadores, restaurar conjuntamente PostgreSQL y medios desde la copia fría
+o el snapshot, volver al SHA P1 compatible y repetir la aceptación completa
+antes de reabrir. Nunca se cruza hacia atrás `customers.0014`.
 
 ## Cabeceras y contenido activo
 

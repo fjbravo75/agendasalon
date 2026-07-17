@@ -7,7 +7,14 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.holidays.models import HolidaySyncRun, OfficialHoliday
+from apps.booking.models import Appointment, WorkLine
+from apps.businesses.models import Business
+from apps.customers.models import BusinessClient
+from apps.holidays.models import (
+    HolidayAppointmentReview,
+    HolidaySyncRun,
+    OfficialHoliday,
+)
 
 
 class HolidayAdminReadOnlyTests(TestCase):
@@ -33,6 +40,37 @@ class HolidayAdminReadOnlyTests(TestCase):
             finished_at=timezone.now(),
             items_loaded=1,
         )
+        business = Business.objects.create(
+            commercial_name="Salón admin BOE",
+            slug="salon-admin-boe",
+        )
+        client_file = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente admin BOE",
+        )
+        work_line = WorkLine.objects.create(
+            business=business,
+            line_number=1,
+            name="Línea admin BOE",
+        )
+        starts_at = timezone.make_aware(datetime(2026, 1, 1, 10, 0))
+        appointment = Appointment.objects.create(
+            business=business,
+            business_client=client_file,
+            work_line=work_line,
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(minutes=30),
+            total_duration_minutes=30,
+            created_by=self.superuser,
+        )
+        self.review = HolidayAppointmentReview.objects.create(
+            appointment=appointment,
+            holiday=self.holiday,
+            holiday_date=self.holiday.date,
+            holiday_name=self.holiday.name,
+            reviewed_by=self.superuser,
+            reviewed_at=timezone.now(),
+        )
         self.client.force_login(self.superuser)
 
     def _admin_url(self, model, action, *args):
@@ -46,6 +84,7 @@ class HolidayAdminReadOnlyTests(TestCase):
         for model, instance in (
             (OfficialHoliday, self.holiday),
             (HolidaySyncRun, self.run),
+            (HolidayAppointmentReview, self.review),
         ):
             with self.subTest(model=model.__name__):
                 model_admin = admin.site._registry[model]
@@ -68,6 +107,7 @@ class HolidayAdminReadOnlyTests(TestCase):
         for model, instance in (
             (OfficialHoliday, self.holiday),
             (HolidaySyncRun, self.run),
+            (HolidayAppointmentReview, self.review),
         ):
             with self.subTest(model=model.__name__):
                 self.assertEqual(
@@ -91,6 +131,9 @@ class HolidayAdminReadOnlyTests(TestCase):
 
         self.assertTrue(OfficialHoliday.objects.filter(pk=self.holiday.pk).exists())
         self.assertTrue(HolidaySyncRun.objects.filter(pk=self.run.pk).exists())
+        self.assertTrue(
+            HolidayAppointmentReview.objects.filter(pk=self.review.pk).exists()
+        )
 
     @patch("apps.holidays.models.timezone.now")
     def test_run_admin_uses_the_operational_status_everywhere(self, mocked_now):

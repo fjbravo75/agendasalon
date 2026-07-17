@@ -11,19 +11,28 @@
           <div class="client-auth-business-signal">{{ business.commercial_name }}</div>
           {% if verification_valid %}
             {% if privacy_document_available %}
-              <h1>Confirma tu correo.</h1>
-              <p>
-                El correo es la identidad de tu cuenta. Crea ahora una contraseña que
-                solo tú conozcas; no guardamos ninguna clave elegida antes de demostrar
-                que este correo es tuyo.
-              </p>
+              {% if can_correct_public_profile %}
+                <h1>Revisa tus datos y confirma tu correo.</h1>
+                <p>Ya has demostrado que este correo es tuyo. Comprueba ahora tu nombre y teléfono antes de activar la cuenta.</p>
+              {% else %}
+                <h1>Confirma tu correo.</h1>
+                <p>
+                  El correo es la identidad de tu cuenta. Crea ahora una contraseña que
+                  solo tú conozcas; no guardamos ninguna clave elegida antes de demostrar
+                  que este correo es tuyo.
+                </p>
+              {% endif %}
             {% else %}
               <h1>La activación está temporalmente en pausa.</h1>
               <p>Tu enlace sigue siendo válido, pero antes necesitamos poder mostrarte la información de privacidad.</p>
             {% endif %}
           {% else %}
             <h1>Este enlace ya no está disponible.</h1>
-            <p>Puede que haya caducado, ya se haya usado o el correo de la cuenta haya cambiado.</p>
+            {% if business.is_active and business.public_booking_enabled %}
+              <p>Vuelve a registrarte para solicitar otro enlace. Si ya tienes cuenta, entra o recupera tu contraseña.</p>
+            {% else %}
+              <p>Cuando vuelvan a abrir las altas, podrás registrarte de nuevo. Si ya tienes cuenta, entra o recupera tu contraseña.</p>
+            {% endif %}
           {% endif %}
         </div>
 
@@ -35,6 +44,7 @@
                 <p>
                   Vas a confirmar <strong>{{ access.email }}</strong> como correo de tu
                   cuenta en {{ business.commercial_name }}.
+                  {% if can_correct_public_profile %}Este correo no se puede cambiar desde el enlace de verificación.{% endif %}
                 </p>
               {% else %}
                 <p>El correo <strong>{{ access.email }}</strong> sigue pendiente de confirmación en {{ business.commercial_name }}.</p>
@@ -54,6 +64,25 @@
 
                 {% if verification_form.non_field_errors %}
                   <div class="login-form-error" role="alert" tabindex="-1" data-error-summary>{{ verification_form.non_field_errors }}</div>
+                {% endif %}
+
+                {% if can_correct_public_profile %}
+                  <p class="required-fields-note"><span aria-hidden="true">*</span> Nombre y teléfono son obligatorios.</p>
+                  <div class="login-field{% if verification_form.full_name.errors %} is-error{% endif %}">
+                    <label for="{{ verification_form.full_name.id_for_label }}">NOMBRE <span aria-hidden="true">*</span></label>
+                    {{ verification_form.full_name }}
+                    {% if verification_form.full_name.errors %}
+                      <div class="login-field-error" role="alert">{{ verification_form.full_name.errors }}</div>
+                    {% endif %}
+                  </div>
+
+                  <div class="login-field{% if verification_form.phone.errors %} is-error{% endif %}">
+                    <label for="{{ verification_form.phone.id_for_label }}">TELÉFONO <span aria-hidden="true">*</span></label>
+                    {{ verification_form.phone }}
+                    {% if verification_form.phone.errors %}
+                      <div class="login-field-error" role="alert">{{ verification_form.phone.errors }}</div>
+                    {% endif %}
+                  </div>
                 {% endif %}
 
                 <div class="login-field{% if verification_form.password.errors %} is-error{% endif %}">
@@ -77,15 +106,19 @@
 
                 {% if business.legal_compliance_enabled %}
                   <div class="legal-consent{% if verification_form.privacy_acknowledged.errors %} is-error{% endif %}">
-                    <label for="{{ verification_form.privacy_acknowledged.id_for_label }}">
+                    <div class="legal-consent__choice">
                       {{ verification_form.privacy_acknowledged }}
-                      <span>
-                        Confirmo que he recibido y leído la
-                        <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">información sobre el tratamiento de mis datos</a>
-                        por {{ business.commercial_name }}{% if privacy_document %} (versión {{ privacy_document.version }}){% endif %}.
-                        Esta confirmación sirve para gestionar mi cuenta y mis reservas; no autoriza publicidad.
-                      </span>
-                    </label>
+                      <div class="legal-consent__body">
+                        <label for="{{ verification_form.privacy_acknowledged.id_for_label }}">
+                          Confirmo que he recibido y leído la información sobre el tratamiento de mis datos
+                          por {{ business.commercial_name }}{% if privacy_document %} (versión {{ privacy_document.version }}){% endif %}.
+                          Esta confirmación sirve para gestionar mi cuenta y mis reservas; no autoriza publicidad.
+                        </label>
+                        <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">
+                          Consultar la información de privacidad<span class="legal-new-tab-note"> (se abre en otra pestaña)</span>
+                        </a>
+                      </div>
+                    </div>
                     {% if verification_form.privacy_acknowledged.errors %}
                       <div class="login-field-error" role="alert">{{ verification_form.privacy_acknowledged.errors }}</div>
                     {% endif %}
@@ -99,12 +132,14 @@
               {% endif %}
             {% else %}
               <h2>Volvamos a empezar.</h2>
-              <p>Entra con tu cuenta o pide un enlace nuevo desde el registro pendiente.</p>
+              <p>Este enlace no se puede reutilizar. Elige cómo quieres continuar.</p>
               {% if business.is_active and business.public_booking_enabled %}
-                <a class="login-button login-button--link" href="{% url 'customers:client_access' business.slug %}">Ir al acceso cliente</a>
-              {% else %}
-                <a class="login-button login-button--link" href="{% url 'legal:business_privacy' business.slug %}">Ver información de privacidad</a>
+                <a class="login-button login-button--link" href="{% url 'customers:client_register' business.slug %}">Volver a registrarme</a>
               {% endif %}
+              <div class="login-signup-cta">
+                <span>¿Ya tienes una cuenta?</span>
+                <a href="{% url 'customers:client_access' business.slug %}">Entrar o recuperar mi contraseña</a>
+              </div>
             {% endif %}
           </div>
         </aside>

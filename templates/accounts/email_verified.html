@@ -1,3 +1,30 @@
 {% extends "base.html" %}
-{% block title %}Correo verificado - AgendaSalon{% endblock %}
-{% block content %}<section class="saas-dashboard"><div class="saas-side-panel standalone-result-card"><span>Seguridad de la cuenta</span>{% if verification_valid %}<h1>Correo verificado.</h1><p>Ya puedes entrar en AgendaSalon con normalidad.</p><a class="button" href="{% url 'accounts:login' %}">Entrar en AgendaSalon</a>{% else %}<h1>Este enlace ya no está disponible.</h1><p>Puede que ya se haya usado o que el correo de la cuenta haya cambiado.</p><a class="button button--secondary" href="{% url 'accounts:login' %}">Volver a entrar</a>{% endif %}</div></section>{% endblock %}
+{% block title %}{% if verification_pending %}Confirmar correo{% else %}Correo verificado{% endif %} - AgendaSalon{% endblock %}
+{% block content %}
+  <section class="saas-dashboard">
+    <div class="saas-side-panel standalone-result-card">
+      <span>Seguridad de la cuenta</span>
+      {% if verification_valid %}
+        {% if verification_pending %}
+          <h1>Confirma tu correo.</h1>
+          <p>
+            Vas a confirmar <strong>{{ verification_email }}</strong> como correo de tu
+            cuenta profesional. Solo lo haremos cuando pulses el botón.
+          </p>
+          <form method="post" aria-label="Confirmación de correo">
+            {% csrf_token %}
+            <button class="button" type="submit">Confirmar mi correo</button>
+          </form>
+        {% else %}
+          <h1>Correo verificado.</h1>
+          <p>Ya puedes entrar en AgendaSalon con normalidad.</p>
+          <a class="button" href="{% url 'accounts:login' %}">Entrar en AgendaSalon</a>
+        {% endif %}
+      {% else %}
+        <h1>Este enlace ya no está disponible.</h1>
+        <p>Puede que ya se haya usado o que el correo de la cuenta haya cambiado.</p>
+        <a class="button button--secondary" href="{% url 'accounts:login' %}">Volver a entrar</a>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

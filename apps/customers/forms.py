@@ -125,6 +125,24 @@ class ClientPasswordResetRequestForm(forms.Form):
 
 
 class ClientEmailVerificationForm(forms.Form):
+    full_name = forms.CharField(
+        label="Nombre",
+        max_length=160,
+        error_messages={"required": "Indica tu nombre."},
+        widget=forms.TextInput(attrs={"autocomplete": "name", "placeholder": "Nombre completo"}),
+    )
+    phone = forms.CharField(
+        label="Teléfono",
+        max_length=32,
+        error_messages={"required": "Indica tu teléfono."},
+        widget=forms.TextInput(
+            attrs={
+                "autocomplete": "tel",
+                "inputmode": "tel",
+                "placeholder": "Teléfono (600 000 000)",
+            }
+        ),
+    )
     password = forms.CharField(
         label="Nueva contraseña",
         widget=forms.PasswordInput(
@@ -149,9 +167,44 @@ class ClientEmailVerificationForm(forms.Form):
         required=False,
     )
 
-    def __init__(self, *args, business, **kwargs):
+    def __init__(self, *args, business, access=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.business = business
+        self.access = access
+        self.can_correct_public_profile = bool(
+            access is not None and access.is_pending_public_registration
+        )
+        if self.can_correct_public_profile:
+            self.initial.update(
+                {
+                    "full_name": access.business_client.full_name,
+                    "phone": access.phone,
+                }
+            )
+            if self.is_bound:
+                data = self.data.copy()
+                if "full_name" not in data:
+                    data["full_name"] = self.initial["full_name"]
+                if "phone" not in data:
+                    data["phone"] = self.initial["phone"]
+                self.data = data
+        else:
+            self.fields.pop("full_name")
+            self.fields.pop("phone")
+
+    def clean_full_name(self):
+        full_name = self.cleaned_data["full_name"].strip()
+        if not full_name:
+            raise forms.ValidationError("Indica tu nombre.")
+        return full_name
+
+    def clean_phone(self):
+        phone = self.cleaned_data["phone"]
+        try:
+            normalize_phone(phone)
+        except DjangoValidationError as exc:
+            raise forms.ValidationError("Revisa el teléfono.") from exc
+        return phone
 
     def clean(self):
         cleaned_data = super().clean()
