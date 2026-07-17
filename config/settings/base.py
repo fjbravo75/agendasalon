@@ -196,6 +196,8 @@ AGENDA_PLATFORM_WEBSITE = os.environ.get(
 )
 AGENDA_TRANSACTIONAL_EMAIL_ENABLED = False
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_TIMEOUT = 20
+AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS = 120
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DEFAULT_FROM_EMAIL",
     "AgendaSalon <agendasalon@localhost>",

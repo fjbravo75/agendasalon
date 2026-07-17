@@ -74,6 +74,83 @@ describe("ProfessionalAgenda", () => {
     expect(screen.getByRole("button", { name: "Intentar de nuevo" })).toBeInTheDocument();
   });
 
+  it("presenta la hora recomendada con un estado accesible y copy directo", async () => {
+    const recommendedSlot = {
+      work_line_id: 1,
+      work_line_name: "Línea 1",
+      starts_at: "2026-07-13T09:00:00+02:00",
+      ends_at: "2026-07-13T10:00:00+02:00",
+      duration_minutes: 60,
+      reason: "primer_hueco",
+    };
+    const fetchMock = vi.fn((url) => {
+      if (url.startsWith(config.monthEndpoint)) {
+        return Promise.resolve(jsonResponse(payloadFor(url)));
+      }
+      return Promise.resolve(jsonResponse({
+        ...payloadFor(url),
+        work_lines: [{
+          id: 1,
+          name: "Línea 1",
+          appointments: [],
+          available_slots: [recommendedSlot],
+        }],
+        recommended_slot: recommendedSlot,
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProfessionalAgenda config={config} />);
+
+    const timelineSlot = await screen.findByRole("button", { name: "Elegir 09:00 en Línea 1" });
+    expect(timelineSlot).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("Las horas en verde indican dónde cabe la cita completa.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Elegir esta hora" }));
+
+    expect(timelineSlot).toHaveAttribute("aria-pressed", "true");
+    const continueLink = screen.getByRole("link", { name: "Preparar esta cita" });
+    expect(continueLink).toHaveAttribute(
+      "href",
+      expect.stringContaining("prefill_from_agenda=1"),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(continueLink));
+  });
+
+  it("conserva el foco al elegir directamente una hora de la línea temporal", async () => {
+    const availableSlot = {
+      work_line_id: 1,
+      work_line_name: "Línea 1",
+      starts_at: "2026-07-13T09:00:00+02:00",
+      ends_at: "2026-07-13T10:00:00+02:00",
+      duration_minutes: 60,
+      reason: "primer_hueco",
+    };
+    const fetchMock = vi.fn((url) => {
+      if (url.startsWith(config.monthEndpoint)) {
+        return Promise.resolve(jsonResponse(payloadFor(url)));
+      }
+      return Promise.resolve(jsonResponse({
+        ...payloadFor(url),
+        work_lines: [{
+          id: 1,
+          name: "Línea 1",
+          appointments: [],
+          available_slots: [availableSlot],
+        }],
+        recommended_slot: availableSlot,
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProfessionalAgenda config={config} />);
+
+    const timelineSlot = await screen.findByRole("button", { name: "Elegir 09:00 en Línea 1" });
+    timelineSlot.focus();
+    fireEvent.click(timelineSlot);
+
+    expect(timelineSlot).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(timelineSlot);
+  });
+
   it("conserva la línea y la hora exactas de una sugerencia tras cargar el nuevo día", async () => {
     const suggestedSlot = {
       work_line_id: 2,
@@ -127,7 +204,13 @@ describe("ProfessionalAgenda", () => {
     expect(await screen.findByRole("button", { name: "Línea 2" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Hora elegida" })).toBeInTheDocument();
     expect(screen.getByText("Línea 2 · 60 min")).toBeInTheDocument();
-    const continueLink = screen.getByRole("link", { name: "Continuar en Nueva cita" });
+    const selectedSlotButton = screen.getByRole("button", { name: "Elegir 09:00 en Línea 2" });
+    expect(selectedSlotButton).toHaveAttribute("aria-pressed", "true");
+    const continueLink = screen.getByRole("link", { name: "Preparar esta cita" });
+    expect(continueLink).toHaveAttribute(
+      "href",
+      expect.stringContaining("prefill_from_agenda=1"),
+    );
     expect(continueLink).toHaveAttribute(
       "href",
       expect.stringContaining("target_date=2026-07-23"),
@@ -139,5 +222,6 @@ describe("ProfessionalAgenda", () => {
     expect(continueLink.getAttribute("href")).toContain(
       "selected_starts_at=2026-07-23T09%3A00%3A00%2B02%3A00",
     );
+    await waitFor(() => expect(document.activeElement).toBe(continueLink));
   });
 });

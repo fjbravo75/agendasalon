@@ -5311,6 +5311,21 @@ a {
   gap: 18px;
 }
 
+.business-signup-form__fields,
+.legal-form__fields {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 18px;
+}
+
+.business-signup-form__fields:disabled,
+.legal-form__fields:disabled {
+  opacity: 0.68;
+}
+
 .business-signup-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -3,6 +3,7 @@ from datetime import datetime, time, timedelta
 from threading import Barrier, Event
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connections
 from django.test import Client, TransactionTestCase, skipUnlessDBFeature
@@ -22,12 +23,19 @@ from apps.booking.models import (
 )
 from apps.booking.services import (
     AppointmentDraft,
+    close_appointments,
     complete_appointment,
     confirm_appointment,
     mark_appointment_no_show,
 )
 from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
-from apps.customers.models import BusinessClient
+from apps.customers.models import BusinessClient, BusinessClientAccess
+from apps.customers.services import (
+    CLIENT_ACCESS_LAST_SEEN_SESSION_KEY,
+    CLIENT_ACCESS_PASSWORD_SESSION_KEY,
+    CLIENT_ACCESS_SESSION_KEY,
+    client_password_fingerprint,
+)
 
 
 @skipUnlessDBFeature("has_select_for_update")
@@ -112,6 +120,99 @@ class PostgreSQLAppointmentConcurrencyTests(TransactionTestCase):
             ).count(),
             1,
         )
+
+    def test_bulk_outcome_prelocks_calendar_before_a_single_outcome(self):
+        second_starts_at = self.appointment.starts_at - timedelta(hours=2)
+        second_appointment = Appointment.objects.create(
+            business=self.business,
+            business_client=self.client_file,
+            work_line=self.work_line,
+            starts_at=second_starts_at,
+            ends_at=second_starts_at + timedelta(hours=1),
+            total_duration_minutes=60,
+            status=Appointment.Status.CONFIRMED,
+            manual_channel=Appointment.ManualChannel.PHONE,
+            created_by=self.user,
+        )
+        first_completed = Event()
+        single_lock_started = Event()
+        single_finished = Event()
+        state = {"complete_calls": 0, "single_finished_before_bulk": None}
+        real_complete_appointment = complete_appointment
+        real_calendar_lock = booking_services.lock_business_calendar
+
+        def held_complete_appointment(*args, **kwargs):
+            result = real_complete_appointment(*args, **kwargs)
+            state["complete_calls"] += 1
+            if state["complete_calls"] == 1:
+                first_completed.set()
+                if not single_lock_started.wait(timeout=5):
+                    raise AssertionError(
+                        "La transición individual no intentó bloquear la agenda."
+                    )
+                state["single_finished_before_bulk"] = single_finished.wait(
+                    timeout=0.25
+                )
+            return result
+
+        def observed_calendar_lock(business):
+            single_lock_started.set()
+            return real_calendar_lock(business)
+
+        def bulk_worker():
+            connections.close_all()
+            try:
+                appointments = tuple(
+                    Appointment.objects.filter(
+                        pk__in=(self.appointment.pk, second_appointment.pk)
+                    ).order_by("pk")
+                )
+                with patch(
+                    "apps.booking.services.complete_appointment",
+                    side_effect=held_complete_appointment,
+                ):
+                    return close_appointments(
+                        appointments,
+                        outcome=Appointment.Status.COMPLETED,
+                        closed_by=User.objects.get(pk=self.user.pk),
+                    )
+            finally:
+                connections.close_all()
+
+        def single_worker():
+            connections.close_all()
+            try:
+                if not first_completed.wait(timeout=5):
+                    raise AssertionError("El cierre masivo no completó la primera cita.")
+                try:
+                    with patch(
+                        "apps.booking.services.lock_business_calendar",
+                        side_effect=observed_calendar_lock,
+                    ):
+                        mark_appointment_no_show(
+                            Appointment.objects.get(pk=second_appointment.pk),
+                            marked_by=User.objects.get(pk=self.user.pk),
+                        )
+                except ValidationError:
+                    return "rejected"
+                return "committed"
+            finally:
+                single_finished.set()
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            bulk_future = executor.submit(bulk_worker)
+            single_future = executor.submit(single_worker)
+            bulk_count = bulk_future.result(timeout=10)
+            single_result = single_future.result(timeout=10)
+
+        self.appointment.refresh_from_db()
+        second_appointment.refresh_from_db()
+        self.assertFalse(state["single_finished_before_bulk"])
+        self.assertEqual(bulk_count, 2)
+        self.assertEqual(single_result, "rejected")
+        self.assertEqual(self.appointment.status, Appointment.Status.COMPLETED)
+        self.assertEqual(second_appointment.status, Appointment.Status.COMPLETED)
 
 
 @skipUnlessDBFeature("has_select_for_update")
@@ -237,6 +338,81 @@ class PostgreSQLCalendarMutationConcurrencyTests(TransactionTestCase):
                 status=Appointment.Status.CONFIRMED,
             ).count(),
             2,
+        )
+
+    def test_two_posts_from_the_same_public_draft_create_only_one_appointment(self):
+        access = BusinessClientAccess(
+            business=self.business,
+            business_client=self.client_file,
+            phone=self.client_file.phone,
+            email="cliente-replay@example.test",
+            email_verified_at=timezone.now(),
+        )
+        access.set_password("test-pass")
+        access.save()
+
+        browser = Client()
+        session = browser.session
+        session[CLIENT_ACCESS_SESSION_KEY] = access.pk
+        session[CLIENT_ACCESS_LAST_SEEN_SESSION_KEY] = timezone.now().isoformat()
+        session[CLIENT_ACCESS_PASSWORD_SESSION_KEY] = client_password_fingerprint(access)
+        session.save()
+        booking_url = reverse("public_booking", args=[self.business.slug])
+        choose_response = browser.post(
+            booking_url,
+            {
+                "action": "choose_slot",
+                "services": [self.service.pk],
+                "target_date": self.target_date.isoformat(),
+                "selected_work_line_id": self.work_line.pk,
+                "selected_starts_at": self.starts_at.isoformat(),
+            },
+        )
+        self.assertEqual(choose_response.status_code, 302)
+        shared_session_key = browser.cookies[settings.SESSION_COOKIE_NAME].value
+        barrier = Barrier(2)
+
+        def confirm_same_draft():
+            connections.close_all()
+            replay_browser = Client()
+            replay_browser.cookies[settings.SESSION_COOKIE_NAME] = shared_session_key
+            try:
+                barrier.wait(timeout=5)
+                response = replay_browser.post(
+                    booking_url,
+                    {"action": "confirm_booking"},
+                )
+                return response.status_code, response.get("Location", "")
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(lambda _: confirm_same_draft(), range(2)))
+
+        receipt_url = reverse("public_booking_receipt", args=[self.business.slug])
+        self.assertEqual(responses, [(302, receipt_url), (302, receipt_url)])
+        appointments = Appointment.objects.filter(
+            business=self.business,
+            business_client=self.client_file,
+            starts_at=self.starts_at,
+            manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+        )
+        self.assertEqual(appointments.count(), 1)
+        appointment = appointments.get()
+        self.assertIsNotNone(appointment.public_confirmation_reference)
+        self.assertEqual(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                event_type=BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                entity_type="appointment",
+                entity_id=str(appointment.pk),
+            ).count(),
+            1,
+        )
+        self.assertGreater(appointment.outbound_emails.count(), 0)
+        self.assertEqual(
+            appointment.outbound_emails.values("deduplication_key").distinct().count(),
+            appointment.outbound_emails.count(),
         )
 
     def test_confirm_and_pause_schedule_cannot_commit_incompatible_states(self):

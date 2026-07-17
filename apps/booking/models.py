@@ -402,6 +402,17 @@ class Appointment(models.Model):
         max_length=80,
         blank=True,
     )
+    public_confirmation_reference = models.UUIDField(
+        "referencia de confirmación pública",
+        unique=True,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=(
+            "Identificador idempotente del borrador público. "
+            "Las citas creadas por profesionales no lo utilizan."
+        ),
+    )
     cancelled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

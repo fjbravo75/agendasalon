@@ -2,15 +2,20 @@ from datetime import date, datetime, time, timedelta
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import urlencode
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.template.defaultfilters import date as date_filter
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.booking.calendar_locking import (
+    lock_business_calendar as real_lock_business_calendar,
+)
 from apps.booking.models import Appointment, Service
 from apps.booking.public_booking_drafts import (
     PUBLIC_BOOKING_DRAFTS_SESSION_KEY,
@@ -22,8 +27,20 @@ from apps.booking.public_booking_drafts import (
 )
 from apps.booking.slot_engine import CHANNEL_PUBLIC, get_booking_options, get_day_availability
 from apps.businesses.models import Business, BusinessActivityEvent
-from apps.customers.models import BusinessClientAccess, BusinessClientAccessGrant
-from apps.legal.models import CustomerPrivacyEvidence, LegalDocument
+from apps.customers.forms import ProfessionalClientQuickForm
+from apps.customers.models import (
+    BusinessClient,
+    BusinessClientAccess,
+    BusinessClientAccessGrant,
+)
+from apps.legal.models import (
+    CustomerPrivacyEvidence,
+    CustomerPrivacyEvidenceEvent,
+    LegalAcceptanceEvent,
+    LegalDocument,
+)
+from apps.legal.presentations import LEGAL_PRESENTATION_CHANGED_MESSAGE
+from apps.legal.services import EVENT_FINGERPRINT_COLLISION_MESSAGE
 
 
 class AppointmentAssistantTests(TestCase):
@@ -110,6 +127,434 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotContains(response, "service-choice-list--scrollable")
         self.assertNotContains(response, 'data-service-count="5" tabindex="0"')
 
+    def test_assistant_quick_client_pauses_without_a_privacy_document(self):
+        document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        )
+        document.is_active = False
+        document.save(update_fields=["is_active"])
+        self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+        client_count = self.business.clients.count()
+
+        page = self.client.get(assistant_url)
+        response = self.client.post(
+            assistant_url,
+            {
+                "action": "quick_client",
+                "full_name": "Cliente no guardado",
+                "phone": "600333229",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                "privacy_information_provided": "on",
+                "legal_presentation_token": "",
+            },
+        )
+
+        for result in (page, response):
+            with self.subTest(method=result.request["REQUEST_METHOD"]):
+                self.assertEqual(result.status_code, 200)
+                self.assertFalse(
+                    result.context["quick_privacy_document_available"]
+                )
+                self.assertEqual(
+                    result.context["quick_legal_presentation_token"],
+                    "",
+                )
+                self.assertContains(
+                    result,
+                    "Creación temporalmente no disponible",
+                )
+                self.assertContains(
+                    result,
+                    "No hemos guardado ningún dato",
+                    count=1,
+                )
+                self.assertNotContains(result, ">Guardar cliente</button>")
+        self.assertContains(response, "Cliente no guardado")
+        self.assertEqual(self.business.clients.count(), client_count)
+        self.assertFalse(
+            self.business.clients.filter(phone_normalized="+34600333229").exists()
+        )
+
+    def test_assistant_reused_quick_client_rejects_different_optional_data_before_evidence(self):
+        self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+
+        for index, changed_field in enumerate(("email", "internal_notes"), start=1):
+            with self.subTest(changed_field=changed_field):
+                existing = BusinessClient.objects.create(
+                    business=self.business,
+                    full_name=f"Cliente asistente existente {index}",
+                    phone=f"60033346{index}",
+                    email=f"asistente{index}@example.com",
+                    internal_notes=f"Notas asistente {index}",
+                    source=BusinessClient.Source.PROFESSIONAL,
+                )
+                page = self.client.get(assistant_url)
+                payload = {
+                    "action": "quick_client",
+                    "full_name": existing.full_name,
+                    "phone": existing.phone,
+                    "email": existing.email,
+                    "internal_notes": existing.internal_notes,
+                    "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+                    "privacy_information_provided": "on",
+                    "legal_presentation_token": page.context[
+                        "quick_legal_presentation_token"
+                    ],
+                }
+                payload[changed_field] = (
+                    f"asistente-distinto{index}@example.com"
+                    if changed_field == "email"
+                    else f"Notas asistente distintas {index}"
+                )
+
+                response = self.client.post(assistant_url, payload)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(
+                    response,
+                    "el correo o las notas no coinciden",
+                )
+                self.assertEqual(
+                    CustomerPrivacyEvidenceEvent.objects.filter(
+                        business_client=existing
+                    ).count(),
+                    0,
+                )
+                self.assertEqual(
+                    CustomerPrivacyEvidence.objects.filter(
+                        business_client=existing
+                    ).count(),
+                    0,
+                )
+                existing.refresh_from_db()
+                self.assertEqual(existing.email, f"asistente{index}@example.com")
+                self.assertEqual(
+                    existing.internal_notes,
+                    f"Notas asistente {index}",
+                )
+
+    def test_assistant_reused_quick_client_exact_replay_is_idempotent(self):
+        self.client.force_login(self.professional)
+        existing = BusinessClient.objects.create(
+            business=self.business,
+            full_name="Cliente asistente replay",
+            phone="600333469",
+            email="asistente-replay@example.com",
+            internal_notes="Datos del asistente ya guardados.",
+            source=BusinessClient.Source.PROFESSIONAL,
+        )
+        assistant_url = reverse("booking:appointment_assistant")
+        page = self.client.get(assistant_url)
+        payload = {
+            "action": "quick_client",
+            "full_name": existing.full_name,
+            "phone": existing.phone,
+            "email": existing.email,
+            "internal_notes": existing.internal_notes,
+            "privacy_channel": CustomerPrivacyEvidence.Channel.PHONE,
+            "privacy_information_provided": "on",
+            "legal_presentation_token": page.context[
+                "quick_legal_presentation_token"
+            ],
+        }
+
+        first = self.client.post(assistant_url, payload)
+        second = self.client.post(assistant_url, payload)
+
+        expected_location = (
+            f"{assistant_url}?{urlencode({'business_client': existing.pk})}"
+        )
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(first["Location"], expected_location)
+        self.assertEqual(second["Location"], expected_location)
+        self.assertEqual(
+            BusinessClient.objects.filter(
+                business=self.business,
+                full_name=existing.full_name,
+                phone_normalized=existing.phone_normalized,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidenceEvent.objects.filter(
+                business_client=existing
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            CustomerPrivacyEvidence.objects.filter(
+                business_client=existing
+            ).count(),
+            1,
+        )
+
+    def test_quick_client_keeps_privacy_confirmation_when_other_data_is_invalid(self):
+        self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+        page = self.client.get(assistant_url)
+
+        response = self.client.post(
+            assistant_url,
+            {
+                "action": "quick_client",
+                "full_name": "",
+                "phone": "600333224",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                "privacy_information_provided": "on",
+                "legal_presentation_token": page.context[
+                    "quick_legal_presentation_token"
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["quick_client_form"][
+                "privacy_information_provided"
+            ].value(),
+            True,
+        )
+        self.assertFalse(
+            self.business.clients.filter(phone_normalized="+34600333224").exists()
+        )
+
+    def test_quick_client_clears_privacy_confirmation_if_document_changed(self):
+        self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+        page = self.client.get(assistant_url)
+        old_token = page.context["quick_legal_presentation_token"]
+        old_document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        )
+        old_document.is_active = False
+        old_document.save(update_fields=["is_active"])
+        LegalDocument.objects.create(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            slug="privacidad-clientes-alta-rapida-v2",
+            version="test-alta-rapida-v2",
+            title="Privacidad de clientes",
+            lead="Información actualizada para la prueba.",
+            sections=[{"heading": "Responsable", "body": "Versión vigente."}],
+            is_active=True,
+        )
+
+        response = self.client.post(
+            assistant_url,
+            {
+                "action": "quick_client",
+                "full_name": "",
+                "phone": "600333225",
+                "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                "privacy_information_provided": "on",
+                "legal_presentation_token": old_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'role="alert" tabindex="-1" data-error-summary',
+        )
+        self.assertFalse(
+            response.context["quick_client_form"][
+                "privacy_information_provided"
+            ].value()
+        )
+        self.assertNotEqual(
+            response.context["quick_legal_presentation_token"],
+            old_token,
+        )
+        self.assertContains(response, "versión test-alta-rapida-v2")
+        self.assertFalse(
+            self.business.clients.filter(phone_normalized="+34600333225").exists()
+        )
+
+    def test_quick_client_replay_with_changed_data_renews_confirmation(self):
+        self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+        page = self.client.get(assistant_url)
+        old_token = page.context["quick_legal_presentation_token"]
+        original_payload = {
+            "action": "quick_client",
+            "full_name": "Cliente alta repetida",
+            "phone": "600333230",
+            "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+            "privacy_information_provided": "on",
+            "legal_presentation_token": old_token,
+        }
+
+        first_response = self.client.post(assistant_url, original_payload)
+        self.assertEqual(first_response.status_code, 302)
+        client_count = self.business.clients.count()
+        event_count = CustomerPrivacyEvidenceEvent.objects.count()
+
+        response = self.client.post(
+            assistant_url,
+            {
+                **original_payload,
+                "full_name": "Cliente alta alterada",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, EVENT_FINGERPRINT_COLLISION_MESSAGE)
+        self.assertContains(response, "Cliente alta alterada")
+        self.assertFalse(
+            response.context["quick_client_form"][
+                "privacy_information_provided"
+            ].value()
+        )
+        self.assertNotEqual(
+            response.context["quick_legal_presentation_token"],
+            old_token,
+        )
+        self.assertEqual(self.business.clients.count(), client_count)
+        self.assertEqual(CustomerPrivacyEvidenceEvent.objects.count(), event_count)
+        self.assertFalse(
+            self.business.clients.filter(full_name="Cliente alta alterada").exists()
+        )
+
+    def test_quick_client_rechecks_privacy_before_rerendering_invalid_data(self):
+        self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+        page = self.client.get(assistant_url)
+        old_token = page.context["quick_legal_presentation_token"]
+        original_validate = ProfessionalClientQuickForm.validate_legal_presentation
+
+        def validate_then_rotate(form, **kwargs):
+            receipt = original_validate(form, **kwargs)
+            old_document = LegalDocument.objects.get(
+                kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+                is_active=True,
+            )
+            old_document.is_active = False
+            old_document.save(update_fields=["is_active"])
+            LegalDocument.objects.create(
+                kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+                slug="privacidad-clientes-carrera-alta-rapida",
+                version="test-carrera-alta-rapida",
+                title="Privacidad de clientes",
+                lead="Información actualizada durante la validación.",
+                sections=[{"heading": "Responsable", "body": "Versión vigente."}],
+                is_active=True,
+            )
+            return receipt
+
+        with patch.object(
+            ProfessionalClientQuickForm,
+            "validate_legal_presentation",
+            new=validate_then_rotate,
+        ):
+            response = self.client.post(
+                assistant_url,
+                {
+                    "action": "quick_client",
+                    "full_name": "",
+                    "phone": "600333226",
+                    "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                    "privacy_information_provided": "on",
+                    "legal_presentation_token": old_token,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            response.context["quick_client_form"][
+                "privacy_information_provided"
+            ].value()
+        )
+        self.assertNotEqual(
+            response.context["quick_legal_presentation_token"],
+            old_token,
+        )
+        self.assertContains(response, "versión test-carrera-alta-rapida")
+        self.assertFalse(
+            self.business.clients.filter(phone_normalized="+34600333226").exists()
+        )
+
+    def test_quick_client_rerender_uses_current_compliance_if_it_was_enabled(self):
+        self.business.legal_compliance_enabled = False
+        self.business.save(update_fields=["legal_compliance_enabled", "updated_at"])
+        self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+        page = self.client.get(assistant_url)
+        self.assertEqual(page.context["quick_legal_presentation_token"], "")
+        original_validate = ProfessionalClientQuickForm.validate_legal_presentation
+
+        def enable_compliance_then_validate(form, **kwargs):
+            Business.objects.filter(pk=self.business.pk).update(
+                legal_compliance_enabled=True
+            )
+            return original_validate(form, **kwargs)
+
+        with patch.object(
+            ProfessionalClientQuickForm,
+            "validate_legal_presentation",
+            new=enable_compliance_then_validate,
+        ):
+            response = self.client.post(
+                assistant_url,
+                {
+                    "action": "quick_client",
+                    "full_name": "Nuria Cambio Legal",
+                    "phone": "600333227",
+                    "legal_presentation_token": "",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["business"].legal_compliance_enabled)
+        self.assertTrue(response.context["quick_legal_presentation_token"])
+        self.assertContains(response, "Información al cliente")
+        self.assertFalse(
+            self.business.clients.filter(phone_normalized="+34600333227").exists()
+        )
+
+    def test_quick_client_rerender_hides_obsolete_compliance_if_it_was_disabled(self):
+        self.client.force_login(self.professional)
+        assistant_url = reverse("booking:appointment_assistant")
+        page = self.client.get(assistant_url)
+        self.assertTrue(page.context["quick_legal_presentation_token"])
+        original_validate = ProfessionalClientQuickForm.validate_legal_presentation
+
+        def disable_compliance_then_validate(form, **kwargs):
+            Business.objects.filter(pk=self.business.pk).update(
+                legal_compliance_enabled=False
+            )
+            return original_validate(form, **kwargs)
+
+        with patch.object(
+            ProfessionalClientQuickForm,
+            "validate_legal_presentation",
+            new=disable_compliance_then_validate,
+        ):
+            response = self.client.post(
+                assistant_url,
+                {
+                    "action": "quick_client",
+                    "full_name": "",
+                    "phone": "600333228",
+                    "privacy_channel": CustomerPrivacyEvidence.Channel.IN_PERSON,
+                    "privacy_information_provided": "on",
+                    "legal_presentation_token": page.context[
+                        "quick_legal_presentation_token"
+                    ],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["business"].legal_compliance_enabled)
+        self.assertEqual(response.context["quick_legal_presentation_token"], "")
+        self.assertNotContains(response, "Información al cliente")
+        self.assertFalse(
+            self.business.clients.filter(phone_normalized="+34600333228").exists()
+        )
+
     def test_missing_services_uses_a_compact_actionable_message(self):
         self.client.force_login(self.professional)
         client_id = self.business.clients.get(full_name="Lucía Gómez").id
@@ -127,6 +572,51 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Selecciona al menos un servicio.")
         self.assertNotContains(response, "Este campo es obligatorio.")
         self.assertContains(response, 'class="service-field-errors"')
+
+    def test_agenda_prefill_keeps_date_and_time_without_premature_errors(self):
+        self.client.force_login(self.professional)
+        selected_start = "2026-07-09T10:30:00+02:00"
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {
+                "prefill_from_agenda": "1",
+                "target_date": "2026-07-09",
+                "selected_work_line_id": "2",
+                "selected_starts_at": selected_start,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["has_search"])
+        self.assertTrue(response.context["agenda_prefill"])
+        self.assertFalse(response.context["form"].is_bound)
+        self.assertEqual(response.context["form"]["target_date"].value(), "2026-07-09")
+        self.assertEqual(response.context["selected_work_line_id"], "2")
+        self.assertEqual(response.context["selected_starts_at"], selected_start)
+        self.assertContains(response, "Completa la cita para comprobar esa hora")
+        self.assertContains(response, "Al buscar, volveremos a comprobar")
+        self.assertNotContains(response, "Selecciona al menos un servicio.")
+        self.assertNotContains(response, "Falta algún dato")
+
+    def test_actionable_results_explain_the_no_javascript_fallback(self):
+        self.client.force_login(self.professional)
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {
+                "business_client": client_id,
+                "manual_channel": "telefono",
+                "services": self._combined_service_ids(),
+                "target_date": "2026-07-09",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<noscript>", html=False)
+        self.assertContains(response, "Estas horas corresponden a la última búsqueda.")
+        self.assertContains(response, "pulsa «Buscar huecos» antes de elegir o confirmar.")
 
     def test_partial_search_hides_redundant_required_field_messages(self):
         self.client.force_login(self.professional)
@@ -491,12 +981,101 @@ class AppointmentAssistantTests(TestCase):
         self.assertIn(reverse("customers:client_access", args=[self.business.slug]), response["Location"])
         self.assertIn("confirm%3D1", response["Location"])
         draft = self.client.session[PUBLIC_BOOKING_DRAFTS_SESSION_KEY][str(self.business.id)]
+        self.assertEqual(str(UUID(draft["confirmation_reference"])), draft["confirmation_reference"])
         self.assertEqual(set(draft["service_ids"]), set(service_ids))
         self.assertEqual(draft["selected_work_line_id"], slot.work_line_id)
         self.assertFalse(Appointment.objects.filter(starts_at=slot.starts_at, manual_channel=Appointment.ManualChannel.PUBLIC_WEB).exists())
         access_response = self.client.get(response["Location"])
         self.assertContains(access_response, "Tu hora sigue")
         self.assertContains(access_response, "Entrar y revisar reserva")
+
+    def test_public_confirmation_replay_returns_the_same_receipt_without_duplicates(self):
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        stored_draft = dict(
+            self.client.session[PUBLIC_BOOKING_DRAFTS_SESSION_KEY][str(self.business.id)]
+        )
+        self._login_demo_client(
+            next_url=(
+                f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+            )
+        )
+
+        first_response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking"},
+        )
+        self.assertEqual(first_response.status_code, 302)
+        appointment = Appointment.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+            starts_at=slot.starts_at,
+            manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+        )
+        self.assertEqual(
+            str(appointment.public_confirmation_reference),
+            stored_draft["confirmation_reference"],
+        )
+        initial_email_ids = tuple(
+            appointment.outbound_emails.order_by("pk").values_list("pk", flat=True)
+        )
+        self.assertTrue(initial_email_ids)
+
+        session = self.client.session
+        session[PUBLIC_BOOKING_DRAFTS_SESSION_KEY] = {
+            str(self.business.id): stored_draft,
+        }
+        session.save()
+        replay_response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking"},
+        )
+
+        self.assertEqual(replay_response.status_code, 302)
+        self.assertEqual(replay_response["Location"], first_response["Location"])
+        self.assertEqual(
+            Appointment.objects.filter(
+                public_confirmation_reference=stored_draft["confirmation_reference"],
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            BusinessActivityEvent.objects.filter(
+                business=self.business,
+                event_type=BusinessActivityEvent.EventType.APPOINTMENT_CREATED,
+                entity_type="appointment",
+                entity_id=str(appointment.pk),
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            tuple(
+                appointment.outbound_emails.order_by("pk").values_list(
+                    "pk", flat=True
+                )
+            ),
+            initial_email_ids,
+        )
+        self.assertEqual(
+            self.client.session[PUBLIC_BOOKING_RECEIPTS_SESSION_KEY][
+                str(self.business.id)
+            ]["appointment_id"],
+            appointment.pk,
+        )
+
+    def test_authenticated_public_search_protects_personal_account_data(self):
+        self._login_demo_client()
+
+        response = self.client.get(
+            reverse("public_booking", args=[self.business.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
+        self.assertContains(response, "María López")
+        self.assertContains(response, "600 111 201")
 
     def test_login_resumes_review_and_final_confirmation_uses_same_engine(self):
         service_ids = self._combined_service_ids()
@@ -509,6 +1088,8 @@ class AppointmentAssistantTests(TestCase):
         review_response = self.client.get(confirmation_url)
 
         self.assertEqual(review_response.status_code, 200)
+        self.assertEqual(review_response["Cache-Control"], "no-store")
+        self.assertEqual(review_response["Referrer-Policy"], "same-origin")
         self.assertContains(review_response, "Revisa y confirma")
         self.assertContains(review_response, "María López")
         self.assertContains(review_response, "100,00 €")
@@ -565,6 +1146,8 @@ class AppointmentAssistantTests(TestCase):
 
         receipt_response = self.client.get(response["Location"])
         self.assertEqual(receipt_response.status_code, 200)
+        self.assertEqual(receipt_response["Cache-Control"], "no-store")
+        self.assertEqual(receipt_response["Referrer-Policy"], "same-origin")
         self.assertContains(receipt_response, "Tu cita está confirmada")
         self.assertContains(receipt_response, "María López")
         self.assertContains(receipt_response, "100,00 €")
@@ -573,6 +1156,86 @@ class AppointmentAssistantTests(TestCase):
         refreshed_response = self.client.get(response["Location"])
         self.assertEqual(refreshed_response.status_code, 200)
         self.assertContains(refreshed_response, "Tu cita está confirmada")
+
+    def test_public_confirmation_accepts_a_real_same_origin_csrf_submission(self):
+        browser = Client(enforce_csrf_checks=True)
+        booking_url = reverse("public_booking", args=[self.business.slug])
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+
+        browser.get(
+            booking_url,
+            {
+                "services": service_ids,
+                "target_date": self._target_date().isoformat(),
+            },
+            secure=True,
+        )
+        csrf_token = browser.cookies["csrftoken"].value
+        choose_response = browser.post(
+            booking_url,
+            {
+                "csrfmiddlewaretoken": csrf_token,
+                "action": "choose_slot",
+                "services": service_ids,
+                "target_date": self._target_date().isoformat(),
+                "selected_work_line_id": slot.work_line_id,
+                "selected_starts_at": slot.starts_at.isoformat(),
+            },
+            HTTP_ORIGIN="https://testserver",
+            secure=True,
+        )
+        self.assertEqual(choose_response.status_code, 302)
+
+        confirmation_url = f"{booking_url}?confirm=1"
+        login_url = reverse("customers:client_access", args=[self.business.slug])
+        browser.get(
+            f"{login_url}?{urlencode({'next': confirmation_url})}",
+            secure=True,
+        )
+        csrf_token = browser.cookies["csrftoken"].value
+        login_response = browser.post(
+            login_url,
+            {
+                "csrfmiddlewaretoken": csrf_token,
+                "next": confirmation_url,
+                "phone": "600111201",
+                "password": "DemoAgendaSalon2026!",
+            },
+            HTTP_ORIGIN="https://testserver",
+            secure=True,
+        )
+        self.assertEqual(login_response.status_code, 302)
+        self.assertEqual(login_response["Location"], confirmation_url)
+
+        review_response = browser.get(confirmation_url, secure=True)
+        self.assertEqual(review_response.status_code, 200)
+        self.assertEqual(review_response["Referrer-Policy"], "same-origin")
+        csrf_token = browser.cookies["csrftoken"].value
+
+        confirm_response = browser.post(
+            confirmation_url,
+            {
+                "csrfmiddlewaretoken": csrf_token,
+                "action": "confirm_booking",
+            },
+            HTTP_ORIGIN="https://testserver",
+            secure=True,
+        )
+
+        self.assertEqual(confirm_response.status_code, 302)
+        self.assertEqual(
+            confirm_response["Location"],
+            reverse("public_booking_receipt", args=[self.business.slug]),
+        )
+        self.assertTrue(
+            Appointment.objects.filter(
+                business=self.business,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+                status=Appointment.Status.CONFIRMED,
+            ).exists()
+        )
 
     def test_public_confirmation_requires_the_current_privacy_version(self):
         service_ids = self._combined_service_ids()
@@ -624,7 +1287,13 @@ class AppointmentAssistantTests(TestCase):
 
         confirmed_response = self.client.post(
             reverse("public_booking", args=[self.business.slug]),
-            {"action": "confirm_booking", "privacy_acknowledged": "on"},
+            {
+                "action": "confirm_booking",
+                "privacy_acknowledged": "on",
+                "legal_presentation_token": review_response.context[
+                    "legal_presentation_token"
+                ],
+            },
         )
 
         self.assertEqual(confirmed_response.status_code, 302)
@@ -637,6 +1306,250 @@ class AppointmentAssistantTests(TestCase):
                 channel=CustomerPrivacyEvidence.Channel.BOOKING,
             ).exists()
         )
+        privacy_event = CustomerPrivacyEvidenceEvent.objects.get(
+            business=self.business,
+            business_client=access.business_client,
+            client_access=access,
+            document=current_document,
+            channel=CustomerPrivacyEvidence.Channel.BOOKING,
+        )
+        acceptance_event = LegalAcceptanceEvent.objects.get(
+            business=self.business,
+            client_access=access,
+            document=current_document,
+        )
+        self.assertTrue(privacy_event.action_fingerprint)
+        self.assertTrue(acceptance_event.action_fingerprint)
+
+    def test_public_confirmation_rejects_a_policy_changed_after_review(self):
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        self._login_demo_client(next_url=confirmation_url)
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        old_document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        )
+        CustomerPrivacyEvidence.objects.filter(
+            business=self.business,
+            business_client=access.business_client,
+            document=old_document,
+        ).delete()
+
+        review_response = self.client.get(confirmation_url)
+        old_token = review_response.context["legal_presentation_token"]
+        self.assertTrue(old_token)
+
+        old_document.is_active = False
+        old_document.save(update_fields=["is_active"])
+        new_document = LegalDocument.objects.create(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            slug="privacidad-clientes-cambio-durante-reserva",
+            version="test-cambio-formulario",
+            title="Privacidad de clientes",
+            lead="Información actualizada durante la reserva.",
+            sections=[{"heading": "Responsable", "body": "Información vigente."}],
+            is_active=True,
+        )
+
+        rejected_response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {
+                "action": "confirm_booking",
+                "privacy_acknowledged": "on",
+                "legal_presentation_token": old_token,
+            },
+        )
+
+        self.assertEqual(rejected_response.status_code, 200)
+        self.assertContains(
+            rejected_response,
+            LEGAL_PRESENTATION_CHANGED_MESSAGE,
+        )
+        self.assertContains(rejected_response, "versión test-cambio-formulario")
+        self.assertIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
+        self.assertFalse(
+            CustomerPrivacyEvidence.objects.filter(
+                business=self.business,
+                business_client=access.business_client,
+                document=new_document,
+            ).exists()
+        )
+
+        confirmed_response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {
+                "action": "confirm_booking",
+                "privacy_acknowledged": "on",
+                "legal_presentation_token": rejected_response.context[
+                    "legal_presentation_token"
+                ],
+            },
+        )
+
+        self.assertEqual(confirmed_response.status_code, 302)
+        self.assertTrue(
+            CustomerPrivacyEvidence.objects.filter(
+                business=self.business,
+                business_client=access.business_client,
+                document=new_document,
+                channel=CustomerPrivacyEvidence.Channel.BOOKING,
+            ).exists()
+        )
+
+    def test_public_confirmation_pauses_cleanly_without_a_privacy_document(self):
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = (
+            f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        )
+        self._login_demo_client(next_url=confirmation_url)
+        document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        )
+        document.is_active = False
+        document.save(update_fields=["is_active"])
+        evidence_count = CustomerPrivacyEvidence.objects.count()
+
+        page = self.client.get(confirmation_url)
+        response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking"},
+        )
+
+        for result in (page, response):
+            with self.subTest(method=result.request["REQUEST_METHOD"]):
+                self.assertEqual(result.status_code, 503)
+                self.assertEqual(result["Cache-Control"], "no-store")
+                self.assertEqual(result["Referrer-Policy"], "same-origin")
+                self.assertContains(
+                    result,
+                    f"public-booking-body--{result.context['client_auth_theme']}",
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    self.business.commercial_name,
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    "Reserva tu cita en este salón",
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    f"Hola, {result.context['client_access'].business_client.full_name}",
+                    status_code=503,
+                )
+                self.assertNotContains(
+                    result,
+                    reverse("accounts:login"),
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    "No podemos confirmar la reserva ahora",
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    "No hemos creado la cita ni guardado datos nuevos",
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    "?confirm=1",
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    "Reintentar confirmación",
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    "aunque cambies el servicio o la hora",
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    f'href="tel:{self.business.public_phone}"',
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    f'href="mailto:{self.business.public_email}"',
+                    status_code=503,
+                )
+                self.assertContains(
+                    result,
+                    "Volver a servicios y horas",
+                    status_code=503,
+                )
+        self.assertIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
+        self.assertEqual(CustomerPrivacyEvidence.objects.count(), evidence_count)
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
+
+    def test_public_confirmation_rechecks_document_availability_inside_lock(self):
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = (
+            f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        )
+        self._login_demo_client(next_url=confirmation_url)
+        document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        )
+
+        def withdraw_document_after_calendar_lock(business):
+            locked_calendar = real_lock_business_calendar(business)
+            LegalDocument.objects.filter(pk=document.pk).update(is_active=False)
+            return locked_calendar
+
+        with patch(
+            "apps.booking.views.lock_business_calendar",
+            side_effect=withdraw_document_after_calendar_lock,
+        ):
+            response = self.client.post(
+                reverse("public_booking", args=[self.business.slug]),
+                {"action": "confirm_booking"},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
+        document.refresh_from_db()
+        self.assertTrue(document.is_active)
 
     def test_public_receipt_requires_a_recent_booking_from_the_active_account(self):
         receipt_url = reverse("public_booking_receipt", args=[self.business.slug])
@@ -672,6 +1585,21 @@ class AppointmentAssistantTests(TestCase):
             }
         }
         self.assertIsNone(get_public_booking_draft(request, self.business))
+
+        legacy_draft_without_reference = {
+            "service_ids": [1],
+            "target_date": now.date().isoformat(),
+            "selected_work_line_id": 1,
+            "selected_starts_at": now.isoformat(),
+            "saved_at": now.isoformat(),
+        }
+        request.session = {
+            PUBLIC_BOOKING_DRAFTS_SESSION_KEY: {
+                business_key: legacy_draft_without_reference,
+            }
+        }
+        self.assertIsNone(get_public_booking_draft(request, self.business))
+        self.assertNotIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, request.session)
 
         expired_draft = {
             "service_ids": [1],
@@ -811,6 +1739,51 @@ class AppointmentAssistantTests(TestCase):
         self.assertEqual(appointment.requested_by_name_snapshot, "María López")
         self.assertEqual(appointment.requested_by_relationship_snapshot, "Madre")
 
+    def test_online_account_cannot_book_for_family_profile_with_stale_privacy(self):
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        beneficiary = self.business.clients.get(full_name="Lucía Gómez")
+        BusinessClientAccessGrant.objects.create(
+            business=self.business,
+            access=access,
+            business_client=beneficiary,
+            relationship_label=BusinessClientAccessGrant.Relationship.MOTHER,
+        )
+        CustomerPrivacyEvidence.objects.filter(
+            business=self.business,
+            business_client=beneficiary,
+        ).delete()
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = (
+            f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        )
+        self._login_demo_client(next_url=confirmation_url)
+
+        response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking", "business_client": beneficiary.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "pide al salón que actualice su información de privacidad",
+        )
+        self.assertEqual(response.context["selected_business_client"], beneficiary)
+        self.assertIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                business_client=beneficiary,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
+
     def test_online_account_cannot_book_for_an_ungranted_profile(self):
         unauthorized_client = self.business.clients.get(full_name="Carmen Ruiz")
         service_ids = self._combined_service_ids()
@@ -856,6 +1829,80 @@ class AppointmentAssistantTests(TestCase):
             ).exists()
         )
 
+    def test_public_confirmation_revalidates_the_account_inside_the_booking_lock(self):
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = (
+            f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        )
+        self._login_demo_client(next_url=confirmation_url)
+
+        def deactivate_access_before_lock(business):
+            BusinessClientAccess.objects.filter(pk=access.pk).update(is_active=False)
+            return real_lock_business_calendar(business)
+
+        with patch(
+            "apps.booking.views.lock_business_calendar",
+            side_effect=deactivate_access_before_lock,
+        ):
+            response = self.client.post(
+                reverse("public_booking", args=[self.business.slug]),
+                {"action": "confirm_booking"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                business_client=access.business_client,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
+
+    def test_public_confirmation_revalidates_password_fingerprint_inside_lock(self):
+        access = BusinessClientAccess.objects.get(
+            business=self.business,
+            business_client__full_name="María López",
+        )
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = (
+            f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        )
+        self._login_demo_client(next_url=confirmation_url)
+
+        def change_password_before_lock(business):
+            changed_access = BusinessClientAccess.objects.get(pk=access.pk)
+            changed_access.set_password("NuevaClaveSeguraDePrueba2026!")
+            changed_access.save(update_fields=["password_hash", "updated_at"])
+            return real_lock_business_calendar(business)
+
+        with patch(
+            "apps.booking.views.lock_business_calendar",
+            side_effect=change_password_before_lock,
+        ):
+            response = self.client.post(
+                reverse("public_booking", args=[self.business.slug]),
+                {"action": "confirm_booking"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                business_client=access.business_client,
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
+
     def test_expired_public_draft_returns_to_search_without_creating_appointment(self):
         self._login_demo_client()
         service_ids = self._combined_service_ids()
@@ -877,6 +1924,36 @@ class AppointmentAssistantTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "La selección ha caducado")
+        self.assertFalse(
+            Appointment.objects.filter(
+                business=self.business,
+                business_client__full_name="María López",
+                starts_at=slot.starts_at,
+                manual_channel=Appointment.ManualChannel.PUBLIC_WEB,
+            ).exists()
+        )
+
+    def test_legacy_public_draft_without_reference_requires_choosing_again(self):
+        self._login_demo_client()
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        session = self.client.session
+        drafts = session[PUBLIC_BOOKING_DRAFTS_SESSION_KEY]
+        drafts[str(self.business.id)].pop("confirmation_reference")
+        session[PUBLIC_BOOKING_DRAFTS_SESSION_KEY] = drafts
+        session.save()
+
+        response = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "La selección ha caducado")
+        self.assertContains(response, "Elige de nuevo los servicios y la hora")
+        self.assertNotIn(PUBLIC_BOOKING_DRAFTS_SESSION_KEY, self.client.session)
         self.assertFalse(
             Appointment.objects.filter(
                 business=self.business,

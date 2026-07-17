@@ -40,6 +40,8 @@ class RootRoutingTests(TestCase):
             status_code=403,
         )
         self.assertNotContains(response, "Reason given for failure", status_code=403)
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertEqual(response["Cache-Control"], "no-store")
 
     def test_product_responses_enforce_a_strict_script_policy(self):
         response = self.client.get(reverse("accounts:login"))

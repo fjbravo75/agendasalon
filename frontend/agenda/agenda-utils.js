@@ -110,7 +110,7 @@ export function getTimelineRange(dayData) {
 }
 
 
-export function timelinePosition(startValue, endValue, range, rowHeight = 22) {
+export function timelinePosition(startValue, endValue, range, rowHeight = 24) {
   const startMinutes = Math.max(clockMinutes(startValue) ?? range.start, range.start);
   const endMinutes = Math.min(clockMinutes(endValue) ?? range.end, range.end);
   const top = ((startMinutes - range.start) / 15) * rowHeight;
@@ -119,13 +119,13 @@ export function timelinePosition(startValue, endValue, range, rowHeight = 22) {
 }
 
 
-export function markerPosition(startValue, range, rowHeight = 22) {
+export function markerPosition(startValue, range, rowHeight = 24) {
   const startMinutes = clockMinutes(startValue) ?? range.start;
   return { top: `${((startMinutes - range.start) / 15) * rowHeight + 2}px` };
 }
 
 
-export function timelineHeight(range, rowHeight = 22) {
+export function timelineHeight(range, rowHeight = 24) {
   return ((range.end - range.start) / 15) * rowHeight;
 }
 
@@ -144,6 +144,7 @@ export function hourLabels(range) {
 
 export function buildAppointmentAssistantUrl(baseUrl, slot, fallbackDate) {
   const params = new URLSearchParams({
+    prefill_from_agenda: "1",
     target_date: slot?.starts_at?.slice(0, 10) || fallbackDate,
   });
   if (slot) {

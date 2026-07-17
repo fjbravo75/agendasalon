@@ -1,5 +1,14 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
+from django.utils.functional import cached_property
+
+
+# Two BOE responses have 20-second read timeouts; 15 minutes also leaves ample
+# room for parsing and transactional reconciliation before a run is considered stale.
+HOLIDAY_SYNC_INTERRUPTED_AFTER = timedelta(minutes=15)
 
 
 class OfficialHoliday(models.Model):
@@ -86,7 +95,29 @@ class HolidaySyncRun(models.Model):
 
             raise ValidationError({"finished_at": "La fecha de fin no puede ser anterior al inicio."})
 
+    @cached_property
+    def presentation_is_interrupted(self):
+        return (
+            self.finished_at is None
+            and self.started_at
+            <= timezone.now() - HOLIDAY_SYNC_INTERRUPTED_AFTER
+        )
+
+    @property
+    def presentation_status(self):
+        if self.finished_at is not None:
+            return self.get_status_display()
+        if self.presentation_is_interrupted:
+            return "Interrumpida"
+        return "En curso"
+
+    @property
+    def presentation_is_danger(self):
+        return self.presentation_is_interrupted or (
+            self.finished_at is not None and self.status == self.Status.FAILED
+        )
+
     def __str__(self):
-        return f"{self.year} - {self.source_name} ({self.status})"
+        return f"{self.year} - {self.source_name} ({self.presentation_status})"
 
 # Create your models here.

@@ -15,7 +15,7 @@ La revisión distingue tres estados:
 - **Pendiente de operación**: depende de infraestructura, automatización o
   procedimientos que no deben fingirse en el entorno local.
 
-Fecha de la evidencia local más reciente: **16 de julio de 2026**.
+Fecha de la evidencia local más reciente: **17 de julio de 2026**.
 
 La evidencia de publicación no se infiere de la fecha de este documento: debe
 comprobarse por SHA exacto, resultado de CI y registro operativo del despliegue.
@@ -25,6 +25,13 @@ comprobarse por SHA exacto, resultado de CI y registro operativo del despliegue.
 > estáticas y QA visual aislada sin alterar la base canónica. Estas cifras
 > describen la evidencia local; el estado publicado se acredita por separado
 > para el SHA exacto en CI y en la documentación operativa.
+
+> **Bloque P1 verificado en local.** Recibos legales exactos, libros de eventos,
+> administración técnica de solo lectura, idempotencia UUID, `lease` con latido
+> de correo, exclusión mutua BOE y formularios CSRF con política de referencia
+> diferenciada superan la matriz local completa. P1 todavía no está publicada:
+> producción continúa en P0, SHA
+> `5c68a260d1d87ed00c908d25bf519c3f34fea712`.
 
 ## Arquitectura de seguridad
 
@@ -81,13 +88,18 @@ La aplicación separa cuatro superficies:
 | Recuperación de contraseña cliente | Solicitud por correo verificado con respuesta genérica; enlace firmado, ligado al negocio y a la huella de contraseña, con caducidad de 60 minutos e invalidación tras cambiar la clave | `apps/customers`, `apps/notifications` | P0 verificado en local; sujeto a CI por SHA |
 | Autorización | Decoradores de acceso, negocio activo en la operativa y filtrado de objetos por empresa; privacidad y derechos son la excepción legal explícita durante una pausa | vistas, API y pruebas de aislamiento | P0 verificado en local; sujeto a CI por SHA |
 | Aislamiento multiempresa | Los endpoints profesionales resuelven el negocio desde la sesión; no confían en un identificador de empresa enviado por el navegador | `apps/booking/api.py`, `apps/dashboards/api.py`, pruebas por negocio | Aplicado y verificado |
-| CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; los GET de activación y verificación no cambian contraseña, correo, privacidad ni estado | `config/settings/base.py`, plantillas y vistas | P0 verificado en local; sujeto a CI por SHA |
+| CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; los GET de activación y verificación no cambian contraseña, correo, privacidad ni estado; las respuestas con POST usan `same-origin` o, si la URL contiene un token, `strict-origin`, para conservar un `Origin` válido sin filtrar esa ruta | `config/settings/base.py`, plantillas, vistas y pruebas con CSRF real | P1 verificado en local; sujeto a CI por SHA |
 | XSS y contenido activo | Autoescape de plantillas, ausencia de inserciones HTML inseguras en el código de producto y CSP con scripts limitados al mismo origen | `apps/core/middleware.py`, `config/settings/base.py` | Aplicado y verificado |
-| Cabeceras de navegador | `Permissions-Policy`, CORP `same-origin`, bloqueo de marcos y objetos mediante CSP | middleware y pruebas de cabeceras | Aplicado y verificado |
-| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y batería Django de 396 pruebas | Aplicado y verificado en local |
+| Cabeceras de navegador | `Permissions-Policy`, CORP `same-origin`, bloqueo de marcos y objetos mediante CSP y política de referencia diferenciada entre formularios POST y respuestas de token sin formulario | middleware, vistas y pruebas de cabeceras | Aplicado y verificado |
+| Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y batería Django de 534 pruebas | Aplicado y verificado en local |
 | Integridad de citas | Revalidación del hueco, duraciones compatibles con el intervalo, cierre solo tras `ends_at` y bloqueos comunes entre confirmación y mutaciones profesionales de horarios, cierres, preferencia de festivos o líneas | `apps/booking/services.py`, modelos y vistas | P0 verificado en local; sujeto a CI por SHA |
+| Idempotencia de reserva pública | Cada borrador nuevo lleva una referencia UUID única y anulable en la cita; el replay se resuelve bajo el mutex del calendario y devuelve la cita ya creada sin repetir actividad ni outbox. Los borradores heredados de P0, sin referencia, se descartan y obligan a elegir de nuevo | `apps/booking/public_booking_drafts.py`, `Appointment.public_confirmation_reference`, migración `booking.0007` y pruebas SQLite/PostgreSQL | P1 verificado en local; sujeto a CI por SHA |
 | Trazabilidad familiar | La cita distingue receptor y solicitante autorizado, regenera opciones por cliente, invalida resultados obsoletos y conserva instantáneas, línea y hora exactas | `apps/booking`, isla React y sincronización del asistente | P0 verificado en local; sujeto a CI por SHA |
 | Continuidad de privacidad | Una nueva versión exige nueva constancia; privacidad y derechos siguen accesibles con el negocio pausado sin reabrir reserva ni registro | `apps/legal`, `apps/booking`, `apps/customers` | P0 verificado en local; sujeto a CI por SHA |
+| Evidencia legal exacta | Recibo firmado y temporal con finalidad, audiencia, documento, versión, huella y contexto; proyección vigente más libros de eventos de solo adición y escritura transaccional | `apps/legal/presentations.py`, modelos, migraciones y pruebas | P1 verificado en local; sujeto a CI por SHA |
+| Administración técnica | Agenda, calendario, festivos, evidencias legales y correo se muestran en Django Admin como solo lectura, sin altas, ediciones, borrados ni acciones masivas; las solicitudes de derechos solo admiten seguimiento de estado y nota, sin alta ni borrado | módulos `admin.py` y pruebas de permisos | P1 verificado en local; sujeto a CI por SHA |
+| Outbox concurrente | Reclamación mediante `lease` temporal, recuperación de trabajos caducados, latido continuo durante SMTP, cancelación coordinada y cierre exclusivo por el propietario vigente; se documenta el residual SMTP de entrega al menos una vez | `apps/notifications` y pruebas PostgreSQL | P1 verificado en local; sujeto a CI por SHA |
+| Sincronización BOE | Exclusión mutua por año antes de la consulta externa; después de la descarga, `SHARE` sobre el registro de negocios, cooperación `ROW EXCLUSIVE` de las mutaciones, agendas en orden estable, reconciliación atómica, fotografía de impacto y altas concurrentes incluidas | `apps/holidays`, mutex de calendario y pruebas PostgreSQL/BOE | P1 verificado en local; sujeto a CI por SHA |
 | Subida de imágenes | JPG, PNG o WebP; 5 MB y 16 millones de píxeles; orientación, reducción a 2400 px y recodificación WebP sin EXIF | `apps/businesses/images.py`, pruebas de ajustes | Aplicado y verificado |
 | Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
 | Secretos | Variables de entorno obligatorias en producción; arranque detenido si faltan secreto, hosts o PostgreSQL | `config/settings/prod.py`, `.env.example`, pruebas de producción | Aplicado y verificado |
@@ -186,6 +198,18 @@ Django valida el origen y el token antes de ejecutar la acción. En los enlaces
 de alta, invitación, verificación y recuperación, la visita GET solo presenta y
 valida el estado del enlace; no confirma correos ni crea o cambia contraseñas.
 
+Las respuestas con formularios POST ordinarios usan
+`Referrer-Policy: same-origin`. Las páginas cuyo propio URL contiene un token de
+verificación o recuperación usan `strict-origin`: preservan el origen necesario
+para que Django valide CSRF sin enviar la ruta ni el token como referencia. Las
+respuestas con token que no presentan formulario usan `no-referrer`. En el flujo
+profesional, el formulario de activación combina `strict-origin` con `no-store`;
+la redirección final y los estados terminales de activación o verificación usan
+`no-referrer` y `no-store`. El token no queda reutilizable desde la caché ni se
+propaga como referencia después de completar o invalidar el paso. El rechazo
+CSRF global aplica esas mismas dos cabeceras: puede ejecutarse antes de entrar en
+la vista y, por tanto, antes de que esta detecte una ruta tokenizada.
+
 Las plantillas utilizan el escape automático de Django. La revisión del código
 no encuentra `mark_safe`, filtros `safe`, `dangerouslySetInnerHTML`, `innerHTML`,
 `eval` ni ejecución dinámica equivalente en las superficies del producto.
@@ -222,10 +246,25 @@ un orden estable y vuelven a consultar el estado protegido. De este modo no pued
 confirmarse simultáneamente una cita y un cambio de capacidad que la deje sin
 línea u horario válido.
 
-La sincronización global del BOE reconcilia atómicamente el catálogo oficial,
-conserva todas las citas y contabiliza las potencialmente afectadas. No adquiere
-todavía el mutex de cada agenda ni ofrece resolución explícita por cita; queda
-registrado como P1.
+La sincronización global del BOE adquiere una exclusión mutua por año antes de
+consultar la fuente. Después de descargarla, la transacción de PostgreSQL toma un
+bloqueo `SHARE` breve sobre el registro de negocios antes de enumerarlo; las
+mutaciones de calendario cooperan previamente con `ROW EXCLUSIVE`, y cada
+calendario se bloquea en el mismo orden que el motor de citas. Luego reconcilia
+atómicamente el catálogo oficial, conserva todas las citas y contabiliza las
+potencialmente afectadas. Un negocio creado a la vez debe esperar al commit; su
+primera cita ya ve el calendario reconciliado y no queda fuera de la fotografía
+global. La resolución asistida por cita permanece como mejora posterior de
+experiencia.
+
+La outbox mantiene un `lease` renovado por latido mientras dura SMTP. Una
+cancelación pendiente evita el envío; si el mensaje ya está en proceso, no roba
+la reserva al worker: una aceptación posterior queda registrada como enviada y
+un fallo posterior termina cancelado sin reintento. El control evita dobles
+workers y recuperaciones prematuras, pero SMTP no ofrece idempotencia de extremo
+a extremo: una aceptación seguida de timeout o caída antes de persistir el
+resultado puede producir otro intento. La garantía honesta sigue siendo entrega
+al menos una vez.
 
 En los recorridos familiares se conserva por separado quién recibe el servicio
 y quién lo solicita. Las instantáneas de nombre y relación mantienen legible el
@@ -324,6 +363,22 @@ el negocio o la reserva pública están pausados. Esta excepción de continuidad
 legal no vuelve a publicar servicios ni habilita la reserva o el registro de
 nuevas cuentas.
 
+Los recibos emitidos desde P1 incorporan la identidad legal de plataforma
+mostrada. Cualquier cambio en `AGENDA_PLATFORM_LEGAL_NAME`,
+`AGENDA_PLATFORM_TAX_ID`, `AGENDA_PLATFORM_LEGAL_ADDRESS`,
+`AGENDA_PLATFORM_PRIVACY_EMAIL`, `AGENDA_PLATFORM_WEBSITE` o
+`AGENDA_PLATFORM_LEGAL_DEMO` exige rotar las versiones de los documentos
+afectados y obtener una nueva aceptación. Las evidencias anteriores a P1
+conservan compatibilidad histórica: como solo registraban la identidad del
+negocio, siguen comparándose con esa parte mientras no cambie, pero no acreditan
+la identidad de plataforma que no capturaron.
+
+La migración `legal.0007`, que incorpora los libros de eventos, está marcada como
+irreversible. Una marcha atrás parcial podría borrar evidencia posterior al
+despliegue; por eso no se permite sortearla con `--fake`. La reversión segura es
+restaurar de forma completa y coherente la copia o el snapshot previo junto con
+el SHA de aplicación correspondiente.
+
 Estas medidas técnicas no sustituyen las obligaciones jurídicas de una
 explotación comercial. La publicación académica no debe usarse con actividad
 comercial ni datos de clientes reales. Antes de activar ese uso deben cerrarse
@@ -333,7 +388,7 @@ procedimiento de ejercicio de derechos.
 
 ## Evidencias reproducibles
 
-Los siguientes controles se ejecutaron sobre el bloque P0 local el 16 de julio
+Los siguientes controles se ejecutaron sobre el bloque P1 local el 17 de julio
 de 2026:
 
 ```powershell
@@ -351,24 +406,29 @@ git diff --check
 
 | Comprobación | Resultado |
 | --- | --- |
-| Suite Django local | 396 pruebas en la batería; resultado correcto y 9 omitidas |
-| Cobertura con ramas | 83 %; puerta mínima automatizada del 82 % |
-| Suite frontend | 29 pruebas correctas: 17 unitarias y 12 de componentes React |
+| Suite Django SQLite | 534 pruebas correctas; 25 casos exclusivos de PostgreSQL omitidos |
+| Suite Django PostgreSQL 17 | 534 de 534 pruebas correctas; ninguna omitida y ninguna base `test_%` residual |
+| Cobertura con ramas | 84,16 %; puerta mínima automatizada del 82 % |
+| Suite frontend | 34 de 34 pruebas correctas |
 | Build Vite | Correcto |
 | Ruff | Sin incidencias |
 | `manage.py check` | Sin incidencias |
 | Migraciones | No se detectaron cambios pendientes |
-| `pip-audit` | Sin vulnerabilidades conocidas |
+| `pip-audit` | 0 vulnerabilidades conocidas |
 | `npm audit` | 0 vulnerabilidades conocidas |
 | `pip check` | Sin incompatibilidades conocidas |
 | `git diff --check` | Sin errores de espacios ni marcadores |
-| QA visual y funcional | Ejecutada en copia desechable; base canónica intacta |
-| CI del P0 | Debe comprobarse para el SHA exacto en GitHub Actions |
-| Despliegue del P0 | Debe comprobarse para el SHA exacto en el registro operativo |
+| BOE real | Dos ejecuciones idempotentes en entorno efímero, sin alterar citas |
+| QA visual y funcional | Apta en escritorio y móvil sobre copia desechable, incluidos recorridos CSRF reales; base canónica intacta |
+| Limpieza QA | Sin bases, contenedores, procesos, puertos ni temporales del bloque |
+| CI del P1 | Pendiente de comprobar para el SHA exacto en GitHub Actions |
+| Despliegue del P1 | Pendiente de comprobar para el SHA exacto en el registro operativo |
 
-La suite PostgreSQL 17, Gitleaks sobre historial, copia/restauración y CI son
-puertas de publicación. Su resultado solo puede atribuirse al bloque cuando
-conste asociado al mismo SHA que se despliega.
+Como referencia histórica, P0 quedó validado con 396 pruebas Django, nueve
+omisiones, 29 frontend y 83 % de cobertura antes de su publicación. En P1,
+Gitleaks sobre el alcance completo no detectó secretos y PostgreSQL 17 ya forma
+parte de la evidencia local; CI, copia, snapshot y despliegue solo pueden
+atribuirse al bloque cuando consten asociados al mismo SHA.
 
 El chequeo de producción se ejecutó con valores locales temporales, sin
 credenciales reales y sin conectar servicios externos:
@@ -406,16 +466,18 @@ decimotercera solicitud, como corresponde al nuevo control.
 
 ## Riesgos residuales y puertas antes de producción
 
+Las escrituras directas de agenda desde Django Admin, la evidencia legal no
+ligada a la versión mostrada y la outbox sin `lease` dejan de figurar como
+riesgos residuales de código: P1 los cierra y los valida en local. Su aceptación
+desplegada sigue pendiente del SHA, CI y operación de producción.
+
 | Riesgo residual | Prioridad | Decisión o condición de cierre |
 | --- | --- | --- |
 | HTTPS público | Cerrado para la demo | Certificado válido, redirección HTTP, cabeceras, acceso y reserva comprobados en `agendasalon.brvsoftwarestudio.com` |
 | Terminación TLS del proxy | Cerrado para la demo | Nginx sobrescribe `X-Forwarded-Proto`, Gunicorn solo escucha en socket y Django confía únicamente en el proxy local declarado |
 | Copias sin destino externo cifrado | Alta para continuidad; bloqueante para explotación comercial | La retención 7/4/6 y la vigilancia local están activas; falta elegir el destino externo y repetir una restauración desde él |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
-| Escrituras de agenda desde Django Admin | P1 alta para integridad, acotada a personal técnico | Horarios, cierres, líneas o festivos editados directamente pueden saltarse servicios y mutex del producto; restringir esos modelos o hacer que sus mutaciones pasen por dominio |
-| Verificación no ligada a la versión legal mostrada | P1 media | El POST registra el documento vigente, pero no recibe una referencia firmada a la versión y huella renderizadas en el GET; ligar ambas fases o exigir recarga si cambian |
-| Outbox sin lease ni recuperación de `processing` | P1 media operativa | Añadir reclamación con caducidad, recuperación tras caída y estrategia explícita frente al envío aceptado por SMTP antes de persistir `sent` |
-| Sincronización global BOE sin mutex por negocio | P1 media | Conserva las citas y cuenta las afectadas, pero debe coordinarse con cada agenda y presentar resolución explícita de conflictos |
+| Resolución asistida de citas afectadas por un festivo importado | P2 de experiencia operativa | El snapshot global ya queda cerrado frente a agendas, citas y altas concurrentes; falta una bandeja guiada para decidir manualmente qué hacer con cada cita afectada |
 | Sin segundo factor para cuentas técnicas | Alta para explotación comercial | Incorporar MFA o proteger el acceso mediante identidad del proveedor o VPN |
 | Galería limitada a 12 archivos, pero sin límite temporal de subidas | Media | Añadir límite por cuenta o proxy; pasar el procesamiento a un worker si aumenta el volumen |
 | Sin monitorización central de toda la plataforma | Media | La vigilancia de copias y disco ya avisa localmente; falta centralizar disponibilidad, errores y logs del conjunto |
@@ -430,9 +492,13 @@ AgendaSalon supera el alcance técnico exigible para explicar autenticación,
 hashing, validación, CSRF, XSS, permisos, secretos y copias de seguridad. Los
 controles de aplicación están implementados y respaldados por pruebas.
 
-El bloque P0 queda verificado localmente con 396 pruebas Django, 29 frontend,
-83 % de cobertura y QA visual aislada. Solo debe presentarse como publicado
-cuando su SHA exacto tenga asociados CI, preflight y despliegue verificables.
+El bloque P0 está publicado y aceptado en el SHA
+`5c68a260d1d87ed00c908d25bf519c3f34fea712`, con CI, preflight y despliegue
+verificables y sigue siendo la versión de producción. P1 queda validado localmente
+con 534 pruebas Django en SQLite y PostgreSQL 17, 34 de 34 frontend, 84,16 % de
+cobertura y QA apta en escritorio y móvil, aislada y sin residuos. Solo
+debe presentarse como desplegado cuando su SHA exacto tenga asociados CI,
+copias, snapshot y aceptación de producción.
 
 La aplicación está publicada como **demo académica** y HTTPS, proxy, aislamiento,
 copias locales, retención y vigilancia de frescura disponen de evidencia en el

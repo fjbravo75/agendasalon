@@ -1,8 +1,10 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from apps.businesses.activity import record_business_activity
@@ -15,6 +17,13 @@ from apps.legal.forms import (
     DataRightsResolutionForm,
 )
 from apps.legal.models import DataRightsRequest, LegalAcceptance, LegalDocument
+from apps.legal.presentations import (
+    LegalPresentationError,
+    LegalPresentationScope,
+    clear_legal_confirmation_fields,
+    issue_legal_presentation,
+    resolve_legal_presentation,
+)
 from apps.legal.services import (
     accept_professional_legal_documents,
     business_legal_status,
@@ -55,11 +64,10 @@ def business_privacy(request, slug):
     # La información de privacidad y el ejercicio de derechos no dependen de
     # que el negocio esté aceptando reservas en este momento.
     business = get_object_or_404(Business, slug=slug)
-    document = get_object_or_404(
-        LegalDocument,
+    document = LegalDocument.objects.filter(
         kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
         is_active=True,
-    )
+    ).first()
     client_access = get_session_client_access(request, business)
     rights_form = DataRightsRequestForm(request.POST or None)
 
@@ -98,6 +106,21 @@ def business_privacy(request, slug):
     )
 
 
+def _safe_professional_onboarding_next_url(request):
+    next_url = (
+        request.POST.get("next", "")
+        if request.method == "POST"
+        else request.GET.get("next", "")
+    )
+    if next_url and "\\" not in next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return next_url
+    return ""
+
+
 @login_required
 def professional_onboarding(request):
     if request.user.is_superuser:
@@ -105,6 +128,7 @@ def professional_onboarding(request):
     business = get_primary_business_for_user(request.user)
     if business is None:
         return redirect("accounts:no_business")
+    next_url = _safe_professional_onboarding_next_url(request)
 
     current_status = professional_legal_status(request.user, business)
     profile = getattr(business, "legal_profile", None)
@@ -122,46 +146,107 @@ def professional_onboarding(request):
         ),
     }
     onboarding_form = BusinessLegalOnboardingForm(request.POST or None, initial=initial)
+    legal_documents_unavailable_message = ""
 
-    if request.method == "POST" and onboarding_form.is_valid():
-        _, acceptances = accept_professional_legal_documents(
-            user=request.user,
-            business=business,
-            profile_data=onboarding_form.profile_data(),
-        )
-        record_business_activity(
-            business=business,
-            category=BusinessActivityEvent.Category.ACCESS,
-            event_type=BusinessActivityEvent.EventType.LEGAL_DOCUMENTATION_ACCEPTED,
-            origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
-            summary="Documentación de privacidad y encargo aceptada por el negocio.",
-            actor=request.user,
-            entity=business,
-            entity_type="business",
-            changes={
-                "document_versions": {
-                    acceptance.document.kind: acceptance.document.version
-                    for acceptance in acceptances
-                }
-            },
-        )
-        messages.success(
-            request,
-            "La documentación queda vinculada al negocio y guardada con su versión exacta.",
-        )
-        next_url = request.POST.get("next")
-        if next_url and next_url.startswith("/") and not next_url.startswith("//"):
-            return redirect(next_url)
-        return redirect("legal:professional_center")
+    onboarding_form_is_valid = (
+        onboarding_form.is_valid() if request.method == "POST" else False
+    )
+    validated_receipt = None
+    if request.method == "POST":
+        try:
+            if onboarding_form_is_valid:
+                _, acceptances, created_legal_events = accept_professional_legal_documents(
+                    user=request.user,
+                    business=business,
+                    profile_data=onboarding_form.profile_data(),
+                    legal_presentation_token=request.POST.get(
+                        "legal_presentation_token",
+                        "",
+                    ),
+                )
+            else:
+                with transaction.atomic():
+                    validated_receipt = resolve_legal_presentation(
+                        request.POST.get("legal_presentation_token", ""),
+                        scope=LegalPresentationScope.PROFESSIONAL_ONBOARDING,
+                        audience={
+                            "business_id": business.pk,
+                            "user_id": request.user.pk,
+                        },
+                        required_kinds=(
+                            LegalDocument.Kind.PLATFORM_PRIVACY,
+                            LegalDocument.Kind.TERMS,
+                            LegalDocument.Kind.DATA_PROCESSING,
+                        ),
+                        legal_context=platform_legal_context(),
+                    )
+        except (LegalPresentationError, ValidationError) as exc:
+            clear_legal_confirmation_fields(
+                onboarding_form,
+                (
+                    "platform_privacy_acknowledged",
+                    "terms_accepted",
+                    "data_processing_accepted",
+                    "authority_declared",
+                ),
+            )
+            onboarding_form.add_error(None, exc)
+        else:
+            if onboarding_form_is_valid and created_legal_events:
+                record_business_activity(
+                    business=business,
+                    category=BusinessActivityEvent.Category.ACCESS,
+                    event_type=BusinessActivityEvent.EventType.LEGAL_DOCUMENTATION_ACCEPTED,
+                    origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                    summary="Documentación de privacidad y encargo aceptada por el negocio.",
+                    actor=request.user,
+                    entity=business,
+                    entity_type="business",
+                    changes={
+                        "document_versions": {
+                            acceptance.document.kind: acceptance.document.version
+                            for acceptance in acceptances
+                        }
+                    },
+                )
+            if onboarding_form_is_valid:
+                messages.success(
+                    request,
+                    "La documentación queda vinculada al negocio y guardada con su versión exacta.",
+                )
+                if next_url:
+                    return redirect(next_url)
+                return redirect("legal:professional_center")
 
-    documents = {
-        kind: get_active_document(kind)
-        for kind in (
-            LegalDocument.Kind.PLATFORM_PRIVACY,
-            LegalDocument.Kind.TERMS,
-            LegalDocument.Kind.DATA_PROCESSING,
-        )
-    }
+    if validated_receipt is not None:
+        documents = {
+            document.kind: document for document in validated_receipt.documents
+        }
+        legal_presentation_token = request.POST.get("legal_presentation_token", "")
+        legal_documents_available = True
+    else:
+        documents = {
+            kind: get_active_document(kind)
+            for kind in (
+                LegalDocument.Kind.PLATFORM_PRIVACY,
+                LegalDocument.Kind.TERMS,
+                LegalDocument.Kind.DATA_PROCESSING,
+            )
+        }
+        legal_documents_available = all(documents.values())
+        if legal_documents_available:
+            legal_presentation_token = issue_legal_presentation(
+                scope=LegalPresentationScope.PROFESSIONAL_ONBOARDING,
+                audience={"business_id": business.pk, "user_id": request.user.pk},
+                documents=documents.values(),
+                legal_context=platform_legal_context(),
+            )
+        else:
+            legal_presentation_token = ""
+            legal_documents_unavailable_message = (
+                "Ahora mismo no podemos mostrar toda la documentación legal necesaria. "
+                "No hemos guardado ningún cambio. Inténtalo de nuevo más tarde."
+            )
     return render(
         request,
         "legal/professional_onboarding.html",
@@ -169,9 +254,15 @@ def professional_onboarding(request):
             "business": business,
             "onboarding_form": onboarding_form,
             "documents": documents,
+            "legal_documents_available": legal_documents_available,
+            "legal_presentation_token": legal_presentation_token,
+            "legal_documents_unavailable_message": (
+                legal_documents_unavailable_message
+            ),
             "current_status": current_status,
-            "next_url": request.GET.get("next", ""),
+            "next_url": next_url,
         },
+        status=200 if legal_documents_available else 503,
     )
 
 

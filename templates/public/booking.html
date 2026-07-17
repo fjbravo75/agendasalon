@@ -132,6 +132,7 @@
             <input type="hidden" name="action" value="confirm_booking">
             {% if bookable_clients|length == 1 %}<input type="hidden" name="business_client" value="{{ selected_business_client.id }}">{% endif %}
             {% if privacy_acknowledgement_required %}
+              <input type="hidden" name="legal_presentation_token" value="{{ legal_presentation_token }}">
               <div class="legal-consent booking-privacy-renewal">
                 <label for="privacy-acknowledged">
                   <input id="privacy-acknowledged" type="checkbox" name="privacy_acknowledged" required>

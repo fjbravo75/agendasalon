@@ -1,12 +1,38 @@
 document.addEventListener("submit", (event) => {
-  const form = event.target.closest("form[data-confirm-message]");
+  const form = event.target.closest("form");
   if (!form) {
+    return;
+  }
+
+  if (form.dataset.submitting === "true") {
+    event.preventDefault();
     return;
   }
 
   const message = form.dataset.confirmMessage;
   if (message && !window.confirm(message)) {
     event.preventDefault();
+    return;
+  }
+
+  if (!form.hasAttribute("data-submit-busy")) {
+    return;
+  }
+
+  form.dataset.submitting = "true";
+  form.setAttribute("aria-busy", "true");
+
+  const submitControl = event.submitter ?? form.querySelector('[type="submit"]');
+  if (submitControl) {
+    submitControl.disabled = true;
+    const busyLabel = form.dataset.submitBusyLabel;
+    if (busyLabel) {
+      if (submitControl instanceof HTMLInputElement) {
+        submitControl.value = busyLabel;
+      } else {
+        submitControl.textContent = busyLabel;
+      }
+    }
   }
 });
 

@@ -13,14 +13,51 @@ from apps.customers.services import (
     save_authorized_contact,
     update_professional_client,
 )
-from apps.legal.models import CustomerPrivacyEvidence
-from apps.legal.services import record_customer_privacy_information
+from apps.legal.models import (
+    CustomerPrivacyEvidence,
+    CustomerPrivacyEvidenceEvent,
+    LegalDocument,
+)
+from apps.legal.presentations import (
+    LegalPresentationScope,
+    resolve_legal_presentation,
+)
+from apps.legal.services import (
+    EVENT_FINGERPRINT_COLLISION_MESSAGE,
+    business_legal_snapshot,
+    customer_privacy_action_fingerprint,
+    get_active_document,
+    record_customer_privacy_information,
+)
 from apps.customers.models import (
     BusinessClient,
     BusinessClientAccess,
     BusinessClientAccessGrant,
     BusinessClientAuthorizedContact,
 )
+
+
+CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE = (
+    "No podemos crear la ficha mientras la información de privacidad no esté "
+    "disponible. No hemos guardado ningún dato. Inténtalo de nuevo más tarde."
+)
+QUICK_CLIENT_EXISTING_DATA_MISMATCH_MESSAGE = (
+    "Ya existe una ficha activa con ese nombre y teléfono, pero el correo o las "
+    "notas no coinciden. Abre esa ficha y revisa sus datos antes de continuar."
+)
+
+
+def _quick_client_action_source(receipt_id):
+    return f"quick-client:{receipt_id}"
+
+
+def _quick_client_optional_data_matches(client, cleaned_data):
+    return (
+        (client.email or "").strip().lower()
+        == (cleaned_data.get("email") or "").strip().lower()
+        and (client.internal_notes or "")
+        == (cleaned_data.get("internal_notes") or "")
+    )
 
 
 class ClientLoginForm(forms.Form):
@@ -415,9 +452,124 @@ class ProfessionalClientQuickForm(forms.Form):
                 )
         return cleaned_data
 
-    def save(self, *, recorded_by):
+    def save(self, *, recorded_by, legal_presentation_token=None):
         try:
             with transaction.atomic():
+                privacy_receipt = self._resolve_legal_presentation(
+                    recorded_by=recorded_by,
+                    legal_presentation_token=legal_presentation_token,
+                )
+                authorized_client = self._lock_authorized_client_for_save()
+                self.cleaned_data["authorized_business_client"] = authorized_client
+                privacy_action_source = None
+                if privacy_receipt is not None:
+                    privacy_action_source = _quick_client_action_source(
+                        privacy_receipt.receipt_id,
+                    )
+                    action_fingerprint = customer_privacy_action_fingerprint(
+                        privacy_action_source,
+                        document=privacy_receipt.document(
+                            LegalDocument.Kind.CUSTOMER_PRIVACY
+                        ),
+                    )
+                    previous_event = (
+                        CustomerPrivacyEvidenceEvent.objects.select_related(
+                            "business_client",
+                            "recorded_by",
+                        )
+                        .filter(action_fingerprint=action_fingerprint)
+                        .first()
+                    )
+                    if previous_event is not None:
+                        previous_client = previous_event.business_client
+                        expected_informed_party_type = (
+                            CustomerPrivacyEvidence.InformedParty.AUTHORIZED_PERSON
+                            if authorized_client is not None
+                            else CustomerPrivacyEvidence.InformedParty.CLIENT
+                        )
+                        expected_informed_party_name = (
+                            authorized_client.full_name
+                            if authorized_client is not None
+                            else previous_client.full_name
+                        )
+                        expected_phone = self.cleaned_data.get("phone") or ""
+                        expected_phone_normalized = (
+                            normalize_phone(expected_phone)
+                            if expected_phone
+                            else ""
+                        )
+                        if (
+                            previous_event.business_id != self.business.pk
+                            or previous_event.recorded_by_id != recorded_by.pk
+                            or previous_event.document_id
+                            != privacy_receipt.document(
+                                LegalDocument.Kind.CUSTOMER_PRIVACY
+                            ).pk
+                            or previous_event.legal_context_snapshot
+                            != privacy_receipt.legal_context
+                            or previous_event.channel
+                            != self.cleaned_data["privacy_channel"]
+                            or previous_event.informed_party_type
+                            != expected_informed_party_type
+                            or previous_event.informed_party_name_snapshot
+                            != expected_informed_party_name
+                            or previous_client.full_name
+                            != self.cleaned_data["full_name"]
+                            or previous_client.phone_normalized
+                            != expected_phone_normalized
+                            or not _quick_client_optional_data_matches(
+                                previous_client,
+                                self.cleaned_data,
+                            )
+                        ):
+                            raise DjangoValidationError(
+                                EVENT_FINGERPRINT_COLLISION_MESSAGE
+                            )
+                        self.authorized_contact = None
+                        if authorized_client is not None:
+                            self.authorized_contact = (
+                                BusinessClientAuthorizedContact.objects.filter(
+                                    business=self.business,
+                                    business_client=previous_client,
+                                    linked_business_client=authorized_client,
+                                    is_active=True,
+                                    is_primary_contact=True,
+                                    relationship_label=self.cleaned_data[
+                                        "authorized_relationship"
+                                    ],
+                                ).first()
+                            )
+                            active_grant_exists = (
+                                BusinessClientAccessGrant.objects.filter(
+                                    business=self.business,
+                                    business_client=previous_client,
+                                    authorized_contact=self.authorized_contact,
+                                    is_active=True,
+                                ).exists()
+                                if self.authorized_contact is not None
+                                else False
+                            )
+                            if (
+                                self.authorized_contact is None
+                                or active_grant_exists
+                                != bool(
+                                    self.cleaned_data.get(
+                                        "authorized_allow_online"
+                                    )
+                                )
+                            ):
+                                raise DjangoValidationError(
+                                    EVENT_FINGERPRINT_COLLISION_MESSAGE
+                                )
+                        self.client = previous_event.business_client
+                        self.created = False
+                        self.privacy_evidence = (
+                            CustomerPrivacyEvidence.objects.filter(
+                                business_client=self.client,
+                                occurred_at=previous_event.occurred_at,
+                            ).first()
+                        )
+                        return self.client, self.created
                 self.client, self.created = create_or_reuse_professional_client(
                     business=self.business,
                     full_name=self.cleaned_data["full_name"],
@@ -425,7 +577,13 @@ class ProfessionalClientQuickForm(forms.Form):
                     email=self.cleaned_data.get("email") or "",
                     internal_notes=self.cleaned_data.get("internal_notes") or "",
                 )
-                authorized_client = self.cleaned_data.get("authorized_business_client")
+                if not self.created and not _quick_client_optional_data_matches(
+                    self.client,
+                    self.cleaned_data,
+                ):
+                    raise DjangoValidationError(
+                        QUICK_CLIENT_EXISTING_DATA_MISMATCH_MESSAGE
+                    )
                 if authorized_client is not None:
                     if authorized_client.pk == self.client.pk:
                         raise DjangoValidationError(
@@ -458,10 +616,87 @@ class ProfessionalClientQuickForm(forms.Form):
                         channel=self.cleaned_data["privacy_channel"],
                         informed_party_type=informed_party_type,
                         informed_party_name_snapshot=informed_party_name,
+                        document=privacy_receipt.document(
+                            LegalDocument.Kind.CUSTOMER_PRIVACY
+                        ),
+                        legal_context_snapshot=privacy_receipt.legal_context,
+                        action_fingerprint_source=privacy_action_source,
                     )
         except DjangoValidationError as exc:
             raise forms.ValidationError(getattr(exc, "messages", [str(exc)])) from exc
         return self.client, self.created
+
+    def _lock_authorized_client_for_save(self):
+        selected_client = self.cleaned_data.get("authorized_business_client")
+        if selected_client is None:
+            return None
+        authorized_client = (
+            BusinessClient.objects.select_for_update()
+            .filter(
+                pk=selected_client.pk,
+                business=self.business,
+                is_active=True,
+            )
+            .first()
+        )
+        if authorized_client is None:
+            raise DjangoValidationError(
+                "La persona autorizada ya no está activa. "
+                "Revisa la selección antes de guardar la ficha."
+            )
+        if not authorized_client.phone_normalized:
+            raise DjangoValidationError(
+                "La persona autorizada ya no tiene un teléfono propio. "
+                "Revisa su ficha antes de continuar."
+            )
+        if self.cleaned_data.get("authorized_allow_online"):
+            access = (
+                BusinessClientAccess.objects.select_for_update()
+                .filter(
+                    business=self.business,
+                    business_client=authorized_client,
+                )
+                .first()
+            )
+            if access is None or not access.is_active:
+                raise DjangoValidationError(
+                    "La cuenta online de la persona autorizada ya no está activa. "
+                    "Revisa la selección antes de guardar la ficha."
+                )
+        return authorized_client
+
+    def validate_legal_presentation(self, *, recorded_by, legal_presentation_token=None):
+        """Valida también cuando otros campos impiden llegar a ``save``."""
+
+        try:
+            with transaction.atomic():
+                return self._resolve_legal_presentation(
+                    recorded_by=recorded_by,
+                    legal_presentation_token=legal_presentation_token,
+                )
+        except DjangoValidationError as exc:
+            raise forms.ValidationError(getattr(exc, "messages", [str(exc)])) from exc
+
+    def _resolve_legal_presentation(self, *, recorded_by, legal_presentation_token):
+        self.business = self.business.__class__.objects.select_for_update().get(
+            pk=self.business.pk
+        )
+        if not self.business.legal_compliance_enabled:
+            return None
+        if get_active_document(LegalDocument.Kind.CUSTOMER_PRIVACY) is None:
+            raise DjangoValidationError(
+                CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE
+            )
+        return resolve_legal_presentation(
+            legal_presentation_token or "",
+            scope=LegalPresentationScope.PROFESSIONAL_CLIENT_QUICK,
+            audience={
+                "business_id": self.business.pk,
+                "user_id": recorded_by.pk,
+            },
+            required_kinds=(LegalDocument.Kind.CUSTOMER_PRIVACY,),
+            legal_context=business_legal_snapshot(self.business),
+        )
 
 
 class ProfessionalClientEditForm(forms.Form):

@@ -55,8 +55,8 @@ test("la altura de una cita es proporcional a su duración", () => {
     { start: 8 * 60, end: 20 * 60 },
   );
 
-  assert.equal(position.top, "176px");
-  assert.equal(position.height, "132px");
+  assert.equal(position.top, "192px");
+  assert.equal(position.height, "144px");
 });
 
 
@@ -90,9 +90,24 @@ test("el enlace a Nueva cita conserva el hueco elegido", () => {
     "2026-07-13",
   );
 
+  assert.match(url, /prefill_from_agenda=1/);
   assert.match(url, /target_date=2026-07-13/);
   assert.match(url, /selected_work_line_id=2/);
   assert.match(url, /selected_starts_at=2026-07-13T10%3A15%3A00%2B02%3A00/);
+});
+
+
+test("el enlace general a Nueva cita identifica el prefill de agenda", () => {
+  const url = buildAppointmentAssistantUrl(
+    "/profesional/citas/nueva/",
+    null,
+    "2026-07-13",
+  );
+
+  assert.equal(
+    url,
+    "/profesional/citas/nueva/?prefill_from_agenda=1&target_date=2026-07-13",
+  );
 });
 
 

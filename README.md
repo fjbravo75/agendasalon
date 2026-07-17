@@ -79,6 +79,12 @@ Funciona con `DEBUG=False`, PostgreSQL, Nginx, Gunicorn por socket interno y HTT
 Let's Encrypt. El entorno muestra de forma explícita que no existe actividad
 comercial y utiliza `agendasalon@brvsoftwarestudio.com` como contacto real.
 
+El entorno público continúa en P0, en el SHA
+`5c68a260d1d87ed00c908d25bf519c3f34fea712`. P1 está cerrado y verificado en
+local, pero todavía no se ha publicado: sus controles no deben atribuirse a
+producción hasta que el SHA exacto supere CI, copia, snapshot, migraciones y
+aceptación operativa.
+
 Base Django creada con configuración separada por entorno, usuario personalizado
 interno desde el inicio, núcleo de modelos SaaS/agenda y entrada autenticada por
 teléfono normalizado.
@@ -117,8 +123,13 @@ La confirmación y las mutaciones profesionales que pueden retirar capacidad
 —horarios, cierres, líneas y aplicación de festivos— comparten un orden estable
 de bloqueos y se vuelven a comprobar dentro de la transacción. Así, una operación
 concurrente no puede confirmar una cita a la vez que otra deja inválida su línea
-o su calendario. La sincronización global BOE se trata por separado y figura
-entre los endurecimientos P1.
+o su calendario. La sincronización global BOE se serializa por año antes de la
+consulta externa y cierra de forma consistente catálogo, impacto, contadores y
+estado. Después de la descarga, PostgreSQL bloquea brevemente el registro de
+negocios con `SHARE` y cada mutación de calendario coopera con ese orden mediante
+`ROW EXCLUSIVE`; después se bloquean todas las agendas existentes en un orden
+único. Un alta concurrente espera al cierre del snapshot y no puede confirmar
+una cita con un calendario oficial a medio reconciliar.
 La creación profesional continúa en la ficha de la cita recién creada. La
 confirmación pública termina en un justificante ligado a la sesión, el negocio y
 la cuenta cliente, recuperable durante una hora sin convertir el MVP en un panel
@@ -273,9 +284,16 @@ y el remitente están autenticados y una prueba directa desde Django fue entrega
 desde el 14 de julio de 2026 el código de outbox, sus migraciones y el
 temporizador de cinco minutos están desplegados y verificados en la aplicación
 pública.
-La deduplicación evita encolar dos veces el mismo hecho, pero el worker todavía
-no dispone de lease y recuperación de trabajos interrumpidos; por eso la entrega
-exactamente una vez permanece como endurecimiento P1.
+La deduplicación evita encolar dos veces el mismo hecho. Cada worker reclama el
+correo mediante un `lease` temporal con propietario, mantiene viva esa reserva
+mientras la llamada SMTP continúa, recupera reservas caducadas y solo cierra el
+intento si todavía conserva esa propiedad. Si una cita se cancela con el aviso
+ya en curso, la reserva no se roba al worker: una aceptación posterior queda
+registrada como tal y un fallo posterior se cancela sin reintento. La referencia
+de entrega se mantiene entre reintentos. Aun así, SMTP no permite
+prometer entrega exactamente una vez si el proveedor acepta el mensaje y el
+proceso cae antes de guardar el resultado; la garantía honesta es al menos una
+vez.
 Los formularios que crean o cambian direcciones de envío rechazan dominios
 locales y reservados. En la interfaz, `sent` se presenta como `Aceptado por el
 servicio de correo`: la aceptación SMTP no se confunde con entrega o lectura en
@@ -302,11 +320,39 @@ derechos siguen accesibles cuando el negocio o su reserva pública están pausad
 Esa continuidad legal no reactiva el catálogo, la reserva ni el registro de
 nuevas cuentas.
 
+Cada confirmación legal se revalida contra un recibo firmado y temporal que
+identifica los documentos, versiones, huellas, audiencia y contexto mostrados.
+`LegalAcceptance` y `CustomerPrivacyEvidence` conservan el estado vigente;
+`LegalAcceptanceEvent` y `CustomerPrivacyEvidenceEvent` forman los libros de
+eventos de solo adición para no sobrescribir la historia posterior a su
+implantación. La resolución del recibo exige una transacción atómica que
+permanezca abierta hasta guardar la evidencia asociada, por lo que el documento
+no se desbloquea entre la revalidación y la escritura. La proyección y el evento
+se escriben o revierten juntos.
+
+Las evidencias creadas desde P1 conservan también la identidad exacta de la
+plataforma mostrada. Si cambia alguno de los valores legales
+`AGENDA_PLATFORM_LEGAL_NAME`, `AGENDA_PLATFORM_TAX_ID`,
+`AGENDA_PLATFORM_LEGAL_ADDRESS`, `AGENDA_PLATFORM_PRIVACY_EMAIL`,
+`AGENDA_PLATFORM_WEBSITE` o `AGENDA_PLATFORM_LEGAL_DEMO`, deben publicarse
+nuevas versiones de los documentos afectados y solicitarse una nueva
+aceptación. Las evidencias anteriores a P1, que solo guardaban la identidad del
+negocio, mantienen compatibilidad histórica mientras esa parte no cambie; no se
+interpretan como prueba de una identidad de plataforma que entonces no
+registraban.
+
 La reserva online está disponible en `/reservar/<slug>/`. Permite al cliente
 elegir servicios, ver duración, precio y opciones recomendadas sin sesión. Al
 elegir una hora guarda un borrador temporal, solicita acceso cliente y recupera
 una revisión final antes de confirmar. La cita solo se crea mediante POST
 protegido, tras revalidar el hueco, y queda vinculada a su ficha de cliente.
+Cada borrador nuevo incorpora una referencia UUID que se guarda una sola vez en
+la cita mediante una restricción única: si el navegador repite el mismo POST,
+incluso mientras otra línea interna sigue libre, AgendaSalon devuelve la misma
+cita y el mismo justificante sin duplicar actividad ni correos. Los borradores
+de sesión anteriores a esta protección, que no contienen referencia, se
+descartan de forma segura y obligan a elegir de nuevo la hora; no crean ni
+modifican citas.
 
 El superadministrador dispone de un panel de estado y de una gestión propia de
 negocios. Puede dar de alta un salón con su primer acceso profesional, editarlo,
@@ -404,17 +450,22 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La última verificación local deja la batería en 396 pruebas Django con resultado
-correcto y nueve omisiones, además de 29 pruebas frontend: 17 unitarias y 12 de
-componentes React. La cobertura con ramas es del 83 % y el umbral automatizado
-impide bajar del 82 %. El build Vite, Ruff, `manage.py check`, la comprobación de
-migraciones, `git diff --check`, `pip-audit`, `npm audit` y `pip check` finalizaron
-sin incidencias. La QA visual se ejecutó en una copia desechable y la base
-canónica permaneció intacta.
+La verificación local más reciente deja la batería en 534 pruebas Django con
+resultado correcto: en SQLite se omiten 25 casos exclusivos de PostgreSQL y la
+cobertura con ramas alcanza el 84,16 %; en PostgreSQL 17 se ejecutan las 534 sin
+omisiones. El frontend suma 34 de 34 pruebas correctas y build Vite completado.
+Ruff, `manage.py check`, migraciones, `git diff --check`, `pip-audit`,
+`npm audit`, `pip check` y la revisión de secretos y seguridad finalizaron sin
+bloqueos. La
+QA visual y funcional resultó apta en escritorio y móvil sobre copias
+desechables, incluidos los formularios con CSRF real, y la base canónica
+permaneció intacta. `pip-audit` y `npm audit` cerraron con cero vulnerabilidades
+conocidas.
 
-Estas cifras corresponden al bloque P0 verificado localmente el 16 de julio de
-2026. La publicación no se deduce de esta evidencia local: debe acreditarse para
-el SHA exacto mediante CI y el registro operativo del despliegue. La matriz de CI
+Como referencia histórica, el bloque P0 quedó validado el 16 de julio de 2026
+con 396 pruebas Django, nueve omisiones, 29 pruebas frontend y 83 % de cobertura.
+La publicación no se deduce de la evidencia local: debe acreditarse para el SHA
+exacto mediante CI y el registro operativo del despliegue. La matriz de CI
 ejecuta la batería sobre SQLite y PostgreSQL 17,
 incluida la concurrencia real. Ruff, el build de producción, `pip-audit`,
 `npm audit` y `pip check` forman parte de esas puertas. GitHub Actions reproduce lint,
@@ -447,6 +498,19 @@ scripts del mismo origen; Django Admin conserva una excepción inline limitada a
 su propio prefijo. Las capacidades de navegador no utilizadas quedan
 deshabilitadas mediante `Permissions-Policy` y los recursos propios usan CORP
 `same-origin`. El perfil de producción añade `upgrade-insecure-requests`.
+Las respuestas que presentan un formulario POST protegido por CSRF fijan
+`Referrer-Policy: same-origin`: mantienen el origen válido para Django y no
+envían la ruta de la página a sitios externos. Cuando la propia URL contiene un
+token de verificación o recuperación, la política es `strict-origin`: conserva
+el origen necesario para CSRF sin revelar la ruta ni el token como referencia,
+ni siquiera a recursos del mismo sitio. Las respuestas con tokens que no
+contienen un POST usan `no-referrer`. En activación profesional, el formulario
+vigente combina `strict-origin` con `Cache-Control: no-store`; la redirección
+final y los estados terminales de activación o verificación combinan
+`no-referrer` con `no-store`. Así, el POST conserva la validación CSRF sin dejar
+el token en cachés ni referencias posteriores. El rechazo CSRF también aplica
+`no-referrer` y `no-store`, porque puede producirse antes de que Django llegue a
+la vista capaz de reconocer que la ruta contiene un token.
 
 El panel propio `/superadmin/` es la administración funcional de AgendaSalon.
 `/admin/` es una herramienta técnica interna de Django: exige una cuenta activa
@@ -454,9 +518,12 @@ con `is_staff`, aplica permisos por modelo y concede acceso total únicamente a
 superusuarios. Los profesionales no pueden entrar. La semilla local reúne ambos
 papeles en la cuenta demo para facilitar la evaluación, pero en producción deben
 usarse cuentas técnicas personales, con privilegios mínimos y separadas de la
-operativa habitual de la plataforma. Las escrituras directas de Django Admin
-sobre modelos de agenda no pasan necesariamente por los servicios y mutex del
-producto; restringirlas o encauzarlas queda como P1.
+operativa habitual de la plataforma. Los modelos de agenda, calendario,
+festivos, evidencias legales y correo se exponen en Django Admin como consulta de
+solo lectura: no permiten altas, cambios, borrados ni acciones masivas que eludan
+los servicios y bloqueos del producto. Las solicitudes de derechos tampoco se
+pueden crear ni borrar desde esa consola; únicamente admiten actualizar su estado
+y la nota de gestión, igual que en el centro legal profesional.
 
 El procedimiento de PostgreSQL, copia de base de datos y media, verificación y
 restauración está documentado en
@@ -514,6 +581,11 @@ python manage.py sync_national_holidays --year 2026
 
 La sincronización registra la referencia oficial, reconcilia cambios sin
 duplicar fechas y contabiliza citas futuras afectadas sin cancelarlas ni
-moverlas. La reconciliación global es atómica sobre el catálogo, pero todavía no
-adquiere el mutex de cada negocio ni ofrece resolución explícita por cita; ese
-endurecimiento queda como P1.
+moverlas. Una exclusión mutua por año se adquiere antes de consultar el BOE y se
+mantiene hasta cerrar la reconciliación y sus contadores. Solo después de la
+consulta externa, la transacción toma en PostgreSQL un bloqueo breve del registro
+de negocios antes de enumerarlos y bloquea sus calendarios en orden estable.
+Así, las altas concurrentes esperan al commit y la fotografía global no omite
+negocios nacidos durante la operación. Una resolución asistida por cada cita
+afectada permanece como mejora posterior de experiencia, no como grieta del
+snapshot.
