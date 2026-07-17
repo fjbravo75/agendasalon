@@ -47,7 +47,11 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
-RestrictSUIDSGID=true
+# El orquestador root reduce privilegios de forma explícita con runuser para
+# las comprobaciones y comandos Django. En Ubuntu 24.04 se verificó que combinar
+# esta directiva con NoNewPrivileges bloquea ese flujo aun conservando CAP_SETUID.
+# Se mantiene NoNewPrivileges y el conjunto mínimo de capabilities.
+RestrictSUIDSGID=false
 RestrictRealtime=true
 RestrictNamespaces=true
 LockPersonality=true

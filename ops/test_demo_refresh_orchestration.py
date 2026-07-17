@@ -354,11 +354,12 @@ class DemoRefreshSystemdContractTests(unittest.TestCase):
             "ProtectKernelTunables=true",
             "ProtectKernelModules=true",
             "ProtectControlGroups=true",
-            "RestrictSUIDSGID=true",
             "LockPersonality=true",
             "MemoryDenyWriteExecute=true",
         ):
             self.assertIn(directive, self.service)
+        self.assertIn("RestrictSUIDSGID=false", self.service)
+        self.assertNotIn("RestrictSUIDSGID=true", self.service)
         self.assertIn(
             "ReadOnlyPaths=/etc/agendasalon /var/www/agendasalon/app "
             "/var/backups/agendasalon-demo-canonical",
