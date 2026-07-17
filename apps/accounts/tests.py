@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -479,6 +479,70 @@ class AccountReadinessFlowTests(TestCase):
         self.assertFalse(self.user.email_verification_required)
         self.assertIsNotNone(self.user.email_verified_at)
         self.assertEqual(self.client.get(destination).status_code, 200)
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_email_page_explains_the_academic_demo_without_promising_delivery(self):
+        self.user.password_change_required = False
+        self.user.save(update_fields=["password_change_required"])
+        response = self.client.get(reverse("accounts:email"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Demostración académica.")
+        self.assertContains(response, "El envío de correos externos está desactivado.")
+        self.assertContains(response, "Guardar correo (sin envío)")
+        self.assertContains(response, 'class="alert alert--info" role="status"')
+        self.assertNotContains(response, "Recibes un enlace personal.")
+        self.assertNotContains(response, "Enviar un enlace nuevo")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_email_page_post_never_says_that_the_demo_sent_a_message(self):
+        self.user.password_change_required = False
+        self.user.save(update_fields=["password_change_required"])
+        response = self.client.post(
+            reverse("accounts:email"),
+            {"email": "profesional@example.com", "next": ""},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Correo guardado.")
+        self.assertContains(response, "no se entregan correos externos")
+        self.assertNotContains(response, "ha aceptado el enlace")
+        self.assertNotContains(response, "pendiente de envío")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
+    def test_email_page_keeps_the_normal_copy_when_delivery_is_enabled(self):
+        self.user.password_change_required = False
+        self.user.save(update_fields=["password_change_required"])
+        response = self.client.get(reverse("accounts:email"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Recibes un enlace personal.")
+        self.assertContains(response, "Enviar un enlace nuevo")
+        self.assertNotContains(response, "Demostración académica.")
+
+    def test_reserved_email_domain_error_matches_the_delivery_mode(self):
+        self.user.password_change_required = False
+        self.user.save(update_fields=["password_change_required"])
+        email_url = reverse("accounts:email")
+
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
+            demo_response = self.client.post(
+                email_url,
+                {"email": "profesional@example.test", "next": ""},
+            )
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
+            delivery_response = self.client.post(
+                email_url,
+                {"email": "profesional@example.test", "next": ""},
+            )
+
+        self.assertEqual(demo_response.status_code, 200)
+        self.assertContains(demo_response, "formato y dominio válidos")
+        self.assertContains(demo_response, "no se entregan mensajes externos")
+        self.assertNotContains(demo_response, "correo real que pueda recibir mensajes")
+        self.assertEqual(delivery_response.status_code, 200)
+        self.assertContains(delivery_response, "correo real que pueda recibir mensajes")
+        self.assertNotContains(delivery_response, "formato y dominio válidos")
 
 
 class ProfessionalTokenResponseSecurityTests(TestCase):

@@ -1,5 +1,6 @@
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login, logout, update_session_auth_hash
 from django.contrib.auth.tokens import default_token_generator
@@ -249,7 +250,13 @@ def account_email(request):
         delivery = queue_and_dispatch(
             queue_professional_email_verification(user, business=business)
         )
-        if delivery.status == delivery.Status.SENT:
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            messages.info(
+                request,
+                "Correo guardado. En esta demostración académica no se entregan "
+                "correos externos; para recorrer la aplicación, utiliza una cuenta demo.",
+            )
+        elif delivery.status == delivery.Status.SENT:
             messages.success(
                 request,
                 "El servicio de correo ha aceptado el enlace de verificación.",
@@ -262,7 +269,12 @@ def account_email(request):
     return render(
         request,
         "accounts/email.html",
-        {"email_form": form, "next_url": next_url, "delivery": delivery},
+        {
+            "email_form": form,
+            "next_url": next_url,
+            "delivery": delivery,
+            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+        },
     )
 
 

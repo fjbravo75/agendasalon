@@ -36,6 +36,7 @@ from apps.notifications.services import (
 @override_settings(
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True,
+    AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=False,
     AGENDA_PLATFORM_WEBSITE="http://testserver",
     DEFAULT_FROM_EMAIL="AgendaSalon <agenda@example.test>",
 )
@@ -496,7 +497,7 @@ class TransactionalEmailTests(TestCase):
         self.assertIn("Procesados: 1", output.getvalue())
         self.assertIn("Aceptados por el servicio de correo: 1", output.getvalue())
 
-    def test_dispatch_retries_and_eventually_marks_a_failure(self):
+    def test_disabled_dispatch_does_not_consume_retries(self):
         user = get_user_model().objects.create_user(
             normalized_phone="+34600999004",
             full_name="Profesional sin proveedor",
@@ -508,17 +509,86 @@ class TransactionalEmailTests(TestCase):
         BusinessMembership.objects.create(business=self.business, user=user)
         email = queue_professional_activation(user, business=self.business)
         delivery_reference = email.delivery_reference
+        original_scheduled_for = email.scheduled_for
 
         with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
-            for expected_attempt in range(1, 4):
-                email.scheduled_for = timezone.now() - timedelta(seconds=1)
-                email.save(update_fields=["scheduled_for", "updated_at"])
+            for _ in range(3):
                 email = queue_and_dispatch(email)
-                self.assertEqual(email.attempts, expected_attempt)
+                self.assertEqual(email.attempts, 0)
 
-        self.assertEqual(email.status, OutboundEmail.Status.FAILED)
+        self.assertEqual(email.status, OutboundEmail.Status.PENDING)
         self.assertEqual(email.delivery_reference, delivery_reference)
-        self.assertIn("no está activado", email.last_error)
+        self.assertEqual(email.scheduled_for, original_scheduled_for)
+        self.assertEqual(email.last_error, "")
+
+    def test_demo_refresh_suppression_never_calls_the_email_backend(self):
+        email = self._queue_professional_activation(104)
+
+        with (
+            override_settings(AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=True),
+            patch("apps.notifications.services.EmailMultiAlternatives.send") as send,
+        ):
+            delivery = queue_and_dispatch(email)
+
+        self.assertEqual(delivery.status, OutboundEmail.Status.PENDING)
+        self.assertEqual(delivery.attempts, 0)
+        self.assertEqual(delivery.last_error, "")
+        self.assertEqual(len(mail.outbox), 0)
+        send.assert_not_called()
+
+    def test_disabled_transactional_email_never_calls_the_email_backend(self):
+        email = self._queue_professional_activation(105)
+
+        with (
+            override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False),
+            patch("apps.notifications.services.EmailMultiAlternatives.send") as send,
+        ):
+            delivery = queue_and_dispatch(email)
+
+        self.assertEqual(delivery.status, OutboundEmail.Status.PENDING)
+        self.assertEqual(delivery.attempts, 0)
+        self.assertEqual(delivery.last_error, "")
+        send.assert_not_called()
+
+    def test_blocked_due_dispatcher_leaves_the_queue_intact(self):
+        blocked_settings = (
+            {"AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL": True},
+            {"AGENDA_TRANSACTIONAL_EMAIL_ENABLED": False},
+        )
+
+        for index, setting_overrides in enumerate(blocked_settings, start=107):
+            with self.subTest(setting_overrides=setting_overrides):
+                email = self._queue_professional_activation(index)
+                original_scheduled_for = email.scheduled_for
+
+                with (
+                    override_settings(**setting_overrides),
+                    patch(
+                        "apps.notifications.services.EmailMultiAlternatives.send"
+                    ) as send,
+                ):
+                    delivered = dispatch_due_emails(limit=100)
+
+                email.refresh_from_db()
+                self.assertEqual(delivered, [])
+                self.assertEqual(email.status, OutboundEmail.Status.PENDING)
+                self.assertEqual(email.attempts, 0)
+                self.assertEqual(email.last_error, "")
+                self.assertEqual(email.scheduled_for, original_scheduled_for)
+                send.assert_not_called()
+
+    def test_normal_dispatch_reaches_email_backend_when_suppression_is_off(self):
+        email = self._queue_professional_activation(106)
+
+        with patch(
+            "apps.notifications.services.EmailMultiAlternatives.send",
+            autospec=True,
+            return_value=1,
+        ) as send:
+            delivery = queue_and_dispatch(email)
+
+        self.assertEqual(delivery.status, OutboundEmail.Status.SENT)
+        send.assert_called_once()
 
     def test_dispatch_skips_future_and_cancelled_email(self):
         user = get_user_model().objects.create_user(

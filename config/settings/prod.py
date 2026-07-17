@@ -59,6 +59,9 @@ AGENDA_BACKUP_SCHEDULE_CONFIGURED = _environment_flag(
 AGENDA_TRANSACTIONAL_EMAIL_ENABLED = _environment_flag(
     "AGENDA_TRANSACTIONAL_EMAIL_ENABLED"
 )
+AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL = _environment_flag(
+    "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL"
+)
 
 _required_legal_settings = {
     variable: _required_environment_value(variable)
@@ -91,6 +94,11 @@ AGENDA_PLATFORM_PRIVACY_EMAIL = _required_legal_settings[
 ]
 AGENDA_PLATFORM_WEBSITE = _required_legal_settings["AGENDA_PLATFORM_WEBSITE"]
 
+if AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL and not AGENDA_PLATFORM_LEGAL_DEMO:
+    raise ImproperlyConfigured(
+        "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL can only be enabled in academic demo mode."
+    )
+
 if AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = _required_environment_value("EMAIL_HOST")
@@ -120,6 +128,13 @@ if AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
     EMAIL_USE_SSL = _environment_flag("EMAIL_USE_SSL", default="0")
     if EMAIL_USE_TLS and EMAIL_USE_SSL:
         raise ImproperlyConfigured("EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be enabled.")
+
+# Defensa en profundidad para procesos de regeneración y entornos sin correo.
+# El servicio de notificaciones aplica además su propia guarda antes de construir
+# el mensaje, pero este backend evita que una llamada directa a django.core.mail
+# pueda abrir una conexión SMTP por accidente.
+if not AGENDA_TRANSACTIONAL_EMAIL_ENABLED or AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL:
+    EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()

@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.booking.models import BusinessCalendarSettings
@@ -98,6 +98,23 @@ class SuperadminBusinessManagementTests(TestCase):
                 "professional-access-guidance",
             )
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_demo_professional_help_does_not_promise_an_external_email(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(reverse("businesses:superadmin_business_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "En esta demostración académica no se entregan correos externos.",
+            count=1,
+        )
+        self.assertNotContains(
+            response,
+            "Enviaremos aquí un enlace para activar la cuenta y crear su contraseña.",
+        )
+
     def test_superadmin_creates_business_with_first_professional_atomically(self):
         self.client.force_login(self.superadmin)
         response = self.client.post(
@@ -155,6 +172,54 @@ class SuperadminBusinessManagementTests(TestCase):
                 event_type=BusinessActivityEvent.EventType.MEMBERSHIP_CREATED,
             ).exists()
         )
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_demo_business_creation_reports_prepared_access_without_claiming_delivery(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.post(
+            reverse("businesses:superadmin_business_create"),
+            {
+                "commercial_name": "Salón Demo",
+                "slug": "salon-demo",
+                "is_active": "on",
+                "full_name": "Laura Demo",
+                "phone": "600333082",
+                "email": "laura.demo@example.com",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Salón Demo ya está creado")
+        self.assertContains(response, "el acceso de Laura Demo queda preparado")
+        self.assertContains(
+            response,
+            "El correo externo de activación está desactivado en esta demostración académica.",
+        )
+        self.assertNotContains(response, "pendiente de envío")
+        self.assertNotContains(response, "ha aceptado el enlace")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
+    def test_business_creation_keeps_delivery_copy_when_email_is_enabled(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.post(
+            reverse("businesses:superadmin_business_create"),
+            {
+                "commercial_name": "Salón con Correo",
+                "slug": "salon-con-correo",
+                "is_active": "on",
+                "full_name": "Laura con Correo",
+                "phone": "600333083",
+                "email": "laura.correo@example.com",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "El servicio de correo ha aceptado el enlace")
+        self.assertNotContains(response, "correo externo de activación está desactivado")
 
     def test_business_edit_records_changed_fields_without_exposing_values(self):
         self.client.force_login(self.superadmin)
@@ -221,6 +286,100 @@ class SuperadminBusinessManagementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Usa un correo real que pueda recibir mensajes")
         self.assertFalse(Business.objects.filter(slug="salon-sin-correo").exists())
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_demo_non_routable_email_error_does_not_say_it_can_receive_messages(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.post(
+            reverse("businesses:superadmin_business_create"),
+            {
+                "commercial_name": "Salón Correo Demo",
+                "slug": "salon-correo-demo",
+                "is_active": "on",
+                "full_name": "Laura Profesional",
+                "phone": "600333084",
+                "email": "laura@salon.local",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Usa una dirección de correo con formato y dominio válidos")
+        self.assertContains(response, "no se entregan mensajes externos")
+        self.assertNotContains(response, "correo real que pueda recibir mensajes")
+        self.assertFalse(Business.objects.filter(slug="salon-correo-demo").exists())
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_demo_professional_creation_and_resend_use_honest_delivery_copy(self):
+        self.client.force_login(self.superadmin)
+        create_url = reverse(
+            "businesses:superadmin_professional_create",
+            args=[self.business.id],
+        )
+
+        created = self.client.post(
+            create_url,
+            {
+                "full_name": "Profesional Demo Nueva",
+                "phone": "600333085",
+                "email": "profesional.demo@example.com",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(created.status_code, 200)
+        self.assertContains(created, "El acceso de Profesional Demo Nueva queda preparado")
+        self.assertContains(created, "correo externo de activación está desactivado")
+        self.assertNotContains(created, "pendiente de envío")
+        professional = get_user_model().objects.get(email="profesional.demo@example.com")
+        membership = BusinessMembership.objects.get(
+            business=self.business,
+            user=professional,
+        )
+        self.assertContains(created, "Preparar otro enlace (sin envío)")
+
+        resent = self.client.post(
+            reverse(
+                "businesses:superadmin_professional_activation_resend",
+                args=[self.business.id, membership.id],
+            ),
+            follow=True,
+        )
+
+        self.assertEqual(resent.status_code, 200)
+        self.assertContains(resent, "La cuenta de Profesional Demo Nueva sigue preparada")
+        self.assertContains(resent, "correo externo de activación está desactivado")
+        self.assertNotContains(resent, "reenviado")
+        self.assertNotContains(resent, "reenvío ha quedado pendiente")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
+    def test_activation_resend_keeps_normal_copy_when_email_is_enabled(self):
+        pending_user = get_user_model().objects.create_user(
+            normalized_phone="+34600333086",
+            phone="600333086",
+            email="pendiente@example.com",
+            password=None,
+            full_name="Profesional Pendiente",
+            is_active=False,
+            email_verification_required=True,
+        )
+        membership = BusinessMembership.objects.create(
+            business=self.business,
+            user=pending_user,
+        )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.post(
+            reverse(
+                "businesses:superadmin_professional_activation_resend",
+                args=[self.business.id, membership.id],
+            ),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Enlace de activación reenviado a pendiente@example.com")
+        self.assertNotContains(response, "correo externo de activación está desactivado")
 
     def test_superadmin_can_pause_business_without_deleting_history(self):
         self.client.force_login(self.superadmin)

@@ -10,7 +10,7 @@ from django.contrib.auth.hashers import identify_hasher, is_password_usable, mak
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -766,6 +766,142 @@ class ClientAccessSecurityP0Tests(TestCase):
                 "rights_contact_name": "Responsable de privacidad",
                 "retention_criteria": ("Durante la relación y los plazos legales aplicables."),
             },
+        )
+
+    def test_pending_email_copy_distinguishes_demo_from_real_delivery(self):
+        registration = self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Cliente con correo pendiente",
+                "phone": "600777099",
+                "email": "pendiente.demo@example.com",
+            },
+        )
+        self.assertEqual(registration.status_code, 302)
+        pending_url = reverse("customers:client_email_pending", args=[self.business.slug])
+
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
+            demo_page = self.client.get(pending_url)
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
+            delivery_page = self.client.get(pending_url)
+
+        self.assertContains(demo_page, "Demostración académica.")
+        self.assertContains(demo_page, "Envío de correo desactivado - Peluquería Mari")
+        self.assertContains(demo_page, "No se entregará un mensaje.")
+        self.assertContains(demo_page, "Registrar otra solicitud (sin envío)")
+        self.assertContains(demo_page, 'class="alert alert--info" role="status"')
+        self.assertNotContains(demo_page, "Si recibes el mensaje")
+        self.assertContains(delivery_page, "Si recibes el mensaje")
+        self.assertContains(delivery_page, "Revisa tu correo - Peluquería Mari")
+        self.assertContains(delivery_page, "Solicitar otro enlace")
+        self.assertNotContains(delivery_page, "Demostración académica.")
+
+    def test_registration_copy_distinguishes_demo_from_real_delivery(self):
+        registration_url = reverse(
+            "customers:client_register",
+            args=[self.business.slug],
+        )
+
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
+            demo_page = self.client.get(registration_url)
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
+            delivery_page = self.client.get(registration_url)
+
+        self.assertContains(demo_page, "Registro de prueba")
+        self.assertContains(demo_page, "Registro cliente de prueba en Peluquería Mari")
+        self.assertContains(demo_page, "no activa")
+        self.assertContains(demo_page, "cuentas nuevas ni entrega correos externos")
+        self.assertContains(demo_page, "Registrar solicitud (sin envío)")
+        self.assertContains(demo_page, "Entra con una cuenta demo")
+        self.assertNotContains(demo_page, "Te enviaremos un enlace")
+        self.assertNotContains(demo_page, "Verificar mi correo")
+        self.assertNotContains(demo_page, "Antes de activar la cuenta")
+        self.assertContains(delivery_page, "Crea tu cuenta")
+        self.assertContains(delivery_page, "Crear cuenta cliente en Peluquería Mari")
+        self.assertContains(delivery_page, "Te enviaremos un enlace")
+        self.assertContains(delivery_page, "Verificar mi correo")
+        self.assertNotContains(delivery_page, "Registro de prueba")
+
+    def test_reserved_registration_email_error_matches_the_delivery_mode(self):
+        registration_url = reverse(
+            "customers:client_register",
+            args=[self.business.slug],
+        )
+        payload = {
+            "full_name": "Cliente con dominio reservado",
+            "phone": "600777097",
+            "email": "cliente@example.test",
+        }
+
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
+            demo_response = self.client.post(registration_url, payload)
+        payload["phone"] = "600777096"
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
+            delivery_response = self.client.post(registration_url, payload)
+
+        self.assertEqual(demo_response.status_code, 200)
+        self.assertContains(demo_response, "formato y dominio válidos")
+        self.assertContains(demo_response, "no se entregan mensajes externos")
+        self.assertNotContains(demo_response, "correo real que pueda recibir mensajes")
+        self.assertEqual(delivery_response.status_code, 200)
+        self.assertContains(delivery_response, "correo real que pueda recibir mensajes")
+        self.assertNotContains(delivery_response, "formato y dominio válidos")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_pending_email_resend_does_not_claim_external_delivery_in_the_demo(self):
+        self.client.post(
+            reverse("customers:client_register", args=[self.business.slug]),
+            {
+                "full_name": "Cliente con reenvío demo",
+                "phone": "600777098",
+                "email": "reenvio.demo@example.com",
+            },
+        )
+        pending_url = reverse("customers:client_email_pending", args=[self.business.slug])
+
+        response = self.client.post(pending_url, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "La solicitud se ha registrado")
+        self.assertContains(response, "no entrega correos externos")
+        self.assertNotContains(
+            response,
+            "Si los datos corresponden a una cuenta disponible",
+        )
+
+    def test_password_recovery_copy_distinguishes_demo_from_real_delivery(self):
+        request_url = reverse(
+            "customers:client_password_reset_request",
+            args=[self.business.slug],
+        )
+
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
+            demo_page = self.client.get(request_url)
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
+            delivery_page = self.client.get(request_url)
+
+        self.assertContains(demo_page, "Demostración académica.")
+        self.assertContains(demo_page, "Registrar solicitud (sin envío)")
+        self.assertNotContains(demo_page, "recibirás un enlace")
+        self.assertContains(delivery_page, "recibirás un enlace")
+        self.assertContains(delivery_page, "Enviar enlace de recuperación")
+        self.assertNotContains(delivery_page, "Demostración académica.")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_password_recovery_post_explains_that_demo_email_is_not_delivered(self):
+        request_url = reverse(
+            "customers:client_password_reset_request",
+            args=[self.business.slug],
+        )
+
+        response = self.client.post(request_url, {"email": "nadie@example.com"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "La solicitud se ha registrado")
+        self.assertContains(response, "no entrega correos externos")
+        self.assertNotContains(
+            response,
+            "Si los datos corresponden a una cuenta disponible",
         )
 
     def test_email_is_canonical_and_ambiguous_legacy_phone_fails_closed(self):
@@ -1793,6 +1929,29 @@ class ClientAccessInvitationTests(TestCase):
                 event_type=BusinessActivityEvent.EventType.CLIENT_INVITATION_CREATED,
             ).exists()
         )
+
+    def test_invitation_activation_copy_distinguishes_demo_from_real_delivery(self):
+        response, _ = self._create_invitation()
+        claim_path = urlparse(response.context["invitation_url"]).path
+        customer_browser = self.client_class()
+        customer_browser.get(claim_path)
+        activation_url = reverse(
+            "customers:client_invitation_activate",
+            args=[self.business.slug],
+        )
+
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
+            demo_page = customer_browser.get(activation_url)
+        with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
+            delivery_page = customer_browser.get(activation_url)
+
+        self.assertContains(demo_page, "Demostración académica.")
+        self.assertContains(demo_page, "Continuar sin envío externo")
+        self.assertContains(demo_page, "no enviará el enlace de verificación")
+        self.assertNotContains(demo_page, "Enviar correo de activación")
+        self.assertContains(delivery_page, "Enviar correo de activación")
+        self.assertContains(delivery_page, "Lo verificaremos antes")
+        self.assertNotContains(delivery_page, "Demostración académica.")
 
     def test_new_invitation_revokes_the_previous_pending_one(self):
         _, first = self._create_invitation()
@@ -3065,6 +3224,7 @@ class ProfessionalClientViewTests(TestCase):
         evidence = CustomerPrivacyEvidence.objects.get(business_client=client)
         self.assertEqual(evidence.channel, CustomerPrivacyEvidence.Channel.WHATSAPP)
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
     def test_professional_edit_form_is_preloaded(self):
         self.client.force_login(self.professional)
         business_client = BusinessClient.objects.get(
@@ -3078,7 +3238,100 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'value="María López"')
         self.assertContains(response, 'value="600111201"')
+        self.assertContains(response, 'readonly aria-readonly="true"')
+        self.assertContains(response, "Solo lectura en esta demo")
+        self.assertContains(response, "El resto de la ficha sigue siendo editable")
+        self.assertNotContains(response, "Si cambias el correo, se cerrarán sus sesiones")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
+    def test_professional_edit_keeps_email_change_guidance_when_delivery_is_enabled(self):
+        self.client.force_login(self.professional)
+        business_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+
+        response = self.client.get(
+            reverse("customers:professional_client_edit", args=[business_client.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Si cambias el correo, se cerrarán sus sesiones")
+        self.assertNotContains(response, "Solo lectura en esta demo")
+        self.assertNotContains(response, 'readonly aria-readonly="true"')
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
+    def test_demo_blocks_only_online_email_change_without_mutating_the_client(self):
+        business_client = BusinessClient.objects.get(
+            business=self.business,
+            full_name="María López",
+        )
+        access = business_client.access
+        original_email = access.email
+        original_password_hash = access.password_hash
+        original_verified_at = access.email_verified_at
+        queued_before = OutboundEmail.objects.filter(
+            client_access=access,
+            kind=OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+        ).count()
+        self.client.force_login(self.professional)
+        edit_url = reverse(
+            "customers:professional_client_edit",
+            args=[business_client.id],
+        )
+
+        blocked = self.client.post(
+            edit_url,
+            {
+                "full_name": "María bloqueada",
+                "phone": "600 333 445",
+                "email": "maria.bloqueada@example.com",
+                "internal_notes": "Este cambio no debe persistir.",
+            },
+        )
+
+        self.assertEqual(blocked.status_code, 200)
+        self.assertContains(blocked, "no puede cambiarse en esta demostración")
+        self.assertContains(blocked, "Los demás datos sí pueden editarse")
+        business_client.refresh_from_db()
+        access.refresh_from_db()
+        self.assertEqual(business_client.full_name, "María López")
+        self.assertEqual(access.email, original_email)
+        self.assertEqual(access.password_hash, original_password_hash)
+        self.assertEqual(access.email_verified_at, original_verified_at)
+        self.assertEqual(
+            OutboundEmail.objects.filter(
+                client_access=access,
+                kind=OutboundEmail.Kind.CLIENT_EMAIL_VERIFICATION,
+            ).count(),
+            queued_before,
+        )
+
+        allowed = self.client.post(
+            edit_url,
+            {
+                "full_name": "María López Romero",
+                "phone": "600 333 445",
+                "email": original_email,
+                "internal_notes": "Los demás datos sí quedan editados.",
+            },
+        )
+
+        self.assertRedirects(
+            allowed,
+            reverse(
+                "customers:professional_client_detail",
+                args=[business_client.id],
+            ),
+        )
+        business_client.refresh_from_db()
+        access.refresh_from_db()
+        self.assertEqual(business_client.full_name, "María López Romero")
+        self.assertEqual(business_client.phone, "600 333 445")
+        self.assertEqual(business_client.internal_notes, "Los demás datos sí quedan editados.")
+        self.assertEqual(access.email, original_email)
+        self.assertEqual(access.password_hash, original_password_hash)
+        self.assertEqual(access.email_verified_at, original_verified_at)
 
     def test_professional_edit_with_same_access_email_preserves_security_state(self):
         business_client = BusinessClient.objects.get(
@@ -3142,6 +3395,7 @@ class ProfessionalClientViewTests(TestCase):
             queued_before,
         )
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
     def test_professional_email_change_rotates_identity_and_queues_verification(self):
         business_client = BusinessClient.objects.get(
             business=self.business,
@@ -3199,6 +3453,7 @@ class ProfessionalClientViewTests(TestCase):
         fresh_verification_path = urlparse(client_verification_url(access)).path
         self.assertEqual(Client().get(fresh_verification_path).status_code, 200)
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
     def test_second_professional_email_change_invalidates_previous_verification_link(self):
         business_client = BusinessClient.objects.get(
             business=self.business,
@@ -3237,6 +3492,7 @@ class ProfessionalClientViewTests(TestCase):
         self.assertEqual(Client().get(first_verification_path).status_code, 410)
         self.assertEqual(Client().get(second_verification_path).status_code, 200)
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
     def test_professional_email_change_rejects_blank_and_duplicate_without_mutation(self):
         maria = BusinessClient.objects.get(business=self.business, full_name="María López")
         lucia = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")
@@ -3292,6 +3548,7 @@ class ProfessionalClientViewTests(TestCase):
             ).exists()
         )
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
     def test_professional_email_change_requires_active_access_and_client_file(self):
         maria = BusinessClient.objects.get(business=self.business, full_name="María López")
         lucia = BusinessClient.objects.get(business=self.business, full_name="Lucía Gómez")

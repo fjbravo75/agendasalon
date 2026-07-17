@@ -64,8 +64,11 @@
       </div>
 
       <div class="booking-receipt-email" aria-live="polite">
-        <span>Confirmación por correo</span>
-        {% if confirmation_email %}
+        <span>{% if transactional_email_enabled %}Confirmación por correo{% else %}Estado de la cita{% endif %}</span>
+        {% if not transactional_email_enabled %}
+          <strong>Entrega externa desactivada</strong>
+          <small>La cita ya está confirmada en AgendaSalon. Esta demostración no envía correos externos.</small>
+        {% elif confirmation_email %}
           <strong>{{ confirmation_email.operational_status_label }}</strong>
           <small>{{ confirmation_email.recipient_email }}</small>
         {% else %}

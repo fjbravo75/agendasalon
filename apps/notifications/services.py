@@ -871,6 +871,14 @@ def _message_id_domain():
     return (sender_domain or website_domain or "agendasalon.local").encode("idna").decode("ascii")
 
 
+def _outbound_email_block_reason():
+    if getattr(settings, "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL", False):
+        return "El correo saliente está suprimido durante la regeneración de la demo."
+    if not getattr(settings, "AGENDA_TRANSACTIONAL_EMAIL_ENABLED", False):
+        return "El correo transaccional no está activado en este entorno."
+    return ""
+
+
 def _dispatch_claim(claim):
     email = _active_claim_email(claim)
     if email is None:
@@ -881,8 +889,9 @@ def _dispatch_claim(claim):
         return _cancel_claim(claim)
 
     try:
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
-            raise RuntimeError("El correo transaccional no está activado en este entorno.")
+        block_reason = _outbound_email_block_reason()
+        if block_reason:
+            raise RuntimeError(block_reason)
         context = _delivery_context(email)
         subject = render_to_string(
             f"emails/{email.kind}_subject.txt",
@@ -933,12 +942,17 @@ def _dispatch_claim(claim):
 
 
 def dispatch_outbound_email(email_id):
+    if _outbound_email_block_reason():
+        return _current_email(email_id)
     claim, terminal_email_id = _claim_outbound_email(email_id=email_id)
     if claim is None:
         return _current_email(terminal_email_id or email_id)
     return _dispatch_claim(claim)
 
+
 def dispatch_due_emails(*, limit=100):
+    if _outbound_email_block_reason():
+        return []
     delivered = []
     for _ in range(max(0, limit)):
         claim, terminal_email_id = _claim_outbound_email()

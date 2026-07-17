@@ -19,7 +19,14 @@ from apps.booking.models import (
     WorkLine,
 )
 from apps.booking.slot_engine import get_day_availability, suggest_next_slots
-from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
+from apps.businesses.models import (
+    Business,
+    BusinessActivityEvent,
+    BusinessMembership,
+    PlatformLoginImage,
+    PlatformSettings,
+)
+from apps.core.demo_scenario import BUSINESS_MARI, BUSINESS_NORTE, CLIENTS
 from apps.core.management.commands.seed_demo import DemoSeeder
 from apps.customers.models import (
     BusinessClient,
@@ -37,6 +44,7 @@ from apps.legal.models import (
 )
 from apps.legal.services import (
     business_legal_snapshot,
+    customer_privacy_action_fingerprint,
     record_customer_privacy_information,
 )
 from apps.notifications.models import InternalNotification
@@ -49,16 +57,18 @@ DEMO_BUSINESS_SLUGS = ("peluqueria-mari", "barberia-norte")
 
 class SeedDemoCommandTests(TestCase):
     base_date = date(2026, 7, 6)
-    reference_now = datetime(2026, 7, 6, 2, 5, tzinfo=MADRID)
+    reference_now = datetime(2026, 7, 6, 4, 5, tzinfo=MADRID)
 
     def test_seed_demo_creates_required_demo_data_and_is_idempotent(self):
         scenario = self._run_seed()
         first_counts = self._counts()
         first_legal_fingerprints = self._legal_event_fingerprints()
+        first_notification_timeline = self._notification_timeline()
 
         self._run_seed()
         second_counts = self._counts()
         second_legal_fingerprints = self._legal_event_fingerprints()
+        second_notification_timeline = self._notification_timeline()
 
         expected_counts = {
             "users": 3,
@@ -87,6 +97,8 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(first_counts, expected_counts)
         self.assertEqual(second_counts, expected_counts)
         self.assertEqual(first_legal_fingerprints, second_legal_fingerprints)
+        self.assertEqual(first_notification_timeline, second_notification_timeline)
+        self.assertTrue(all(row[-1] is None for row in first_notification_timeline))
 
         mari = Business.objects.get(slug="peluqueria-mari")
         norte = Business.objects.get(slug="barberia-norte")
@@ -345,6 +357,82 @@ class SeedDemoCommandTests(TestCase):
         )
         self.assertTrue(suggestions)
         self.assertEqual(suggestions[0].starts_at.date(), scenario.future_days[3])
+
+        platform_settings = PlatformSettings.objects.get(pk=PlatformSettings.SINGLETON_PK)
+        self.assertEqual(platform_settings.admin_theme, PlatformSettings.AdminTheme.LIGHT)
+        self.assertEqual(
+            platform_settings.login_image_preset,
+            PlatformSettings.LoginImagePreset.AGENDASALON,
+        )
+        superadmin = get_user_model().objects.get(normalized_phone="+34910000001")
+        self.assertEqual(platform_settings.updated_by_id, superadmin.pk)
+
+        privacy_document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.CUSTOMER_PRIVACY,
+            is_active=True,
+        )
+        business_slugs = {
+            BUSINESS_MARI: "peluqueria-mari",
+            BUSINESS_NORTE: "barberia-norte",
+        }
+        expected_privacy_fingerprints = {
+            customer_privacy_action_fingerprint(
+                (
+                    f"seed-demo:customer:{business_slugs[definition.business]}:"
+                    f"{definition.key}:privacy-v1"
+                ),
+                document=privacy_document,
+            )
+            for definition in CLIENTS
+        }
+        self.assertEqual(
+            set(
+                CustomerPrivacyEvidenceEvent.objects.values_list(
+                    "action_fingerprint",
+                    flat=True,
+                )
+            ),
+            expected_privacy_fingerprints,
+        )
+
+    def test_seed_demo_restores_the_complete_canonical_appearance(self):
+        self._run_seed()
+        mari = Business.objects.get(slug="peluqueria-mari")
+        norte = Business.objects.get(slug="barberia-norte")
+        settings = PlatformSettings.objects.get(pk=PlatformSettings.SINGLETON_PK)
+
+        mari.professional_theme = Business.ProfessionalTheme.LIGHT
+        mari.save(update_fields=["professional_theme", "updated_at"])
+        norte.professional_theme = Business.ProfessionalTheme.DARK
+        norte.save(update_fields=["professional_theme", "updated_at"])
+        settings.admin_theme = PlatformSettings.AdminTheme.DARK
+        settings.login_image_preset = PlatformSettings.LoginImagePreset.BARBERSHOP
+        settings.updated_by = get_user_model().objects.get(normalized_phone="+34600111001")
+        settings.save()
+        custom_image = PlatformLoginImage.objects.create(
+            platform_settings=settings,
+            image="platform/login/cambio-evaluador.webp",
+            label="Cambio del evaluador",
+            is_selected=True,
+            uploaded_by=settings.updated_by,
+        )
+
+        self._run_seed()
+
+        mari.refresh_from_db()
+        norte.refresh_from_db()
+        settings.refresh_from_db()
+        custom_image.refresh_from_db()
+        self.assertEqual(mari.professional_theme, Business.ProfessionalTheme.DARK)
+        self.assertEqual(norte.professional_theme, Business.ProfessionalTheme.LIGHT)
+        self.assertEqual(settings.admin_theme, PlatformSettings.AdminTheme.LIGHT)
+        self.assertEqual(
+            settings.login_image_preset,
+            PlatformSettings.LoginImagePreset.AGENDASALON,
+        )
+        superadmin = get_user_model().objects.get(normalized_phone="+34910000001")
+        self.assertEqual(settings.updated_by_id, superadmin.pk)
+        self.assertFalse(custom_image.is_selected)
 
     def test_seed_demo_restores_internal_demo_credentials_and_removes_password_gate(self):
         self._run_seed()
@@ -663,3 +751,19 @@ class SeedDemoCommandTests(TestCase):
                 ).values_list("action_fingerprint", flat=True)
             ),
         }
+
+    def _notification_timeline(self):
+        return tuple(
+            InternalNotification.objects.order_by(
+                "business__slug",
+                "appointment__starts_at",
+                "event_type",
+                "created_at",
+            ).values_list(
+                "business__slug",
+                "appointment__starts_at",
+                "event_type",
+                "created_at",
+                "read_at",
+            )
+        )

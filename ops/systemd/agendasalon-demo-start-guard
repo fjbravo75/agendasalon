@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# Guardia de solo lectura instalada como root:root 0755 en /usr/local/libexec.
+
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+readonly STATE_DIR="/var/lib/agendasalon"
+readonly STATE_FILE="${STATE_DIR}/demo-refresh.state"
+readonly MEDIA_PARENT="/var/www/agendasalon/shared"
+readonly MEDIA_ROOT="${MEDIA_PARENT}/media"
+readonly LOCK_FILE="/run/lock/agendasalon-demo-refresh.lock"
+readonly BACKUP_AUTH_FILE="/run/lock/agendasalon-demo-backup-authorized"
+readonly REARM_AUTH_FILE="/run/lock/agendasalon-demo-rearm-authorized"
+readonly MODE="${1:-default}"
+LOCK_HELD=0
+STATE_PRESENT=0
+STATE_TEMP=""
+QUARANTINE=""
+AUTH_PRESENT=0
+REARM_AUTH_PRESENT=0
+
+deny() {
+  printf 'AgendaSalon start guard: BLOQUEADO: %s\n' "$1" >&2
+  exit 1
+}
+
+validate_guard_installation() {
+  local installed_path mode
+  installed_path="$(realpath -e -- "$0")" || deny "no se puede resolver la guardia instalada"
+  [[ "${installed_path}" == "/usr/local/libexec/agendasalon-demo-start-guard" ]] ||
+    deny "la guardia no se ejecuta desde su ruta canónica"
+  [[ "$(stat -c '%u' -- "${installed_path}")" == "0" ]] ||
+    deny "la guardia no pertenece a root"
+  mode="$(stat -c '%a' -- "${installed_path}")"
+  (( (8#${mode} & 8#022) == 0 )) ||
+    deny "la guardia es escribible por grupo u otros"
+}
+
+inspect_process_lock() {
+  local mode
+  if [[ ! -e "${LOCK_FILE}" && ! -L "${LOCK_FILE}" ]]; then
+    LOCK_HELD=0
+    return
+  fi
+  [[ -f "${LOCK_FILE}" && ! -L "${LOCK_FILE}" ]] ||
+    deny "el lock del orquestador no es un archivo regular"
+  [[ "$(stat -c '%u' -- "${LOCK_FILE}")" == "0" ]] ||
+    deny "el lock del orquestador no pertenece a root"
+  mode="$(stat -c '%a' -- "${LOCK_FILE}")"
+  (( (8#${mode} & 8#022) == 0 )) ||
+    deny "el lock del orquestador es escribible por grupo u otros"
+  exec 9<"${LOCK_FILE}" || deny "no se puede abrir el lock del orquestador"
+  if flock --shared --nonblock 9; then
+    LOCK_HELD=0
+  else
+    LOCK_HELD=1
+  fi
+}
+
+inspect_interrupted_refresh() {
+  [[ -d "${MEDIA_PARENT}" && ! -L "${MEDIA_PARENT}" ]] ||
+    deny "el directorio compartido no es seguro"
+  [[ -d "${MEDIA_ROOT}" && ! -L "${MEDIA_ROOT}" ]] ||
+    deny "el directorio de medios no es seguro"
+
+  if [[ -e "${STATE_FILE}" || -L "${STATE_FILE}" ]]; then
+    [[ -f "${STATE_FILE}" && ! -L "${STATE_FILE}" ]] ||
+      deny "el estado duradero no es un archivo regular"
+    STATE_PRESENT=1
+  fi
+  if [[ -e "${STATE_DIR}" || -L "${STATE_DIR}" ]]; then
+    [[ -d "${STATE_DIR}" && ! -L "${STATE_DIR}" ]] ||
+      deny "la ruta de estado duradero no es segura"
+    STATE_TEMP="$(find "${STATE_DIR}" -mindepth 1 -maxdepth 1 \
+      -name 'demo-refresh.state.tmp.*' -print -quit)" ||
+      deny "no se pudo inspeccionar el estado duradero"
+  fi
+  QUARANTINE="$(find "${MEDIA_PARENT}" -mindepth 1 -maxdepth 1 \
+    -name '.media-refresh-quarantine-*' -print -quit)" ||
+    deny "no se pudo inspeccionar el almacén de medios"
+  if [[ -e "${BACKUP_AUTH_FILE}" || -L "${BACKUP_AUTH_FILE}" ]]; then
+    [[ -f "${BACKUP_AUTH_FILE}" && ! -L "${BACKUP_AUTH_FILE}" ]] ||
+      deny "la autorización de copia no es un archivo regular"
+    AUTH_PRESENT=1
+  fi
+  if [[ -e "${REARM_AUTH_FILE}" || -L "${REARM_AUTH_FILE}" ]]; then
+    [[ -f "${REARM_AUTH_FILE}" && ! -L "${REARM_AUTH_FILE}" ]] ||
+      deny "la autorización de rearme no es un archivo regular"
+    REARM_AUTH_PRESENT=1
+  fi
+}
+
+authorize_only_runtime_rearm() {
+  local mode rearm_run_id
+  if (( LOCK_HELD == 0 )); then
+    (( STATE_PRESENT == 0 && AUTH_PRESENT == 0 && REARM_AUTH_PRESENT == 0 )) ||
+      deny "existe estado operativo residual"
+    [[ -z "${STATE_TEMP}" && -z "${QUARANTINE}" ]] ||
+      deny "existe estado operativo residual"
+    return
+  fi
+
+  (( STATE_PRESENT == 0 && AUTH_PRESENT == 0 && REARM_AUTH_PRESENT == 1 )) ||
+    deny "el rearme no está autorizado por el orquestador"
+  [[ -z "${STATE_TEMP}" && -z "${QUARANTINE}" ]] ||
+    deny "la reconciliación de medios o estado no ha terminado"
+  [[ "$(stat -c '%u' -- "${REARM_AUTH_FILE}")" == "0" ]] ||
+    deny "la autorización de rearme no pertenece a root"
+  mode="$(stat -c '%a' -- "${REARM_AUTH_FILE}")"
+  (( (8#${mode} & 8#022) == 0 )) ||
+    deny "la autorización de rearme es escribible por grupo u otros"
+  rearm_run_id="$(cat -- "${REARM_AUTH_FILE}")"
+  [[ "${rearm_run_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
+    deny "la autorización de rearme no contiene un nonce seguro"
+}
+
+authorize_only_the_canonical_backup() {
+  local auth_run_id mode state_run_id gunicorn_state unit unit_state
+  gunicorn_state="$(systemctl is-active gunicorn-agendasalon.service 2>/dev/null || true)"
+  case "${gunicorn_state}" in
+    inactive|failed)
+      ;;
+    *)
+      deny "la copia canónica solo se permite con Gunicorn detenido"
+      ;;
+  esac
+  for unit in \
+    agendasalon-email.timer \
+    agendasalon-registration-purge.timer \
+    agendasalon-session-cleanup.timer \
+    backup-agendasalon.timer \
+    check-agendasalon-backup.timer \
+    agendasalon-email.service \
+    agendasalon-registration-purge.service \
+    agendasalon-session-cleanup.service \
+    check-agendasalon-backup.service; do
+    unit_state="$(systemctl is-active "${unit}" 2>/dev/null || true)"
+    case "${unit_state}" in
+      inactive|failed)
+        ;;
+      *)
+        deny "la copia canónica exige todos los escritores y monitores detenidos"
+        ;;
+    esac
+  done
+
+  # Baseline manual: sin refresco en curso, estado ni cuarentena.
+  if (( LOCK_HELD == 0 && STATE_PRESENT == 0 && AUTH_PRESENT == 0 )) &&
+    [[ -z "${STATE_TEMP}" && -z "${QUARANTINE}" ]]; then
+    return
+  fi
+
+  # Copia post-commit: orquestador vivo, estado íntegro, media ya reconciliada
+  # y autorización de un solo uso ligada al mismo nonce.
+  (( LOCK_HELD == 1 && STATE_PRESENT == 1 )) ||
+    deny "la copia no pertenece a una regeneración controlada"
+  [[ -z "${STATE_TEMP}" && -z "${QUARANTINE}" ]] ||
+    deny "la media o el estado aún no han quedado limpios"
+  (( AUTH_PRESENT == 1 )) ||
+    deny "falta la autorización efímera de copia"
+  [[ "$(stat -c '%u' -- "${BACKUP_AUTH_FILE}")" == "0" ]] ||
+    deny "la autorización de copia no pertenece a root"
+  mode="$(stat -c '%a' -- "${BACKUP_AUTH_FILE}")"
+  (( (8#${mode} & 8#022) == 0 )) ||
+    deny "la autorización de copia es escribible por grupo u otros"
+  [[ "$(grep -c '^run_id=' "${STATE_FILE}")" == "1" ]] ||
+    deny "el estado no contiene un nonce único"
+  state_run_id="$(sed -n 's/^run_id=//p' "${STATE_FILE}")"
+  auth_run_id="$(cat -- "${BACKUP_AUTH_FILE}")"
+  [[ -n "${state_run_id}" && "${auth_run_id}" == "${state_run_id}" ]] ||
+    deny "la autorización no coincide con el estado duradero"
+}
+
+validate_guard_installation
+inspect_process_lock
+inspect_interrupted_refresh
+
+case "${MODE}" in
+  default)
+    authorize_only_runtime_rearm
+    ;;
+  --runtime-rearm)
+    authorize_only_runtime_rearm
+    ;;
+  --canonical-backup)
+    authorize_only_the_canonical_backup
+    ;;
+  *)
+    deny "modo de guardia desconocido"
+    ;;
+esac

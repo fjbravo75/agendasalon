@@ -1,6 +1,7 @@
 from functools import wraps
 
 import requests
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -209,7 +210,14 @@ def superadmin_business_create(request):
             delivery = queue_and_dispatch(
                 queue_professional_activation(professional, business=business)
             )
-            if delivery.status == delivery.Status.SENT:
+            if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+                messages.info(
+                    request,
+                    f"{business.commercial_name} ya está creado y el acceso de "
+                    f"{professional.full_name} queda preparado. El correo externo de "
+                    "activación está desactivado en esta demostración académica.",
+                )
+            elif delivery.status == delivery.Status.SENT:
                 messages.success(
                     request,
                     f"{business.commercial_name} queda dado de alta. El servicio de correo ha aceptado el enlace de activación para {professional.email}.",
@@ -347,6 +355,7 @@ def superadmin_business_detail(request, business_id):
             "online_appointments_count": online_appointments_count,
             "professional_appointments_count": professional_appointments_count,
             "legal_status": legal_status,
+            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
         },
     )
 
@@ -511,7 +520,13 @@ def superadmin_professional_create(request, business_id):
         delivery = queue_and_dispatch(
             queue_professional_activation(professional, business=business)
         )
-        if delivery.status == delivery.Status.SENT:
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            messages.info(
+                request,
+                f"El acceso de {professional.full_name} queda preparado. El correo "
+                "externo de activación está desactivado en esta demostración académica.",
+            )
+        elif delivery.status == delivery.Status.SENT:
             messages.success(
                 request,
                 f"Acceso preparado. El servicio de correo ha aceptado el enlace de activación para {professional.email}.",
@@ -544,7 +559,13 @@ def superadmin_professional_activation_resend(request, business_id, membership_i
         delivery = queue_and_dispatch(
             queue_professional_activation(user, business=membership.business)
         )
-        if delivery.status == delivery.Status.SENT:
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            messages.info(
+                request,
+                f"La cuenta de {user.full_name} sigue preparada. El correo externo de "
+                "activación está desactivado en esta demostración académica.",
+            )
+        elif delivery.status == delivery.Status.SENT:
             messages.success(request, f"Enlace de activación reenviado a {user.email}.")
         else:
             messages.warning(request, "El reenvío ha quedado pendiente. No se ha perdido la solicitud.")

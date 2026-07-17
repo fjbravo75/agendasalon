@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.shortcuts import redirect, render
 from django.db import transaction
 from django.utils import timezone
@@ -137,6 +138,7 @@ def business_signup_request(request):
             "legal_presentation_token": legal_presentation_token,
             "legal_unavailable_message": legal_unavailable_message,
             "internal_login_image_url": get_platform_login_image_url(),
+            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
         },
         status=response_status,
     )
@@ -152,5 +154,8 @@ def business_signup_request_success(request):
     return render(
         request,
         "businesses/signup_request_success.html",
-        {"internal_login_image_url": get_platform_login_image_url()},
+        {
+            "internal_login_image_url": get_platform_login_image_url(),
+            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+        },
     )

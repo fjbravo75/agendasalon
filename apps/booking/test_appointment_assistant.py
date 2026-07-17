@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.template.defaultfilters import date as date_filter
 from django.urls import reverse
 from django.utils import timezone
@@ -872,6 +872,11 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Consulta las horas disponibles sin registrarte")
         self.assertContains(
             response,
+            "Te pediremos entrar o crear una cuenta únicamente cuando hayas elegido la hora",
+        )
+        self.assertNotContains(response, "Tu cuenta ya está iniciada")
+        self.assertContains(
+            response,
             f'href="{reverse("public_booking", args=[self.business.slug])}"',
         )
         self.assertNotContains(response, "Acceso profesional")
@@ -887,6 +892,8 @@ class AppointmentAssistantTests(TestCase):
         response = self.client.get(reverse("public_booking", args=[self.business.slug]))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Tú eliges antes de crear la cuenta")
+        self.assertNotContains(response, "Tu cuenta ya está lista")
         self.assertContains(response, 'data-service-count="12"')
         self.assertContains(response, "service-choice-list--scrollable")
         self.assertContains(response, 'data-service-count="12" tabindex="0"')
@@ -1099,6 +1106,28 @@ class AppointmentAssistantTests(TestCase):
             appointment.pk,
         )
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
+    def test_public_receipt_keeps_normal_email_copy_when_delivery_is_enabled(self):
+        service_ids = self._combined_service_ids()
+        slot = self._first_public_slot()
+        self._choose_public_slot(slot, service_ids)
+        confirmation_url = (
+            f"{reverse('public_booking', args=[self.business.slug])}?confirm=1"
+        )
+        self._login_demo_client(next_url=confirmation_url)
+        confirmed = self.client.post(
+            reverse("public_booking", args=[self.business.slug]),
+            {"action": "confirm_booking"},
+        )
+
+        receipt = self.client.get(confirmed["Location"])
+
+        self.assertEqual(receipt.status_code, 200)
+        self.assertContains(receipt, "Tu cita está confirmada")
+        self.assertContains(receipt, "Confirmación por correo")
+        self.assertNotContains(receipt, "Entrega externa desactivada")
+        self.assertNotContains(receipt, "no envía correos externos")
+
     def test_authenticated_public_search_protects_personal_account_data(self):
         self._login_demo_client()
 
@@ -1111,7 +1140,14 @@ class AppointmentAssistantTests(TestCase):
         self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertContains(response, "María López")
         self.assertContains(response, "600 111 201")
+        self.assertContains(response, "Tu cuenta ya está iniciada")
+        self.assertContains(response, "Ya estás dentro de tu cuenta")
+        self.assertContains(response, "Tu cuenta ya está lista")
+        self.assertContains(response, "Revisa y confirma")
+        self.assertNotContains(response, "Consulta las horas disponibles sin registrarte")
+        self.assertNotContains(response, "Tú eliges antes de crear la cuenta")
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
     def test_login_resumes_review_and_final_confirmation_uses_same_engine(self):
         service_ids = self._combined_service_ids()
         slot = self._first_public_slot()
@@ -1186,7 +1222,11 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(receipt_response, "Tu cita está confirmada")
         self.assertContains(receipt_response, "María López")
         self.assertContains(receipt_response, "108,00 €")
-        self.assertContains(receipt_response, "Confirmación por correo")
+        self.assertContains(receipt_response, "Estado de la cita")
+        self.assertNotContains(receipt_response, "Confirmación por correo")
+        self.assertContains(receipt_response, "Entrega externa desactivada")
+        self.assertContains(receipt_response, "La cita ya está confirmada en AgendaSalon")
+        self.assertNotContains(receipt_response, "próximo intento")
 
         refreshed_response = self.client.get(response["Location"])
         self.assertEqual(refreshed_response.status_code, 200)

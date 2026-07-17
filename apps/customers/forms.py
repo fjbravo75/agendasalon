@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -45,6 +46,19 @@ QUICK_CLIENT_EXISTING_DATA_MISMATCH_MESSAGE = (
     "Ya existe una ficha activa con ese nombre y teléfono, pero el correo o las "
     "notas no coinciden. Abre esa ficha y revisa sus datos antes de continuar."
 )
+DEMO_EMAIL_VALIDATION_MESSAGE = (
+    "Usa una dirección de correo con formato y dominio válidos. En esta "
+    "demostración académica no se entregan mensajes externos."
+)
+
+
+def _normalize_routable_email(value):
+    try:
+        return normalize_and_validate_routable_email(value)
+    except DjangoValidationError as exc:
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            raise forms.ValidationError(DEMO_EMAIL_VALIDATION_MESSAGE) from exc
+        raise
 
 
 def _quick_client_action_source(receipt_id):
@@ -121,7 +135,7 @@ class ClientPasswordResetRequestForm(forms.Form):
     )
 
     def clean_email(self):
-        return normalize_and_validate_routable_email(self.cleaned_data["email"])
+        return _normalize_routable_email(self.cleaned_data["email"])
 
 
 class ClientEmailVerificationForm(forms.Form):
@@ -299,7 +313,7 @@ class ClientRegistrationForm(forms.Form):
         return phone
 
     def clean_email(self):
-        return normalize_and_validate_routable_email(self.cleaned_data["email"])
+        return _normalize_routable_email(self.cleaned_data["email"])
 
     def clean(self):
         cleaned_data = super().clean()
@@ -330,7 +344,7 @@ class ClientInvitationActivationForm(forms.Form):
         self.business = business
 
     def clean_email(self):
-        return normalize_and_validate_routable_email(self.cleaned_data["email"])
+        return _normalize_routable_email(self.cleaned_data["email"])
 
     def clean(self):
         cleaned_data = super().clean()
@@ -455,7 +469,7 @@ class ProfessionalClientQuickForm(forms.Form):
         email = self.cleaned_data.get("email")
         if not email:
             return ""
-        return normalize_and_validate_routable_email(email)
+        return _normalize_routable_email(email)
 
     def clean_internal_notes(self):
         return (self.cleaned_data.get("internal_notes") or "").strip()
@@ -794,6 +808,14 @@ class ProfessionalClientEditForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.business = business
         self.instance = instance
+        if self.access is not None and not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            self.fields["email"].widget.attrs.update(
+                {
+                    "readonly": True,
+                    "aria-readonly": "true",
+                    "aria-describedby": "client-email-demo-guidance",
+                }
+            )
 
     def clean_full_name(self):
         full_name = self.cleaned_data["full_name"].strip()
@@ -823,7 +845,7 @@ class ProfessionalClientEditForm(forms.Form):
                 )
             return ""
         try:
-            normalized_email = normalize_and_validate_routable_email(email)
+            normalized_email = _normalize_routable_email(email)
         except DjangoValidationError:
             if self.access is not None and email.lower() == current_email_normalized:
                 return (self.access.email or "").strip()
@@ -834,6 +856,11 @@ class ProfessionalClientEditForm(forms.Form):
 
         if self.access is None or normalized_email == current_email_normalized:
             return normalized_email
+        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            raise forms.ValidationError(
+                "El correo de una cuenta online no puede cambiarse en esta demostración "
+                "porque no se entregan enlaces de verificación. Los demás datos sí pueden editarse."
+            )
         if not self.access.is_active or not self.instance.is_active:
             raise forms.ValidationError(
                 "Reactiva la ficha y la cuenta online antes de cambiar el correo."

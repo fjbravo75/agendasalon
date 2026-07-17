@@ -3,7 +3,7 @@ from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -27,6 +27,7 @@ class ProfessionalAppointmentManagementTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:login"), response["Location"])
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
     def test_appointment_detail_loads_for_professional_business(self):
         self.client.force_login(self.professional)
         appointment = self.business.appointments.filter(
@@ -42,8 +43,28 @@ class ProfessionalAppointmentManagementTests(TestCase):
         self.assertContains(response, appointment.business_client.full_name)
         self.assertContains(response, appointment.service_summary_snapshot)
         self.assertContains(response, "Trazabilidad")
+        self.assertContains(response, "Entrega externa desactivada.")
+        self.assertContains(response, "La cita y sus cambios sí quedan registrados")
+        self.assertNotContains(response, "próximo intento")
         self.assertNotContains(response, "MVP")
         self.assertNotContains(response, "Barbería Norte")
+
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
+    def test_appointment_detail_keeps_normal_email_copy_when_delivery_is_enabled(self):
+        self.client.force_login(self.professional)
+        appointment = self.business.appointments.filter(
+            status=Appointment.Status.CONFIRMED,
+        ).first()
+
+        response = self.client.get(
+            reverse("booking:professional_appointment_detail", args=[appointment.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Avisos al cliente")
+        self.assertContains(response, "Correo de la cita")
+        self.assertContains(response, "No hay avisos registrados para esta cita")
+        self.assertNotContains(response, "Entrega externa desactivada.")
 
     def test_professional_cannot_open_other_business_appointment(self):
         self.client.force_login(self.professional)
@@ -55,6 +76,7 @@ class ProfessionalAppointmentManagementTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
     def test_professional_can_cancel_confirmed_appointment_with_reason(self):
         self.client.force_login(self.professional)
         appointment = self._create_appointment()
@@ -84,7 +106,7 @@ class ProfessionalAppointmentManagementTests(TestCase):
         detail_response = self.client.get(
             reverse("booking:professional_appointment_detail", args=[appointment.id])
         )
-        self.assertContains(detail_response, "No hay avisos registrados para esta cita.")
+        self.assertContains(detail_response, "Entrega externa desactivada.")
         self.assertNotContains(detail_response, "La cita sigue confirmada.")
 
     def test_cancel_requires_reason_and_keeps_confirmed_status(self):
