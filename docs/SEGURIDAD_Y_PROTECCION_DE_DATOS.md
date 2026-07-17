@@ -88,7 +88,7 @@ La aplicación separa cuatro superficies:
 | Recuperación de contraseña cliente | Solicitud por correo verificado con respuesta genérica; enlace firmado, ligado al negocio y a la huella de contraseña, con caducidad de 60 minutos e invalidación tras cambiar la clave | `apps/customers`, `apps/notifications` | P0 verificado en local; sujeto a CI por SHA |
 | Autorización | Decoradores de acceso, negocio activo en la operativa y filtrado de objetos por empresa; privacidad y derechos son la excepción legal explícita durante una pausa | vistas, API y pruebas de aislamiento | P0 verificado en local; sujeto a CI por SHA |
 | Aislamiento multiempresa | Los endpoints profesionales resuelven el negocio desde la sesión; no confían en un identificador de empresa enviado por el navegador | `apps/booking/api.py`, `apps/dashboards/api.py`, pruebas por negocio | Aplicado y verificado |
-| CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; los GET de activación y verificación no cambian contraseña, correo, privacidad ni estado; las respuestas con POST usan `same-origin` o, si la URL contiene un token, `strict-origin`, para conservar un `Origin` válido sin filtrar esa ruta | `config/settings/base.py`, plantillas, vistas y pruebas con CSRF real | P1 verificado en local; sujeto a CI por SHA |
+| CSRF | `CsrfViewMiddleware`, token en formularios y mutaciones mediante POST; los GET de activación profesional y de alta, invitación o recuperación cliente solo validan o presentan. La verificación de correo profesional aún consume el token mediante GET y queda registrada para migrarla a POST con CSRF en P2. Las respuestas con POST usan `same-origin` o, si la URL contiene un token, `strict-origin`, para conservar un `Origin` válido sin filtrar esa ruta | `config/settings/base.py`, plantillas, vistas y pruebas con CSRF real | P1 verificado en local con la excepción profesional declarada; sujeto a CI por SHA |
 | XSS y contenido activo | Autoescape de plantillas, ausencia de inserciones HTML inseguras en el código de producto y CSP con scripts limitados al mismo origen | `apps/core/middleware.py`, `config/settings/base.py` | Aplicado y verificado |
 | Cabeceras de navegador | `Permissions-Policy`, CORP `same-origin`, bloqueo de marcos y objetos mediante CSP y política de referencia diferenciada entre formularios POST y respuestas de token sin formulario | middleware, vistas y pruebas de cabeceras | Aplicado y verificado |
 | Validación | Formularios Django, `full_clean()`, normalización de teléfonos, restricciones de modelos y mensajes genéricos en accesos sensibles | formularios, modelos y batería Django de 534 pruebas | Aplicado y verificado en local |
@@ -193,10 +193,15 @@ permisos; solo el superusuario dispone de acceso completo.
 
 ## CSRF, XSS y cabeceras
 
-Todas las mutaciones construidas utilizan POST y token CSRF. El middleware de
-Django valida el origen y el token antes de ejecutar la acción. En los enlaces
-de alta, invitación, verificación y recuperación, la visita GET solo presenta y
-valida el estado del enlace; no confirma correos ni crea o cambia contraseñas.
+Las mutaciones de los formularios construidos utilizan POST y token CSRF. El
+middleware de Django valida el origen y el token antes de ejecutar la acción.
+En la activación profesional y en los enlaces cliente de alta, invitación,
+verificación y recuperación, la visita GET solo presenta y valida el estado del
+enlace; no confirma correos ni crea o cambia contraseñas. La verificación
+posterior del correo de una cuenta profesional es la excepción heredada: hoy
+confirma el correo al consumir el token mediante GET. P1 protege esa respuesta
+con `no-referrer` y `no-store`, pero el cambio a una confirmación POST con CSRF
+permanece expresamente en P2.
 
 Las respuestas con formularios POST ordinarios usan
 `Referrer-Policy: same-origin`. Las páginas cuyo propio URL contiene un token de
