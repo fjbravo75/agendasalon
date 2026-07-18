@@ -81,22 +81,31 @@ Let's Encrypt. El entorno muestra de forma explícita que no existe actividad
 comercial y utiliza `agendasalon@brvsoftwarestudio.com` como contacto real.
 
 La versión funcional desplegada en producción corresponde al commit
-`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La ejecución de CI de esa versión,
-`29625418697`, completó correctamente sus cuatro trabajos. `main` puede incluir
-commits documentales posteriores que no alteran el código desplegado. El escenario canónico
-contiene 2 negocios, 3 cuentas internas, 28 servicios, 36 fichas de cliente, 11
-accesos cliente, 4 relaciones de representación y 90 citas. De estas últimas,
-37 están atendidas, 6 no presentadas, 9 canceladas y 38 confirmadas; 30 proceden
-de la reserva web y 8 fueron solicitadas para otra persona autorizada.
+`545c5618fe915e91b022db70b2c77a75ab2d13ec`; la CI de `main` está correcta. El
+escenario canónico contiene 2 negocios, 3 cuentas internas, 28 servicios —25
+activos—, 36 fichas de cliente, 11 accesos cliente, 4 relaciones de
+representación y 90 citas. De estas últimas, 37 están atendidas, 6 no
+presentadas, 9 canceladas y 38 confirmadas; 30 proceden de la reserva web y 8
+fueron solicitadas para otra persona autorizada. También conserva 8 festivos
+nacionales oficiales del BOE para 2026.
 
-El 18 de julio de 2026 se completó una única aceptación manual de la
-regeneración con fecha base `2026-07-18`: ejecución
-`682f8572-de61-4140-b1f5-41a2118b233a` y huella semántica
-`72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`. El
-temporizador quedó habilitado y activo a las 04:06, una vez pasada la ventana de
-hoy, con `Persistent=false`. Su siguiente ejecución está programada para el 19
-de julio de 2026 a las `04:05 Europe/Madrid`; todavía no se presenta como una
-ejecución automática observada.
+El 18 de julio de 2026 se completó la aceptación final de la regeneración manual
+con fecha base `2026-07-18`: solicitud
+`f3a7d392-b728-4206-908c-36ae2320d951` y huella semántica
+`f53e8ba21674fce64ed4944f90a1d359e717207e8bf4270529506b740a4fcdd8`. El
+postflight dejó outbox, sesiones, throttles y residuos de evaluación a cero,
+HTTPS respondió 200 y no quedaron unidades fallidas. El despachador manual está
+habilitado y activo. La unidad histórica que programaba el proceso a las
+`04:05 Europe/Madrid` se conserva, pero está deshabilitada e inactiva: no existe
+un borrado automático diario.
+
+La primera solicitud de esta aceptación, identificada como
+`eab1c586-eef7-43db-87b8-a0cb417f9d9c`, detectó una conexión externa de
+monitorización durante la quiescencia exigida y falló sin commit. PostgreSQL
+revirtió la transacción y la aplicación quedó cerrada de forma segura. Tras una
+recuperación controlada bajo bloqueo exclusivo y autorización efímera, se
+ejecutó la solicitud final indicada arriba. La incidencia se conserva como
+evidencia del comportamiento fail-closed y no como una regeneración correcta.
 
 Como antecedente histórico, P1 está publicada y aceptada en producción con el
 SHA funcional `105531945452b5529be6891ee47034c164e804f3`. El cierre pasó por
@@ -340,12 +349,13 @@ genéricos que no confirman si una cuenta existe.
 
 Al confirmar una cita, AgendaSalon prepara una confirmación y, si queda margen
 suficiente, un recordatorio para 24 horas antes. El envío se gestiona mediante
-una cola persistente con deduplicación de filas: en desarrollo usa la consola y en producción
-se ha preparado Brevo mediante SMTP con STARTTLS por el puerto 2525. El dominio
-y el remitente están autenticados y una prueba directa desde Django fue entregada;
-desde el 14 de julio de 2026 el código de outbox, sus migraciones y el
-temporizador de cinco minutos están desplegados y verificados en la aplicación
-pública.
+una cola persistente con deduplicación de filas: en desarrollo usa la consola y
+en producción utiliza Brevo mediante SMTP con STARTTLS por el puerto 2525. El
+correo transaccional y los avisos operativos están activos. En la aceptación
+real de plataforma y Barbería Norte, Brevo aceptó exactamente una vez el enlace
+de verificación y exactamente una vez el correo de prueba de cada ámbito. Esta
+evidencia acredita la aceptación por el proveedor, no la lectura final en la
+bandeja del destinatario.
 La deduplicación evita encolar dos veces el mismo hecho. Cada worker reclama el
 correo mediante un `lease` temporal con propietario, mantiene viva esa reserva
 mientras la llamada SMTP continúa, recupera reservas caducadas y solo cierra el
@@ -361,17 +371,18 @@ locales y reservados. En la interfaz, `sent` se presenta como `Aceptado por el
 servicio de correo`: la aceptación SMTP no se confunde con entrega o lectura en
 la bandeja del destinatario.
 
-El código incorpora además la primera release del contrato de supervisión
-v0.24: una sección `Avisos` para el superadministrador y un bloque independiente
+El código incorpora el contrato de supervisión v0.24: una sección `Avisos` para
+el superadministrador y un bloque independiente
 `Avisos del negocio` dentro de los ajustes profesionales. Cada ámbito conserva
 su propio correo verificado, interruptor general y preferencias; los cambios se
 registran sin guardar el correo de destino, tokens ni cuerpos en la actividad.
 Las pruebas de canal se limitan por usuario, IP y destinatario y se presentan
 como `Correo de prueba en cola`, sin prometer entrega ni lectura.
 
-Esta release es deliberadamente inerte al publicarse. En producción,
-`AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED=0` mantiene ocultas y bloqueadas sus
-rutas hasta completar la aceptación controlada. Los límites globales se fijan
+R1 fue una publicación deliberadamente inerte y se conserva como antecedente
+de despliegue: mantenía las rutas ocultas hasta completar la aceptación
+controlada. En el estado vigente, los avisos operativos están activados y las
+rutas son accesibles para su rol correspondiente. Los límites globales se fijan
 con `AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT` y
 `AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT`; cuando se alcanzan, se pausa la creación
 de nuevos avisos operativos y queda un hecho técnico sin exponer identidades.
@@ -382,9 +393,9 @@ superadministrador puede revisar el alcance, volver a introducir su contraseña,
 escribir `REGENERAR DEMO` y registrar una solicitud asíncrona. La petición web no
 ejecuta procesos privilegiados: un despachador root estrecho la reclama bajo el
 mismo bloqueo que el orquestador, y Continuidad muestra después el estado y el
-recibo técnico verificable. La publicación se mantiene inerte hasta completar
-la aceptación operativa; durante la transición puede convivir con las 04:05 y,
-tras verificar el primer ciclo manual real, ese temporizador diario se retira.
+recibo técnico verificable. La aceptación operativa ya se completó y el
+temporizador diario de las 04:05 quedó retirado de la programación activa:
+permanece instalado, deshabilitado e inactivo.
 
 AgendaSalon incorpora una capa de privacidad operativa, no solo informativa.
 Los documentos legales se publican por versión y huella; cada negocio completa
@@ -546,13 +557,11 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La versión funcional desplegada superó los cuatro trabajos de CI en la ejecución
-`29625418697` antes de publicarse y desplegarse con el SHA
-`714a2a22a154b102f31140bc935c4e987c0a5d7e`. Los commits documentales posteriores
-en `main` no modifican esa versión ejecutable. La aceptación manual de la
-regeneración produjo la fecha base, el identificador y la huella exactos
-indicados en «Estado actual». El disparo automático del temporizador todavía no
-forma parte de esta evidencia.
+La versión funcional desplegada corresponde al SHA
+`545c5618fe915e91b022db70b2c77a75ab2d13ec` y la CI de `main` está correcta. La
+aceptación manual de la regeneración produjo la fecha base, el identificador y
+la huella exactos indicados en «Estado actual». El temporizador diario de las
+04:05 no forma parte del funcionamiento vigente: está deshabilitado e inactivo.
 
 La verificación de P2 ejecutó 596 pruebas Django sobre el árbol
 definitivo. SQLite terminó correctamente con 35 omisiones exclusivas de
@@ -659,12 +668,13 @@ python manage.py backup_agendasalon \
   --destination external_encrypted
 ```
 
-La demo pública conserva copias locales autenticadas y verificadas mediante una
-tarea diaria de systemd. La tarea aplica la retención 7/4/6 después de cada
-copia y otro temporizador comprueba diariamente que exista una copia válida de
-menos de 36 horas. Una vigilancia local adicional avisa a Fran si falla la
-programación, la integridad, la frescura o el espacio en disco. El destino
-externo cifrado sigue pendiente y la interfaz no simula esa protección.
+La demo pública conserva copias locales autenticadas y verificadas, y mantiene
+documentada la retención 7/4/6. Sin embargo, el temporizador periódico de copias
+está actualmente deshabilitado e inactivo; por tanto, no se presenta como una
+protección automática vigente. El destino externo cifrado sigue pendiente y la
+interfaz no simula esa protección. Antes de un uso comercial habría que definir
+el calendario de copias, reactivarlo de forma deliberada y validar también la
+restauración desde un destino externo.
 
 La matriz académica de controles, las evidencias reproducibles y los riesgos
 que deben cerrarse durante el despliegue están reunidos en

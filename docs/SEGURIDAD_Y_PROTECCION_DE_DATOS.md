@@ -21,15 +21,12 @@ La evidencia de publicación no se infiere de la fecha de este documento: debe
 comprobarse por SHA exacto, resultado de CI y registro operativo del despliegue.
 
 > **Estado vigente verificado en despliegue.** La versión funcional desplegada
-> corresponde a `714a2a22a154b102f31140bc935c4e987c0a5d7e`. La CI
-> `29625418697` terminó correctamente en sus cuatro trabajos. `main` puede
-> incorporar commits documentales posteriores sin cambiar ese código. La regeneración
-> manual aceptada tiene identificador
-> `682f8572-de61-4140-b1f5-41a2118b233a`, fecha base `2026-07-18` y huella
-> `72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`.
-> El temporizador nocturno está habilitado y activo, con siguiente ejecución el
-> 19 de julio a las 04:05; todavía no existe una primera ejecución automática
-> observada.
+> corresponde a `545c5618fe915e91b022db70b2c77a75ab2d13ec` y la CI de `main`
+> está correcta. La regeneración manual final tiene la solicitud
+> `f3a7d392-b728-4206-908c-36ae2320d951`, fecha base `2026-07-18` y huella
+> `f53e8ba21674fce64ed4944f90a1d359e717207e8bf4270529506b740a4fcdd8`.
+> El despachador manual está habilitado y activo. El temporizador nocturno de
+> las 04:05 se conserva como unidad histórica, deshabilitada e inactiva.
 
 > **Antecedente P2 verificado en despliegue.** El SHA funcional
 > `ed07e8e1d47eb55620df297636cd26ee10fe25c3` está publicado y aceptado. La PR
@@ -128,18 +125,18 @@ La aplicación separa cuatro superficies:
 | Evidencia legal exacta | Recibo firmado y temporal con finalidad, audiencia, documento, versión, huella y contexto; proyección vigente más libros de eventos de solo adición y escritura transaccional | `apps/legal/presentations.py`, modelos, migraciones y pruebas | Verificado en despliegue P1 |
 | Administración técnica | Agenda, calendario, festivos, evidencias legales y correo se muestran en Django Admin como solo lectura, sin altas, ediciones, borrados ni acciones masivas; las solicitudes de derechos solo admiten seguimiento de estado y nota, sin alta ni borrado | módulos `admin.py` y pruebas de permisos | Verificado en despliegue P1 |
 | Outbox concurrente | Reclamación mediante `lease` temporal, recuperación de trabajos caducados, latido continuo durante SMTP, cancelación coordinada y cierre exclusivo por el propietario vigente; se documenta el residual SMTP de entrega al menos una vez | `apps/notifications` y pruebas PostgreSQL | Verificado en despliegue P1; residual SMTP conservado |
-| Avisos operativos configurables | Destinos separados para plataforma y negocio, verificación firmada y de un solo uso, preferencias, límites por identidad/IP/destinatario y máximos globales; las trazas excluyen correo de destino, tokens, cuerpos y contexto funcional sensible, pero conservan `actor_user` y `actor_label` para auditoría; los formularios guardan por campos para evitar sobrescrituras entre apariencia y avisos | `apps/notifications`, `PlatformActivityEvent`, formularios y pruebas SQLite/PostgreSQL | Aplicado y verificado localmente; publicación y activación pendientes |
-| Solicitud manual de regeneración | Acción en dos pantallas, contraseña actual, frase exacta, confirmación, CSRF, throttling, solicitud activa única, estados terminales y digest opaco del origen; la petición HTTP nunca ejecuta el borrado y el resultado se acredita mediante recibo preservado | `DemoRefreshRequest`, `apps/dashboards/demo_refresh.py`, formularios, vistas, despachador root y pruebas SQLite/PostgreSQL | Aplicado y verificado localmente; publicación y aceptación pendientes |
+| Avisos operativos configurables | Destinos separados para plataforma y negocio, verificación firmada y de un solo uso, preferencias, límites por identidad/IP/destinatario y máximos globales; las trazas excluyen correo de destino, tokens, cuerpos y contexto funcional sensible, pero conservan `actor_user` y `actor_label` para auditoría; los formularios guardan por campos para evitar sobrescrituras entre apariencia y avisos | `apps/notifications`, `PlatformActivityEvent`, formularios y pruebas SQLite/PostgreSQL | Publicado, activo y aceptado con Brevo en plataforma y Barbería Norte |
+| Solicitud manual de regeneración | Acción en dos pantallas, contraseña actual, frase exacta, confirmación, CSRF, throttling, solicitud activa única, estados terminales y digest opaco del origen; la petición HTTP nunca ejecuta el borrado y el resultado se acredita mediante recibo preservado | `DemoRefreshRequest`, `apps/dashboards/demo_refresh.py`, formularios, vistas, despachador root y pruebas SQLite/PostgreSQL | Publicado y aceptado en producción, con postflight sin residuos |
 | Sincronización BOE | Exclusión mutua por año antes de la consulta externa; después de la descarga, `SHARE` sobre el registro de negocios, cooperación `ROW EXCLUSIVE` de las mutaciones, agendas en orden estable, reconciliación atómica, fotografía de impacto y altas concurrentes incluidas | `apps/holidays`, mutex de calendario y pruebas PostgreSQL/BOE | Verificado en despliegue P1 |
 | Revisión de citas en festivo | Bandeja privada calculada desde el estado vivo, agregado superadministrador sin datos personales y confirmación manual idempotente que no mueve, cancela ni envía mensajes | `apps/holidays`, `apps/booking`, vistas y pruebas SQLite/PostgreSQL | Verificado en despliegue P2 |
 | Subida de imágenes | JPG, PNG o WebP; 5 MB y 16 millones de píxeles; orientación, reducción a 2400 px y recodificación WebP sin EXIF | `apps/businesses/images.py`, pruebas de ajustes | Aplicado y verificado |
 | Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
 | Secretos | Variables de entorno obligatorias en producción; arranque detenido si faltan secreto, hosts o PostgreSQL | `config/settings/prod.py`, `.env.example`, pruebas de producción | Aplicado y verificado |
 | Base de datos | SQLite solo para desarrollo; PostgreSQL obligatorio en producción, conexión persistente con comprobación de salud | `config/settings/database.py`, `config/settings/prod.py` | Aplicado y verificado |
-| Regeneración académica | Borrado integral limitado al modo demo mediante confirmación explícita, identidad exacta del entorno, quiescencia, exclusión de conexiones, transacción PostgreSQL, cuarentena de medios, supresión SMTP y postflight sin residuos | `apps/core/demo_integrity.py`, `refresh_demo`, `ops/run_demo_refresh.sh` y unidades systemd | Aceptación manual verificada; primer disparo automático pendiente |
+| Regeneración académica | Borrado integral limitado al modo demo mediante confirmación explícita, identidad exacta del entorno, quiescencia, exclusión de conexiones, transacción PostgreSQL, cuarentena de medios, supresión SMTP y postflight sin residuos | `apps/core/demo_integrity.py`, `refresh_demo`, `ops/run_demo_refresh.sh` y unidades systemd | Aceptación manual verificada; programación nocturna retirada |
 | HTTPS | Redirección a HTTPS, cookies seguras, orígenes CSRF configurables y HSTS inicial | `config/settings/prod.py` y validación pública del 14-07-2026 | Verificado en despliegue |
 | Dependencias | Versiones fijadas; auditorías Python y Node sin vulnerabilidades conocidas en la fecha de revisión | `requirements.txt`, `package-lock.json`, comandos de evidencia | Aplicado y verificado |
-| Copias | Copia diaria de PostgreSQL y `media`, hashes SHA-256, manifiesto HMAC, retención 7/4/6 y control de frescura inferior a 36 horas | `ops/backup_restore.py`, `ops/test_backup_restore.py`, `ops/systemd/` | Verificado en despliegue |
+| Copias | Capacidad de copia de PostgreSQL y `media`, hashes SHA-256, manifiesto HMAC, retención 7/4/6 y control de frescura inferior a 36 horas | `ops/backup_restore.py`, `ops/test_backup_restore.py`, `ops/systemd/` | Copias verificadas; temporizador periódico actualmente deshabilitado |
 | Destino externo de copias | Retención definida y requisito de almacenamiento cifrado fuera del servidor | `docs/OPERACION_PRODUCCION.md` | Pendiente de operación |
 
 ## Autenticación, sesiones y contraseñas
@@ -477,15 +474,23 @@ firmas antes y después de la operación.
 
 | Comprobación | Resultado |
 | --- | --- |
-| SHA de la versión funcional desplegada | `714a2a22a154b102f31140bc935c4e987c0a5d7e` |
-| CI | Ejecución `29625418697`, cuatro trabajos correctos |
-| Estado canónico | 2 negocios, 3 cuentas internas, 28 servicios, 36 clientes, 11 accesos, 4 relaciones y 90 citas |
+| SHA de la versión funcional desplegada | `545c5618fe915e91b022db70b2c77a75ab2d13ec` |
+| CI | `main` correcta |
+| Estado canónico | 2 negocios, 3 cuentas internas, 28 servicios —25 activos—, 36 clientes, 11 accesos, 4 relaciones, 90 citas y 8 festivos nacionales BOE de 2026 |
 | Aceptación manual | Una ejecución correcta el 18-07-2026, con fecha base `2026-07-18` |
-| Identificador | `682f8572-de61-4140-b1f5-41a2118b233a` |
-| Huella semántica | `72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0` |
+| Identificador | `f3a7d392-b728-4206-908c-36ae2320d951` |
+| Huella semántica | `f53e8ba21674fce64ed4944f90a1d359e717207e8bf4270529506b740a4fcdd8` |
 | Correo durante el refresco | Suprimido por configuración y backend nulo |
-| Temporizador | Habilitado y activo; siguiente ejecución el 19-07-2026 a las `04:05 Europe/Madrid`, `Persistent=false` |
-| Primera ejecución automática | Pendiente de observación; no acreditada por la prueba manual |
+| Resultado postflight | Outbox, sesiones, throttles y residuos de evaluación a cero; HTTPS 200 y cero unidades fallidas |
+| Correo operativo | Plataforma y Barbería Norte: un enlace de verificación y un correo de prueba aceptados una vez por Brevo en cada ámbito |
+| Temporizadores | Despachador manual habilitado y activo; unidad diaria de las 04:05 deshabilitada e inactiva; copias periódicas deshabilitadas e inactivas |
+
+La solicitud anterior `eab1c586-eef7-43db-87b8-a0cb417f9d9c` detectó una
+conexión externa de monitorización durante la quiescencia y terminó sin commit.
+PostgreSQL revirtió la transacción y las guardas mantuvieron cerrados Gunicorn y
+los escritores. La recuperación se hizo bajo bloqueo exclusivo, autorización
+efímera y cierre seguro ante error; solo después se ejecutó la solicitud final.
+La incidencia acredita el comportamiento fail-closed y no dejó datos parciales.
 
 ### Evidencia publicada de P2
 
@@ -604,8 +609,8 @@ funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`.
 | --- | --- | --- |
 | HTTPS público | Cerrado para la demo | Certificado válido, redirección HTTP, cabeceras, acceso y reserva comprobados en `agendasalon.brvsoftwarestudio.com` |
 | Terminación TLS del proxy | Cerrado para la demo | Nginx sobrescribe `X-Forwarded-Proto`, Gunicorn solo escucha en socket y Django confía únicamente en el proxy local declarado |
-| Primera ejecución automática del refresco | Pendiente de operación | El servicio ya superó una aceptación manual; el timer está habilitado y activo y debe observarse el primer disparo real previsto para el 19-07-2026 a las 04:05 |
-| Copias sin destino externo cifrado | Alta para continuidad; bloqueante para explotación comercial | La retención 7/4/6 y la vigilancia local están activas; falta elegir el destino externo y repetir una restauración desde él |
+| Primera ejecución automática del refresco | Retirada del alcance vigente | La demo se regenera solo por solicitud manual protegida; la unidad de las 04:05 se conserva deshabilitada e inactiva |
+| Copias sin destino externo cifrado | Alta para continuidad; bloqueante para explotación comercial | Existen copias autenticadas y la política 7/4/6, pero el temporizador periódico está deshabilitado; falta decidir su reactivación, elegir el destino externo y repetir una restauración desde él |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
 | Resolución asistida de citas afectadas por un festivo importado | Cerrada para la demo en P2 | Bandeja profesional privada, agregado superadministrador sin datos personales y confirmación manual idempotente publicados y aceptados en producción |
 | Sin segundo factor para cuentas técnicas | Alta para explotación comercial | Incorporar MFA o proteger el acceso mediante identidad del proveedor o VPN |
@@ -622,11 +627,11 @@ AgendaSalon supera el alcance técnico exigible para explicar autenticación,
 hashing, validación, CSRF, XSS, permisos, secretos y copias de seguridad. Los
 controles de aplicación están implementados y respaldados por pruebas.
 
-La versión vigente añade un escenario académico realista y un mecanismo de
-regeneración protegido. La CI, el SHA común y la aceptación manual acreditan el
-estado publicado; el temporizador está habilitado, pero aún no acreditan su
-primer disparo automático. Esta distinción se mantiene como parte de la
-evidencia y no como un resultado supuesto.
+La versión vigente añade un escenario académico realista, avisos operativos
+reales y un mecanismo de regeneración manual protegido. La CI, el SHA desplegado,
+la aceptación de Brevo y el postflight acreditan el estado publicado. La
+programación nocturna quedó retirada de forma deliberada y no se presenta como
+una capacidad activa.
 
 El bloque P0 queda como antecedente histórico en el SHA
 `5c68a260d1d87ed00c908d25bf519c3f34fea712`. P1 se conserva como antecedente
@@ -646,9 +651,10 @@ cobertura con ramas. La PR #10, el CI `29589984747`, el snapshot ID
 los temporizadores y la aceptación operativa sin residuos acreditan el SHA
 funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`.
 
-La aplicación está publicada como **demo académica** y HTTPS, proxy, aislamiento,
-copias locales, retención y vigilancia de frescura disponen de evidencia en el
-entorno definitivo. No debe presentarse como **lista para explotación
+La aplicación está publicada como **demo académica** y HTTPS, proxy, aislamiento
+y copias locales disponen de evidencia en el entorno definitivo. La retención y
+la vigilancia de frescura están implementadas, pero su temporizador periódico
+no está activo. No debe presentarse como **lista para explotación
 comercial**: el destino externo de copias, la monitorización central, el acceso
 técnico reforzado y las obligaciones jurídicas reales siguen pendientes.
 

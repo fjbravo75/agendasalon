@@ -6,18 +6,19 @@ demo académica quedó publicada el 14 de julio de 2026 en
 ejecución deliberada y no se activan por leer este documento.
 
 Estado vigente: la versión funcional desplegada en producción corresponde a
-`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La ejecución de CI de esa versión,
-`29625418697`, finalizó correctamente en sus cuatro trabajos. `main` puede
-contener commits documentales posteriores sin cambios ejecutables. P0, P1 y P2 se
-conservan como hitos históricos trazables; sus recuentos no describen el
-escenario actual.
+`545c5618fe915e91b022db70b2c77a75ab2d13ec` y la CI de `main` está correcta.
+P0, P1, P2 y la publicación inerte R1 se conservan como hitos históricos
+trazables; sus recuentos y banderas no describen el escenario actual.
 
-La aceptación vigente conserva 2 negocios, 3 cuentas internas, 28 servicios,
-36 fichas de cliente, 11 accesos cliente, 4 relaciones de representación y 90
-citas. La regeneración manual aceptada el 18 de julio de 2026 utilizó la fecha
-base `2026-07-18`, el identificador
-`682f8572-de61-4140-b1f5-41a2118b233a` y la huella semántica
-`72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`.
+La aceptación vigente conserva 2 negocios, 3 cuentas internas, 28 servicios
+—25 activos—, 36 fichas de cliente, 11 accesos cliente, 4 relaciones de
+representación, 90 citas y 8 festivos nacionales oficiales del BOE para 2026.
+La regeneración manual final del 18 de julio de 2026 utilizó la fecha base
+`2026-07-18`, la solicitud `f3a7d392-b728-4206-908c-36ae2320d951` y la huella
+semántica
+`f53e8ba21674fce64ed4944f90a1d359e717207e8bf4270529506b740a4fcdd8`. El
+postflight dejó outbox, sesiones, throttles y residuos de evaluación a cero;
+HTTPS respondió 200 y no quedaron unidades fallidas.
 
 Como antecedente, el despliegue de P2 se protegió con la copia fría
 `agendasalon-20260717T150928Z`, conservada fuera de la retención automática, y
@@ -103,13 +104,12 @@ desbordamiento horizontal. HTTP redirige a HTTPS y las cabeceras CSP, HSTS,
 presentes.
 
 El 14 de julio de 2026 se creó una primera copia local autenticada y verificada
-de PostgreSQL y medios y se habilitó `backup-agendasalon.timer` con ejecución
-diaria persistente. La misma unidad aplica después la retención 7/4/6 y
-`check-agendasalon-backup.timer` comprueba diariamente que la copia más reciente
-sea auténtica, íntegra y tenga menos de 36 horas. Una vigilancia local de Codex
-revisa además temporizadores, resultados, frescura y espacio en disco. El
-destino externo cifrado continúa pendiente, por lo que la continuidad completa
-todavía no se declara cerrada.
+de PostgreSQL y medios y se habilitó históricamente
+`backup-agendasalon.timer`. La política 7/4/6 y la comprobación de frescura
+siguen implementadas, pero en el estado final de esta aceptación el temporizador
+de copias está deshabilitado e inactivo. No se presenta, por tanto, como una
+protección automática vigente. El destino externo cifrado continúa pendiente y
+la continuidad completa no se declara cerrada.
 
 La base de datos de producción debe ser PostgreSQL. Formato esperado:
 
@@ -153,12 +153,13 @@ regeneración. El postflight exige además outbox, solicitudes, sesiones, grupos
 medios personalizados y otros residuos de evaluación a cero antes de aceptar la
 huella del escenario.
 
-El temporizador `agendasalon-demo-refresh.timer` está definido para las
-`04:05 Europe/Madrid`, con `Persistent=false`, `AccuracySec=1min` y sin retraso
-aleatorio. Quedó habilitado y activo el 18 de julio de 2026 a las 04:06, una vez
-pasada la ventana de hoy, y systemd fijó la siguiente ejecución para el 19 de
-julio a las 04:05. Hasta observar su resultado real en systemd y en el recibo
-de PostgreSQL, solo consta una aceptación manual; no una ejecución automática.
+El temporizador `agendasalon-demo-refresh.timer` conserva la definición histórica
+de las `04:05 Europe/Madrid`, con `Persistent=false`, `AccuracySec=1min` y sin
+retraso aleatorio. Tras aceptar el ciclo manual, quedó deshabilitado e inactivo.
+La unidad no se borra ni se enmascara para mantener trazabilidad y una vía de
+reversión deliberada, pero ya no programa borrados diarios. El funcionamiento
+vigente depende de una solicitud manual protegida y del despachador
+`agendasalon-demo-refresh-dispatch.timer`, habilitado y activo.
 
 La comprobación de estado se realiza sin lanzar el refresco:
 
@@ -234,6 +235,14 @@ remitente, DNS y restricción de IP. El despliegue posterior dejó aplicadas las
 migraciones de outbox y activó el temporizador. Su ejecución manual de control
 terminó con cero mensajes pendientes o fallidos, sin generar envíos ficticios.
 
+La aceptación vigente amplió esa comprobación al circuito de avisos operativos.
+Con el canal transaccional y los avisos activos, se verificaron los ámbitos de
+plataforma y Barbería Norte. En cada uno Brevo aceptó una sola vez el enlace de
+verificación y una sola vez el correo de prueba. La evidencia acredita la
+aceptación por el proveedor; no presume entrega final, apertura ni lectura. La
+regeneración final eliminó después la configuración mutable y dejó la outbox a
+cero, tal como exige el escenario canónico.
+
 TLS y SSL directo son excluyentes. Si se activa el correo y falta un dato SMTP,
 el perfil de producción detiene el arranque para evitar una configuración a
 medias. El procesamiento periódico se realiza con
@@ -264,10 +273,11 @@ Las migraciones y el SHA actuales de producción se comprueban siempre en el
 preflight del despliegue correspondiente; esta referencia histórica no sustituye
 esa comprobación.
 
-### Release 1 del contrato v0.24: publicación inerte de avisos operativos
+### Release 1 del contrato v0.24: publicación inerte histórica
 
-La primera release de supervisión añade configuración, trazabilidad y centros de
-avisos, pero se publica sin activarlos. Antes de desplegar deben constar
+La primera release de supervisión añadió configuración, trazabilidad y centros
+de avisos, pero se publicó sin activarlos. Este fue el estado transitorio R1, no
+el estado vigente. Antes de aquel despliegue debían constar
 explícitamente en `/etc/agendasalon/agendasalon.env`:
 
 ```text
@@ -277,10 +287,11 @@ AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT=100
 AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT=500
 ```
 
-`AGENDA_TRANSACTIONAL_EMAIL_ENABLED` y los temporizadores se conservan en el
-estado previo verificado. Esta release no autoriza a rearmar el correo, no cambia
-la regeneración nocturna y no deshabilita las 04:05. El indicador manual queda
-reservado para la segunda release y no tiene ejecutor ni acción visible todavía.
+`AGENDA_TRANSACTIONAL_EMAIL_ENABLED` y los temporizadores se conservaron en el
+estado previo verificado. R1 no autorizaba a rearmar el correo, no cambiaba la
+regeneración nocturna y no deshabilitaba las 04:05. Esas restricciones se
+mantienen aquí como historia de despliegue y quedaron superadas por la
+activación y aceptación separadas de R2.
 
 El plan de migración permitido para esta release contiene únicamente:
 
@@ -293,7 +304,7 @@ segunda incorpora el tipo de correo operativo y un `payload` estructurado sin
 tokens ni cuerpos. Ambas son aditivas; los negocios existentes conservan sus
 datos y quedan sin destinatario operativo configurado.
 
-La aceptación de esta publicación se limita a:
+La aceptación histórica de esta publicación se limitó a:
 
 - SHA desplegado y plan de migraciones vacío;
 - `check --deploy`, salud, HTTPS, cabeceras y estáticos;
@@ -302,10 +313,10 @@ La aceptación de esta publicación se limita a:
   el indicador desactivado;
 - outbox, sesiones, negocios y datos demo sin residuos de prueba.
 
-No se configura un correo real, no se pulsa ningún POST y no se envía una prueba
-en la base canónica. Esos recorridos se validan en PostgreSQL desechable. La
-activación del canal y la sustitución del temporizador solo pueden decidirse tras
-publicar y aceptar por separado la segunda release.
+En R1 no se configuró un correo real, no se pulsó ningún POST y no se envió una
+prueba en la base canónica. Esos recorridos se validaron en PostgreSQL
+desechable. R2 se publicó y aceptó después, activó el canal real y sustituyó la
+programación nocturna por la solicitud manual protegida.
 
 ### Release 2 del contrato v0.24: regeneración manual protegida
 
@@ -385,6 +396,21 @@ systemctl is-enabled agendasalon-demo-refresh.timer           # disabled
 systemctl is-active agendasalon-demo-refresh.timer            # inactive
 systemctl list-timers --all agendasalon-demo-refresh-dispatch.timer agendasalon-demo-refresh.timer
 ```
+
+Ese estado quedó acreditado el 18 de julio de 2026 con la solicitud
+`f3a7d392-b728-4206-908c-36ae2320d951`: despachador manual habilitado y activo,
+unidad diaria deshabilitada e inactiva, HTTPS 200 y cero unidades fallidas. La
+base canónica quedó con los recuentos y la huella indicados al comienzo de este
+documento.
+
+La primera solicitud de la ventana, `eab1c586-eef7-43db-87b8-a0cb417f9d9c`,
+detectó una conexión de monitorización externa durante la fase de quiescencia y
+falló antes del commit. PostgreSQL revirtió la transacción y las guardas dejaron
+Gunicorn y los escritores cerrados. La recuperación mantuvo el bloqueo exclusivo,
+utilizó una autorización efímera de rearme y aplicó cierre seguro ante cualquier
+salida prematura. Solo después de verificar el estado previo se registró la
+solicitud final. No se ejecutaron correcciones directas de datos ni se presentó
+la solicitud fallida como correcta.
 
 Antes de la primera regeneración, revertir esta release es aditivo: se desactiva
 el despachador y se vuelve al SHA anterior sin bajar migraciones. Después de una
@@ -816,8 +842,8 @@ La copia local solo se considera válida si el comando de verificación termina
 correctamente. La continuidad solo se considera protegida cuando, además, el
 conjunto se replica y se comprueba en un destino externo cifrado.
 
-En producción, `backup-agendasalon.timer` ejecuta la copia al menos una vez cada
-24 horas. Su `ExecStartPost` aplica la retención de 7 representantes diarios, 4
+Cuando se habilita, `backup-agendasalon.timer` ejecuta la copia al menos una vez
+cada 24 horas. Su `ExecStartPost` aplica la retención de 7 representantes diarios, 4
 semanales y 6 mensuales. Antes de seleccionar o borrar, verifica con HMAC y
 SHA-256 todas las carpetas gestionadas; si encuentra una anomalía, falla sin
 borrar ninguna. La simulación sin borrado es:
@@ -856,6 +882,9 @@ python -m ops.backup_restore health \
 La comprobación falla ante ausencia, caducidad, fecha futura, autenticidad o
 integridad incorrectas. La automatización local `Vigilar copias de AgendaSalon`
 revisa el resultado y avisa a Fran si detecta un problema; no borra ni repara.
+En el cierre vigente, tanto la tarea periódica de copia como su programación
+están deshabilitadas e inactivas; estos comandos describen la capacidad
+instalada, no un ciclo automático activo.
 Todavía debe comprobarse periódicamente una restauración desde el futuro
 destino externo. El estado `Protegido` del panel solo aparece después de una
 ejecución externa correcta y reciente.

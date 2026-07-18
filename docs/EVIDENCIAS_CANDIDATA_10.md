@@ -22,14 +22,25 @@ Este índice separa hechos reproducibles, validaciones pendientes de entorno y t
   y subdominios.
 - PostgreSQL, Nginx y Gunicorn activos, con cero unidades fallidas en la
   aceptación final.
-- Copias locales autenticadas, retención 7/4/6, control de frescura y
-  temporizadores operativos verificados.
+- Copias locales autenticadas y verificadas. La política 7/4/6 sigue definida,
+  pero el temporizador periódico de copias está actualmente deshabilitado e
+  inactivo y no se presenta como una protección automática vigente.
 - Versión funcional desplegada en producción:
-  `714a2a22a154b102f31140bc935c4e987c0a5d7e`; CI `29625418697` correcta en
-  sus cuatro trabajos. `main` puede incorporar commits documentales posteriores.
-- Una aceptación manual de la regeneración completada con fecha base
-  `2026-07-18`, ejecución `682f8572-de61-4140-b1f5-41a2118b233a` y huella
-  `72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`.
+  `545c5618fe915e91b022db70b2c77a75ab2d13ec`; la CI de `main` está correcta.
+- Aceptación final de la regeneración manual con fecha base `2026-07-18`,
+  solicitud `f3a7d392-b728-4206-908c-36ae2320d951` y huella semántica
+  `f53e8ba21674fce64ed4944f90a1d359e717207e8bf4270529506b740a4fcdd8`.
+- Postflight canónico: 3 usuarios, 2 negocios, 28 servicios —25 activos—, 36
+  clientes, 90 citas y 8 festivos nacionales BOE de 2026; outbox, sesiones,
+  throttles y residuos de evaluación a cero.
+- Correo transaccional y avisos operativos activos. En la plataforma y en
+  Barbería Norte, Brevo aceptó una vez el enlace de verificación y una vez el
+  correo de prueba de cada ámbito. La aceptación del proveedor no se presenta
+  como prueba de lectura por el destinatario.
+- El despachador de regeneración manual está habilitado y activo. La unidad
+  diaria de las 04:05 permanece instalada como antecedente operativo, pero está
+  deshabilitada e inactiva. HTTPS respondió 200 y systemd no dejó unidades
+  fallidas.
 - Como antecedente, P2 publicada y aceptada con 596 pruebas backend en SQLite y
   PostgreSQL 17, 34 pruebas frontend y 85 % de cobertura de ramas.
 
@@ -42,11 +53,20 @@ Este índice separa hechos reproducibles, validaciones pendientes de entorno y t
   esa capa.
 - Prueba de carga sobre la infraestructura elegida, no solo sobre el portátil
   local o la matriz funcional de CI.
-- Primera ejecución disparada automáticamente por
-  `agendasalon-demo-refresh.timer`. A 18 de julio el timer está habilitado y
-  activo, con siguiente ejecución el 19 de julio a las `04:05 Europe/Madrid` y
-  `Persistent=false`; la aceptación manual no se presenta como ejecución
-  automática.
+- Reactivación deliberada de la programación automática de copias si se decide
+  volver a asumir ese ciclo operativo; el temporizador está hoy deshabilitado.
+
+## Incidencia controlada durante la aceptación
+
+La primera solicitud manual, `eab1c586-eef7-43db-87b8-a0cb417f9d9c`, se
+interrumpió porque una conexión de monitorización externa coincidió con la fase
+que exigía quiescencia total de PostgreSQL. La transacción no hizo commit,
+PostgreSQL revirtió los cambios y el sistema quedó cerrado de forma segura, con
+Gunicorn y los escritores detenidos. La recuperación se realizó bajo bloqueo
+exclusivo, autorización efímera y cierre seguro ante error. Solo después de
+verificar el estado previo se registró la solicitud final indicada arriba. Esta
+incidencia demuestra el comportamiento fail-closed; no se oculta ni se presenta
+como una regeneración correcta.
 
 ## Evidencia humana pendiente
 

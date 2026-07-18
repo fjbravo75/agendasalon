@@ -20,6 +20,8 @@ Documentos disponibles:
 - [`memoria/Memoria_tecnica_AgendaSalon.docx`](memoria/Memoria_tecnica_AgendaSalon.docx):
   memoria técnica desplegada, con casos de uso, capturas, diagramas, seguridad,
   pruebas, limitaciones y fuentes del proyecto.
+- [`memoria/MEMORIA_TECNICA.md`](memoria/MEMORIA_TECNICA.md): fuente Markdown
+  editable de la memoria técnica.
 
 ## Renderizado documental en Windows
 
