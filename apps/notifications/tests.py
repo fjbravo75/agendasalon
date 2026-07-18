@@ -20,7 +20,6 @@ from apps.notifications.services import (
     _claim_outbound_email,
     _finish_claim_as_accepted,
     cancel_appointment_emails,
-    client_password_reset_url,
     client_verification_url,
     dispatch_due_emails,
     dispatch_outbound_email,
@@ -305,8 +304,21 @@ class TransactionalEmailTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("60 minutos", mail.outbox[0].body)
         self.assertIn("solo puede usarse una vez", mail.outbox[0].body)
-        reset_path = urlparse(client_password_reset_url(access)).path
-        self.assertIn(reset_path, mail.outbox[0].body)
+        expected_prefix = reverse(
+            "customers:client_password_reset_request",
+            args=[self.business.slug],
+        )
+        reset_url = next(
+            (
+                line.strip()
+                for line in mail.outbox[0].body.splitlines()
+                if urlparse(line.strip()).path.startswith(expected_prefix)
+            ),
+            "",
+        )
+        self.assertTrue(reset_url)
+        reset_path = urlparse(reset_url).path
+        self.assertNotEqual(reset_path, expected_prefix)
         response = self.client.get(reset_path)
         self.assertEqual(response.status_code, 200)
         access.refresh_from_db()
