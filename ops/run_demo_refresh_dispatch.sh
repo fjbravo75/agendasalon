@@ -91,8 +91,8 @@ timer_has_exact_state() {
 runtime_timers_are_safe() {
   [[ "${AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED:-}" =~ ^[01]$ ]] ||
     return 1
-  [[ "${AGENDA_TRANSACTIONAL_EMAIL_ENABLED:-}" ==
-      "${AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED}" ]] || return 1
+  [[ "${AGENDA_TRANSACTIONAL_EMAIL_ENABLED:-}" == "${AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED}" ]] ||
+    return 1
   [[ "${AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL:-0}" == "0" ]] || return 1
   [[ "${AGENDA_MANUAL_DEMO_REFRESH_ENABLED:-}" == "1" ]] || return 1
 
