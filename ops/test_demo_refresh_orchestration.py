@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import unittest
@@ -331,12 +332,31 @@ class DemoRefreshSystemdContractTests(unittest.TestCase):
     def test_service_uses_root_orchestrator_and_explicit_production_guards(self):
         self.assertIn("User=root", self.service)
         self.assertIn("Group=root", self.service)
-        self.assertIn("ExecStart=/usr/local/sbin/agendasalon-demo-refresh", self.service)
         self.assertIn("EnvironmentFile=/etc/agendasalon/demo-refresh.env", self.service)
-        self.assertIn("Environment=DJANGO_SETTINGS_MODULE=config.settings.prod", self.service)
-        self.assertIn("Environment=AGENDA_DEMO_REFRESH_ENABLED=1", self.service)
-        self.assertIn("Environment=AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=1", self.service)
-        self.assertIn("Environment=AGENDA_TRANSACTIONAL_EMAIL_ENABLED=0", self.service)
+        exec_start_lines = [
+            line.removeprefix("ExecStart=")
+            for line in self.service.splitlines()
+            if line.startswith("ExecStart=")
+        ]
+        self.assertEqual(len(exec_start_lines), 1)
+        self.assertEqual(
+            shlex.split(exec_start_lines[0], posix=True),
+            [
+                "/usr/bin/env",
+                "DJANGO_SETTINGS_MODULE=config.settings.prod",
+                "AGENDA_DEMO_REFRESH_ENABLED=1",
+                "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=1",
+                "AGENDA_TRANSACTIONAL_EMAIL_ENABLED=0",
+                "/usr/local/sbin/agendasalon-demo-refresh",
+            ],
+        )
+        for unsafe_environment_directive in (
+            "Environment=DJANGO_SETTINGS_MODULE=config.settings.prod",
+            "Environment=AGENDA_DEMO_REFRESH_ENABLED=1",
+            "Environment=AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=1",
+            "Environment=AGENDA_TRANSACTIONAL_EMAIL_ENABLED=0",
+        ):
+            self.assertNotIn(unsafe_environment_directive, self.service.splitlines())
         self.assertIn("Environment=AGENDA_DEMO_EXPECTED_DATABASE_PORT=5432", self.service)
         self.assertIn(
             "Environment=AGENDA_DEMO_QUIESCENCE_MARKER=/var/lib/agendasalon/demo-refresh.state",

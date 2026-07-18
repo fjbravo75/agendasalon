@@ -12,10 +12,6 @@ Group=root
 WorkingDirectory=/var/www/agendasalon/app
 EnvironmentFile=/etc/agendasalon/agendasalon.env
 EnvironmentFile=/etc/agendasalon/demo-refresh.env
-Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
-Environment=AGENDA_DEMO_REFRESH_ENABLED=1
-Environment=AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=1
-Environment=AGENDA_TRANSACTIONAL_EMAIL_ENABLED=0
 Environment=AGENDA_DEMO_EXPECTED_PLATFORM_WEBSITE=https://agendasalon.brvsoftwarestudio.com
 Environment=AGENDA_DEMO_EXPECTED_MEDIA_ROOT=/var/www/agendasalon/shared/media
 Environment=AGENDA_DEMO_QUIESCENCE_MARKER=/var/lib/agendasalon/demo-refresh.state
@@ -23,7 +19,11 @@ Environment=AGENDA_DEMO_EXPECTED_DATABASE_PORT=5432
 Environment=TZ=Europe/Madrid
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/local/sbin/agendasalon-demo-refresh
+# EnvironmentFile prevalece sobre Environment en systemd. Se fijan aquí el
+# módulo de ajustes y los tres flags del reset para que el entorno seguro de
+# la web no pueda anularlos, sin convertir una ejecución manual del orquestador
+# en una operación válida.
+ExecStart=/usr/bin/env DJANGO_SETTINGS_MODULE=config.settings.prod AGENDA_DEMO_REFRESH_ENABLED=1 AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=1 AGENDA_TRANSACTIONAL_EMAIL_ENABLED=0 /usr/local/sbin/agendasalon-demo-refresh
 TimeoutStartSec=45min
 TimeoutStopSec=20min
 # Deliberado: no se reintenta un reset destructivo. Un error queda como failed
