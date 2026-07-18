@@ -16,30 +16,21 @@
 
       <div class="business-signup-intro">
         <span class="business-signup-eyebrow">Solicitud de acceso profesional</span>
-        <h1>{% if transactional_email_enabled %}Cuéntanos lo esencial de tu negocio.{% else %}Registra una solicitud de prueba.{% endif %}</h1>
-        <p>
-          {% if transactional_email_enabled %}Revisaremos la solicitud personalmente para comprobar que AgendaSalon encaja
-          con tu forma de trabajar. En este paso todavía no se crea ninguna cuenta.{% else %}La solicitud quedará disponible para recorrer el flujo del superadministrador. Esta demostración académica no crea cuentas ni inicia contactos externos.{% endif %}
-        </p>
+        <h1>Registra una solicitud de prueba.</h1>
+        <p>La solicitud quedará registrada para que la persona responsable la revise desde AgendaSalon. En este paso todavía no se crea ninguna cuenta.</p>
         <ol class="business-signup-steps" aria-label="Proceso de alta">
-          {% if transactional_email_enabled %}
-            <li><strong>1</strong><span>Envías los datos básicos.</span></li>
-            <li><strong>2</strong><span>Contactamos por el canal que elijas.</span></li>
-            <li><strong>3</strong><span>Preparamos el acceso contigo.</span></li>
-          {% else %}
-            <li><strong>1</strong><span>Registras datos de demostración.</span></li>
-            <li><strong>2</strong><span>La solicitud queda lista para revisión.</span></li>
-            <li><strong>3</strong><span>El superadministrador recorre la gestión.</span></li>
-          {% endif %}
+          <li><strong>1</strong><span>Envías los datos básicos.</span></li>
+          <li><strong>2</strong><span>El superadministrador revisa la solicitud.</span></li>
+          <li><strong>3</strong><span>Si se aprueba, crea el negocio y su acceso profesional.</span></li>
         </ol>
       </div>
 
       <aside class="login-panel business-signup-panel" aria-labelledby="signup-form-title">
         <div class="login-panel__inner">
           <div class="business-signup-panel__head">
-            <span>Sin compromiso</span>
+            <span>Demostración académica</span>
             <h2 id="signup-form-title">Solicita el alta</h2>
-            <p>{% if transactional_email_enabled %}Los campos marcados con * son necesarios para poder responderte.{% else %}Los campos marcados con * permiten registrar el caso de prueba. El canal elegido se guarda, pero no se realizará ningún contacto externo.{% endif %}</p>
+            <p>Los campos marcados con * permiten registrar y revisar el caso de prueba. El canal elegido queda guardado como parte del flujo.</p>
           </div>
 
           <form method="post" class="business-signup-form" novalidate>
@@ -100,7 +91,7 @@
 
             <div class="business-signup-actions">
               <a href="{% url 'accounts:login' %}">Volver al acceso profesional</a>
-              {% if privacy_document %}<button class="login-button" type="submit">{% if transactional_email_enabled %}Enviar solicitud{% else %}Registrar solicitud de prueba{% endif %}</button>{% endif %}
+              {% if privacy_document %}<button class="login-button" type="submit">Registrar solicitud de prueba</button>{% endif %}
             </div>
           </form>
         </div>

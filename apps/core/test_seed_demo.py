@@ -3,6 +3,7 @@ from io import StringIO
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import identify_hasher
 from django.core.management import call_command
@@ -402,11 +403,31 @@ class SeedDemoCommandTests(TestCase):
         settings = PlatformSettings.objects.get(pk=PlatformSettings.SINGLETON_PK)
 
         mari.professional_theme = Business.ProfessionalTheme.LIGHT
-        mari.save(update_fields=["professional_theme", "updated_at"])
+        mari.notification_email = "evaluacion@example.com"
+        mari.notification_email_normalized = "evaluacion@example.com"
+        mari.notification_email_verified_at = self.reference_now
+        mari.notifications_enabled = False
+        mari.notify_new_appointments = False
+        mari.save(
+            update_fields=[
+                "professional_theme",
+                "notification_email",
+                "notification_email_normalized",
+                "notification_email_verified_at",
+                "notifications_enabled",
+                "notify_new_appointments",
+                "updated_at",
+            ]
+        )
         norte.professional_theme = Business.ProfessionalTheme.DARK
         norte.save(update_fields=["professional_theme", "updated_at"])
         settings.admin_theme = PlatformSettings.AdminTheme.DARK
         settings.login_image_preset = PlatformSettings.LoginImagePreset.BARBERSHOP
+        settings.notification_email = "plataforma@example.com"
+        settings.notification_email_normalized = "plataforma@example.com"
+        settings.notification_email_verified_at = self.reference_now
+        settings.notifications_enabled = False
+        settings.notify_demo_refresh = False
         settings.updated_by = get_user_model().objects.get(normalized_phone="+34600111001")
         settings.save()
         custom_image = PlatformLoginImage.objects.create(
@@ -430,6 +451,16 @@ class SeedDemoCommandTests(TestCase):
             settings.login_image_preset,
             PlatformSettings.LoginImagePreset.AGENDASALON,
         )
+        self.assertEqual(mari.notification_email, "")
+        self.assertEqual(mari.notification_email_normalized, "")
+        self.assertIsNone(mari.notification_email_verified_at)
+        self.assertTrue(mari.notifications_enabled)
+        self.assertTrue(mari.notify_new_appointments)
+        self.assertEqual(settings.notification_email, "")
+        self.assertEqual(settings.notification_email_normalized, "")
+        self.assertIsNone(settings.notification_email_verified_at)
+        self.assertTrue(settings.notifications_enabled)
+        self.assertTrue(settings.notify_demo_refresh)
         superadmin = get_user_model().objects.get(normalized_phone="+34910000001")
         self.assertEqual(settings.updated_by_id, superadmin.pk)
         self.assertFalse(custom_image.is_selected)
@@ -468,10 +499,18 @@ class SeedDemoCommandTests(TestCase):
 
         restored_users = User.objects.filter(normalized_phone__in=demo_phones)
         self.assertEqual(restored_users.count(), 3)
-        for user in restored_users:
+        superadmin = restored_users.get(normalized_phone="+34910000001")
+        self.assertTrue(
+            superadmin.check_password(settings.AGENDA_DEMO_SUPERADMIN_PASSWORD)
+        )
+        for user in restored_users.exclude(normalized_phone="+34910000001"):
             self.assertTrue(user.check_password(DEMO_PASSWORD))
             self.assertFalse(user.check_password("Contraseña modificada durante la prueba 2026"))
             self.assertFalse(user.password_change_required)
+        self.assertFalse(
+            superadmin.check_password("Contraseña modificada durante la prueba 2026")
+        )
+        self.assertFalse(superadmin.password_change_required)
 
         changed_access.refresh_from_db()
         self.assertTrue(changed_access.check_password(DEMO_PASSWORD))

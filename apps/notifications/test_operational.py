@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.db import transaction
@@ -12,7 +14,7 @@ from apps.businesses.models import (
     PlatformActivityEvent,
     PlatformSettings,
 )
-from apps.core.models import SecurityThrottle
+from apps.core.models import DemoRefreshReceipt, DemoRefreshRequest, SecurityThrottle
 from apps.notifications.forms import (
     BusinessNotificationSettingsForm,
     PlatformNotificationSettingsForm,
@@ -108,6 +110,53 @@ class OperationalNotificationViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(PlatformSettings.objects.exists())
+
+    def test_failed_manual_refresh_with_receipt_is_not_shown_as_completed(self):
+        receipt = DemoRefreshReceipt.objects.create(
+            run_id="12345678-1234-1234-1234-123456789abc",
+            base_date=date(2026, 7, 18),
+            fingerprint="a" * 64,
+        )
+        DemoRefreshRequest.objects.create(
+            public_id=receipt.run_id,
+            requested_by=self.superadmin,
+            base_date=receipt.base_date,
+            status=DemoRefreshRequest.Status.FAILED,
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            receipt=receipt,
+            failure_code="runtime_rearm_failed",
+            origin_digest="b" * 64,
+        )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(reverse("notifications:superadmin_notifications"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Regeneración fallida")
+        self.assertNotContains(response, "Regeneración completada")
+
+    def test_processing_manual_refresh_with_unlinked_receipt_is_not_shown_as_completed(self):
+        receipt = DemoRefreshReceipt.objects.create(
+            run_id="87654321-4321-4321-4321-cba987654321",
+            base_date=date(2026, 7, 18),
+            fingerprint="c" * 64,
+        )
+        DemoRefreshRequest.objects.create(
+            public_id=receipt.run_id,
+            requested_by=self.superadmin,
+            base_date=receipt.base_date,
+            status=DemoRefreshRequest.Status.PROCESSING,
+            started_at=timezone.now(),
+            origin_digest="d" * 64,
+        )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(reverse("notifications:superadmin_notifications"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Regeneración en curso")
+        self.assertNotContains(response, "Regeneración completada")
 
     def test_platform_reuses_verified_account_without_second_email_and_traces_change(self):
         self.client.force_login(self.superadmin)

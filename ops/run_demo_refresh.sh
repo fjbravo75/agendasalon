@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Orquestador root del reinicio nocturno de la demo académica de AgendaSalon.
+# Orquestador root del reinicio controlado de la demo académica de AgendaSalon.
 # Este fichero se instala como /usr/local/sbin/agendasalon-demo-refresh (root:root 0750).
 
 set -Eeuo pipefail
@@ -16,6 +16,7 @@ readonly MEDIA_ROOT_CANONICAL="/var/www/agendasalon/shared/media"
 readonly MEDIA_RUNTIME_MODE="0750"
 readonly STATE_DIR_CANONICAL="/var/lib/agendasalon"
 readonly STATE_FILE_CANONICAL="${STATE_DIR_CANONICAL}/demo-refresh.state"
+readonly RUNTIME_FAILURE_MARKER="${STATE_DIR_CANONICAL}/demo-refresh-runtime-failed"
 readonly LOCK_FILE="/run/lock/agendasalon-demo-refresh.lock"
 readonly BACKUP_AUTH_FILE="/run/lock/agendasalon-demo-backup-authorized"
 readonly REARM_AUTH_FILE="/run/lock/agendasalon-demo-rearm-authorized"
@@ -23,15 +24,22 @@ readonly GUNICORN_UNIT="gunicorn-agendasalon.service"
 readonly GUNICORN_SOCKET="/run/agendasalon/gunicorn.sock"
 readonly BACKUP_TIMER_UNIT="backup-agendasalon.timer"
 readonly EMAIL_TIMER_UNIT="agendasalon-email.timer"
+readonly DAILY_REFRESH_TIMER_UNIT="agendasalon-demo-refresh.timer"
+readonly MANUAL_DISPATCH_TIMER_UNIT="agendasalon-demo-refresh-dispatch.timer"
 readonly -a DISABLED_TIMER_UNITS=(
-  "${EMAIL_TIMER_UNIT}"
   "${BACKUP_TIMER_UNIT}"
 )
 
-readonly -a TIMER_UNITS=(
+readonly -a REQUIRED_TIMER_UNITS=(
   "agendasalon-registration-purge.timer"
   "agendasalon-session-cleanup.timer"
   "check-agendasalon-backup.timer"
+)
+readonly -a TIMER_UNITS=(
+  "${EMAIL_TIMER_UNIT}"
+  "${DAILY_REFRESH_TIMER_UNIT}"
+  "${MANUAL_DISPATCH_TIMER_UNIT}"
+  "${REQUIRED_TIMER_UNITS[@]}"
 )
 readonly -a ONESHOT_UNITS=(
   "agendasalon-email.service"
@@ -41,6 +49,7 @@ readonly -a ONESHOT_UNITS=(
   "check-agendasalon-backup.service"
 )
 readonly -a TIMER_TRIGGERED_ONESHOT_UNITS=(
+  "agendasalon-email.service"
   "agendasalon-registration-purge.service"
   "agendasalon-session-cleanup.service"
   "check-agendasalon-backup.service"
@@ -191,8 +200,11 @@ from pathlib import Path
 import sys
 
 pid = sys.argv[1]
+expected_email = sys.argv[2].encode("ascii", "strict")
+if expected_email not in {b"0", b"1"}:
+    raise SystemExit(1)
 expected = {
-    b"AGENDA_TRANSACTIONAL_EMAIL_ENABLED": b"0",
+    b"AGENDA_TRANSACTIONAL_EMAIL_ENABLED": expected_email,
     b"AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL": b"0",
 }
 try:
@@ -204,7 +216,21 @@ for name, value in expected.items():
     matches = [record for record in records if record.startswith(prefix)]
     if matches != [prefix + value]:
         raise SystemExit(1)
-' "${pid}" >/dev/null 2>&1
+' "${pid}" "${AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED}" >/dev/null 2>&1
+}
+
+write_runtime_failure_marker() {
+  if [[ -e "${RUNTIME_FAILURE_MARKER}" || -L "${RUNTIME_FAILURE_MARKER}" ]]; then
+    [[ -f "${RUNTIME_FAILURE_MARKER}" && ! -L "${RUNTIME_FAILURE_MARKER}" ]] || return 1
+    [[ "$(stat -c '%u' -- "${RUNTIME_FAILURE_MARKER}")" == "0" ]] || return 1
+    return 0
+  fi
+  ( set -o noclobber; printf '%s\n' "${RUN_ID:-unknown}" >"${RUNTIME_FAILURE_MARKER}" ) \
+    2>/dev/null || return 1
+  chown root:"${APP_GROUP}" "${RUNTIME_FAILURE_MARKER}" || return 1
+  chmod 0640 "${RUNTIME_FAILURE_MARKER}" || return 1
+  sync -f "${RUNTIME_FAILURE_MARKER}" || return 1
+  sync -f "${STATE_DIR_CANONICAL}" || return 1
 }
 
 validate_live_gunicorn_email_barrier() {
@@ -245,6 +271,8 @@ preflight() {
   [[ "${AGENDA_DEMO_REFRESH_ENABLED:-}" == "1" ]] || fail "la regeneración no está habilitada"
   [[ "${AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL:-}" == "1" ]] || fail "la barrera de correo no está activa"
   [[ "${DJANGO_SETTINGS_MODULE:-}" == "config.settings.prod" ]] || fail "los ajustes no son los de producción"
+  [[ "${AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED:-}" =~ ^[01]$ ]] ||
+    fail "falta el estado esperado del correo transaccional en el runtime"
   [[ -n "${AGENDA_DEMO_EXPECTED_DATABASE_NAME:-}" ]] || fail "falta la identidad esperada de la base de datos"
   [[ -n "${AGENDA_DEMO_EXPECTED_DATABASE_USER:-}" ]] || fail "falta el usuario esperado de la base de datos"
   [[ -n "${AGENDA_DEMO_EXPECTED_DATABASE_HOST:-}" ]] || fail "falta el host esperado de la base de datos"
@@ -265,6 +293,8 @@ preflight() {
   [[ "${MEDIA_PARENT}" == "/var/www/agendasalon/shared" ]] || fail "el padre de medios no es el esperado"
   [[ ! -e "${STATE_FILE_CANONICAL}" && ! -L "${STATE_FILE_CANONICAL}" ]] ||
     fail "existe un estado duradero pendiente de reconciliación"
+  [[ ! -e "${RUNTIME_FAILURE_MARKER}" && ! -L "${RUNTIME_FAILURE_MARKER}" ]] ||
+    fail "existe un fallo operativo pendiente de revisión"
   if [[ -d "${STATE_DIR_CANONICAL}" ]] && find "${STATE_DIR_CANONICAL}" \
     -mindepth 1 -maxdepth 1 -name 'demo-refresh.state.tmp.*' -print -quit | grep -q .; then
     fail "existe un estado temporal pendiente de revisión"
@@ -289,10 +319,43 @@ preflight() {
   # entorno real de Gunicorn para que ese override no pueda ocultar un runtime
   # web capaz de enviar correo externo.
   validate_live_gunicorn_email_barrier
-  for unit in "${TIMER_UNITS[@]}"; do
+  for unit in "${REQUIRED_TIMER_UNITS[@]}"; do
     systemctl is-active --quiet "$unit" || fail "un temporizador escritor no estaba activo antes del reset"
     systemctl is-enabled --quiet "$unit" || fail "un temporizador escritor no estaba habilitado antes del reset"
   done
+  if [[ "${AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED}" == "1" ]]; then
+    systemctl is-active --quiet "${EMAIL_TIMER_UNIT}" ||
+      fail "el temporizador de correo no estaba activo con la entrega habilitada"
+    systemctl is-enabled --quiet "${EMAIL_TIMER_UNIT}" ||
+      fail "el temporizador de correo no estaba habilitado con la entrega habilitada"
+  elif systemctl is-active --quiet "${EMAIL_TIMER_UNIT}" ||
+    systemctl is-enabled --quiet "${EMAIL_TIMER_UNIT}"; then
+    fail "el temporizador de correo debe permanecer apagado con la entrega deshabilitada"
+  fi
+  [[ "${AGENDA_MANUAL_DEMO_REFRESH_ENABLED:-}" =~ ^[01]$ ]] ||
+    fail "falta el estado esperado de la regeneración manual"
+  local daily_refresh_ready=0 manual_refresh_ready=0 refresh_timer
+  for refresh_timer in "${DAILY_REFRESH_TIMER_UNIT}" "${MANUAL_DISPATCH_TIMER_UNIT}"; do
+    if systemctl is-active --quiet "${refresh_timer}" &&
+      systemctl is-enabled --quiet "${refresh_timer}"; then
+      if [[ "${refresh_timer}" == "${DAILY_REFRESH_TIMER_UNIT}" ]]; then
+        daily_refresh_ready=1
+      else
+        manual_refresh_ready=1
+      fi
+    elif systemctl is-active --quiet "${refresh_timer}" ||
+      systemctl is-enabled --quiet "${refresh_timer}"; then
+      fail "un temporizador de regeneración tiene un estado operativo incompleto"
+    fi
+  done
+  (( daily_refresh_ready == 1 || manual_refresh_ready == 1 )) ||
+    fail "no hay ningún disparador de regeneración habilitado"
+  if [[ "${AGENDA_MANUAL_DEMO_REFRESH_ENABLED}" == "1" ]]; then
+    (( manual_refresh_ready == 1 )) ||
+      fail "la regeneración manual está habilitada sin su despachador"
+  elif (( manual_refresh_ready == 1 )); then
+    fail "el despachador manual está activo con la función deshabilitada"
+  fi
   local disabled_timer
   for disabled_timer in "${DISABLED_TIMER_UNITS[@]}"; do
     if systemctl is-active --quiet "${disabled_timer}" ||
@@ -457,9 +520,15 @@ create_and_verify_clean_backup() {
 }
 
 prepare_media_quarantine() {
-  RUN_ID="$(cat /proc/sys/kernel/random/uuid)"
+  if [[ -n "${AGENDA_DEMO_REFRESH_RUN_ID:-}" ]]; then
+    [[ "${AGENDA_MANUAL_DEMO_REFRESH_ENABLED:-}" == "1" ]] ||
+      fail "un identificador manual exige que la regeneración manual esté habilitada"
+    RUN_ID="${AGENDA_DEMO_REFRESH_RUN_ID}"
+  else
+    RUN_ID="$(cat /proc/sys/kernel/random/uuid)"
+  fi
   [[ "${RUN_ID}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
-    fail "no se pudo generar un identificador de ejecución seguro"
+    fail "el identificador de ejecución no es un UUID seguro"
   MEDIA_QUARANTINE="${MEDIA_PARENT}/.media-refresh-quarantine-${RUN_ID}"
   [[ ! -e "${MEDIA_QUARANTINE}" && ! -L "${MEDIA_QUARANTINE}" ]] ||
     fail "la cuarentena de esta ejecución ya existe"
@@ -807,6 +876,9 @@ restore_operational_timers_after_unlock() {
   for unit in "${TIMER_UNITS[@]}"; do
     if [[ "${WAS_ACTIVE[$unit]:-}" == "active" ]]; then
       systemctl is-active --quiet "$unit" || failed=1
+    elif systemctl is-active --quiet "$unit"; then
+      log "ERROR: se activó un temporizador que estaba detenido antes del reset"
+      failed=1
     fi
     if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" != "${WAS_ENABLED[$unit]:-}" ]]; then
       log "ERROR: cambio inesperadamente el estado de habilitacion de un temporizador"
@@ -818,7 +890,18 @@ restore_operational_timers_after_unlock() {
       failed=1
     fi
   done
-  (( failed == 0 )) || fail "el rearme posterior de temporizadores no quedo integro"
+  if (( failed != 0 )); then
+    log "ERROR: el rearme posterior de temporizadores no quedo integro"
+    write_runtime_failure_marker ||
+      log "ERROR: no fue posible registrar el bloqueo operativo duradero"
+    if ensure_writers_stopped; then
+      log "ERROR: la aplicacion y sus escritores quedan detenidos hasta revision manual"
+    else
+      log "ERROR: no fue posible verificar por completo el cierre de los escritores"
+    fi
+    return 1
+  fi
+  return 0
 }
 
 prepare_process_lock() {
@@ -936,16 +1019,16 @@ on_exit() {
     fi
   fi
   if (( cleanup_failed != 0 )); then
+    write_runtime_failure_marker ||
+      log "ERROR: no fue posible registrar el bloqueo operativo duradero"
     if (( PROCESS_LOCK_HELD == 1 )); then
       # Segundo cierre best-effort: el guard de Gunicorn aporta otra barrera si
       # systemd o un operador intentan arrancarlo antes de la revisión manual.
       ensure_writers_stopped >/dev/null 2>&1 || true
       log "ERROR: estado indeterminado; servicios escritores detenidos y revision manual obligatoria"
     else
-      # La base, los medios y Gunicorn ya quedaron verificados antes de soltar
-      # el lock. Un fallo posterior de timer permanece visible en systemd y en
-      # el journal, pero no vuelve a abrir una ventana fría sin protección.
-      log "ERROR: rearme de temporizadores incompleto; el fallo queda visible para revision manual"
+      ensure_writers_stopped >/dev/null 2>&1 || true
+      log "ERROR: rearme de temporizadores incompleto; escritores detenidos y revision manual obligatoria"
     fi
     status=1
   fi

@@ -1,7 +1,12 @@
 from django.urls import path
 
 from apps.dashboards.api import superadmin_dashboard_data
-from apps.dashboards.views import professional_home, superadmin_continuity, superadmin_home
+from apps.dashboards.views import (
+    professional_home,
+    superadmin_continuity,
+    superadmin_demo_refresh,
+    superadmin_home,
+)
 
 
 app_name = "dashboards"
@@ -13,6 +18,11 @@ urlpatterns = [
         "superadmin/continuidad/",
         superadmin_continuity,
         name="superadmin_continuity",
+    ),
+    path(
+        "superadmin/continuidad/regenerar/",
+        superadmin_demo_refresh,
+        name="superadmin_demo_refresh",
     ),
     path(
         "superadmin/dashboard/datos/",

@@ -34,9 +34,14 @@ from apps.core.demo_integrity import (
     required_boe_years,
     validate_boe_coverage,
 )
+from apps.core.demo_refresh_requests import (
+    claim_pending_demo_refresh,
+    finalize_demo_refresh,
+    request_demo_refresh,
+)
 from apps.core.management.commands.refresh_demo import Command
 from apps.core.management.commands.seed_demo import DemoSeeder
-from apps.core.models import DemoRefreshReceipt
+from apps.core.models import DemoRefreshReceipt, DemoRefreshRequest
 from apps.customers.models import BusinessClientAccess
 from apps.dashboards.models import BackupExecution
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
@@ -699,6 +704,14 @@ class DemoRefreshDatabaseTests(TransactionTestCase):
             fingerprint="d" * 64,
             completed_at=now,
         )
+        active_request = DemoRefreshRequest.objects.create(
+            requested_by=get_user_model().objects.get(is_superuser=True),
+            base_date=date(2026, 7, 16),
+            status=DemoRefreshRequest.Status.PROCESSING,
+            requested_at=now,
+            started_at=now,
+            origin_digest="e" * 64,
+        )
         OfficialHoliday.objects.create(
             date=date(2030, 1, 1),
             name="Año Nuevo",
@@ -737,6 +750,9 @@ class DemoRefreshDatabaseTests(TransactionTestCase):
             DemoRefreshReceipt.objects.get(pk=previous_receipt.pk).fingerprint,
             "d" * 64,
         )
+        active_request.refresh_from_db()
+        self.assertEqual(active_request.status, DemoRefreshRequest.Status.PROCESSING)
+        self.assertIsNone(active_request.receipt)
         self.assertEqual(
             tuple(LegalDocument.objects.values_list("pk", flat=True)),
             legal_document_ids,
@@ -812,6 +828,46 @@ class DemoRefreshDatabaseTests(TransactionTestCase):
             date(2026, 7, 17),
             reference_date=date(2026, 7, 17),
         )
+        validate_connections.assert_called_once_with()
+
+    @patch("apps.core.management.commands.refresh_demo.validate_no_other_client_connections")
+    @patch("apps.core.management.commands.refresh_demo.canonicalize_boe_catalog")
+    @patch("apps.core.management.commands.refresh_demo.validate_boe_coverage")
+    @patch("apps.core.management.commands.refresh_demo.acquire_refresh_locks")
+    def test_manual_request_refresh_and_finalization_complete_one_real_cycle(
+        self,
+        acquire_locks,
+        validate_coverage,
+        canonicalize_boe,
+        validate_connections,
+    ):
+        self._seed()
+        actor = get_user_model().objects.get(normalized_phone="+34910000001")
+        with self.settings(
+            AGENDA_PLATFORM_LEGAL_DEMO=True,
+            AGENDA_MANUAL_DEMO_REFRESH_ENABLED=True,
+            AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED=False,
+        ):
+            requested = request_demo_refresh(actor=actor, origin_digest="f" * 64)
+            claimed = claim_pending_demo_refresh().refresh_request
+            result = Command()._refresh(
+                anchor_date=claimed.base_date,
+                run_id=str(claimed.public_id),
+            )
+            completed = finalize_demo_refresh(
+                public_id=claimed.public_id,
+                succeeded=True,
+            )
+
+        self.assertEqual(requested.pk, completed.pk)
+        self.assertEqual(completed.status, DemoRefreshRequest.Status.COMPLETED)
+        self.assertEqual(completed.receipt.run_id, str(completed.public_id))
+        self.assertEqual(completed.receipt.fingerprint, result["fingerprint"])
+        self.assertEqual(Business.objects.count(), 2)
+        self.assertEqual(get_user_model().objects.count(), 3)
+        acquire_locks.assert_called_once_with(boe_years=(2026,))
+        canonicalize_boe.assert_called_once()
+        validate_coverage.assert_called_once()
         validate_connections.assert_called_once_with()
 
     @patch("apps.core.management.commands.refresh_demo.validate_no_other_client_connections")

@@ -618,7 +618,10 @@ def superadmin_professional_activation_resend(request, business_id, membership_i
                 "activación está desactivado en esta demostración académica.",
             )
         elif delivery.status == delivery.Status.SENT:
-            messages.success(request, f"Enlace de activación reenviado a {user.email}.")
+            messages.success(
+                request,
+                f"El servicio de correo ha aceptado un nuevo enlace de activación para {user.email}.",
+            )
         else:
             messages.warning(request, "El reenvío ha quedado pendiente. No se ha perdido la solicitud.")
     return redirect("businesses:superadmin_business_detail", business_id=business_id)

@@ -15,7 +15,7 @@ from apps.businesses.models import (
     PlatformSettings,
 )
 from apps.businesses.services import get_primary_business_for_user
-from apps.core.models import DemoRefreshReceipt
+from apps.core.models import DemoRefreshReceipt, DemoRefreshRequest
 from apps.core.features import (
     operational_notification_delivery_enabled,
     operational_notifications_enabled,
@@ -76,6 +76,12 @@ def _reserve_email_action(request, *, action, limit=5, target_email=""):
 
 def _platform_feed():
     items = []
+    noncompleted_manual_run_ids = tuple(
+        str(public_id)
+        for public_id in DemoRefreshRequest.objects.exclude(
+            status=DemoRefreshRequest.Status.COMPLETED
+        ).values_list("public_id", flat=True)
+    )
     for event in PlatformActivityEvent.objects.select_related("actor_user")[:8]:
         items.append(
             {
@@ -100,7 +106,18 @@ def _platform_feed():
                 "action_label": "Ver continuidad",
             }
         )
-    for receipt in DemoRefreshReceipt.objects.order_by("-completed_at")[:6]:
+    for receipt in (
+        DemoRefreshReceipt.objects.exclude(
+            manual_requests__status__in=(
+                DemoRefreshRequest.Status.PENDING,
+                DemoRefreshRequest.Status.PROCESSING,
+                DemoRefreshRequest.Status.FAILED,
+                DemoRefreshRequest.Status.CANCELLED,
+            )
+        )
+        .exclude(run_id__in=noncompleted_manual_run_ids)
+        .order_by("-completed_at")[:6]
+    ):
         items.append(
             {
                 "when": receipt.completed_at,
@@ -108,6 +125,24 @@ def _platform_feed():
                 "title": "Regeneración completada",
                 "detail": f"Datos reconstruidos con fecha base {receipt.base_date:%d/%m/%Y}.",
                 "tone": "success",
+                "url": reverse("dashboards:superadmin_continuity"),
+                "action_label": "Ver continuidad",
+            }
+        )
+    for refresh_request in DemoRefreshRequest.objects.exclude(
+        status=DemoRefreshRequest.Status.COMPLETED
+    ).order_by("-requested_at")[:6]:
+        items.append(
+            {
+                "when": refresh_request.finished_at or refresh_request.requested_at,
+                "label": "Demostración",
+                "title": f"Regeneración {refresh_request.get_status_display().lower()}",
+                "detail": f"Fecha base prevista: {refresh_request.base_date:%d/%m/%Y}.",
+                "tone": (
+                    "danger"
+                    if refresh_request.status == DemoRefreshRequest.Status.FAILED
+                    else "neutral"
+                ),
                 "url": reverse("dashboards:superadmin_continuity"),
                 "action_label": "Ver continuidad",
             }

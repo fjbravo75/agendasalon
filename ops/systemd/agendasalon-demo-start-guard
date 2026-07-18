@@ -6,6 +6,7 @@ IFS=$'\n\t'
 
 readonly STATE_DIR="/var/lib/agendasalon"
 readonly STATE_FILE="${STATE_DIR}/demo-refresh.state"
+readonly RUNTIME_FAILURE_MARKER="${STATE_DIR}/demo-refresh-runtime-failed"
 readonly MEDIA_PARENT="/var/www/agendasalon/shared"
 readonly MEDIA_ROOT="${MEDIA_PARENT}/media"
 readonly LOCK_FILE="/run/lock/agendasalon-demo-refresh.lock"
@@ -62,6 +63,12 @@ inspect_interrupted_refresh() {
     deny "el directorio compartido no es seguro"
   [[ -d "${MEDIA_ROOT}" && ! -L "${MEDIA_ROOT}" ]] ||
     deny "el directorio de medios no es seguro"
+
+  if [[ -e "${RUNTIME_FAILURE_MARKER}" || -L "${RUNTIME_FAILURE_MARKER}" ]]; then
+    [[ -f "${RUNTIME_FAILURE_MARKER}" && ! -L "${RUNTIME_FAILURE_MARKER}" ]] ||
+      deny "el marcador de fallo operativo no es un archivo regular"
+    deny "existe un fallo operativo pendiente de revisión"
+  fi
 
   if [[ -e "${STATE_FILE}" || -L "${STATE_FILE}" ]]; then
     [[ -f "${STATE_FILE}" && ! -L "${STATE_FILE}" ]] ||
@@ -126,6 +133,8 @@ authorize_only_the_canonical_backup() {
   esac
   for unit in \
     agendasalon-email.timer \
+    agendasalon-demo-refresh.timer \
+    agendasalon-demo-refresh-dispatch.timer \
     agendasalon-registration-purge.timer \
     agendasalon-session-cleanup.timer \
     backup-agendasalon.timer \

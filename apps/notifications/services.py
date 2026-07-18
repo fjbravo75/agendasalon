@@ -85,7 +85,7 @@ _OPERATIONAL_NOTICE_COPY = {
     ),
     "demo_refresh_completed": (
         "Regeneración completada",
-        "La demostración ha recuperado sus datos originales, actualizados a hoy.",
+        "La demostración ha recuperado el escenario canónico de la solicitud.",
     ),
     "demo_refresh_failed": (
         "La regeneración necesita revisión",

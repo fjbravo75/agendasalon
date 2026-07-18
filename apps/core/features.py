@@ -21,3 +21,12 @@ def operational_notification_delivery_enabled():
         operational_notifications_enabled()
         and transactional_email_delivery_enabled()
     )
+
+
+def manual_demo_refresh_enabled():
+    """Limita la acción destructiva al entorno académico que la declara."""
+
+    return bool(
+        getattr(settings, "AGENDA_PLATFORM_LEGAL_DEMO", False)
+        and getattr(settings, "AGENDA_MANUAL_DEMO_REFRESH_ENABLED", False)
+    )

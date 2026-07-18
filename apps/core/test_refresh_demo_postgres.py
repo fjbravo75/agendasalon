@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import io
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
+from threading import Barrier
 from unittest import skipUnless
 from zoneinfo import ZoneInfo
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, close_old_connections, connection, transaction
 from django.test import TransactionTestCase
 
 from apps.businesses.models import Business
@@ -23,8 +26,13 @@ from apps.core.demo_integrity import (
     protected_records_signature,
     validate_no_other_client_connections,
 )
+from apps.core.demo_refresh_requests import (
+    ActiveDemoRefreshRequestExists,
+    claim_pending_demo_refresh,
+    request_demo_refresh,
+)
 from apps.core.management.commands.seed_demo import DemoSeeder
-from apps.core.models import DemoRefreshReceipt
+from apps.core.models import DemoRefreshReceipt, DemoRefreshRequest
 from apps.core.test_refresh_demo import ensure_minimal_refresh_legal_documents
 
 
@@ -184,3 +192,70 @@ class DemoRefreshPostgresTests(TransactionTestCase):
                 self.assertEqual(cursor.fetchone()[0], 1)
         finally:
             contender.close()
+
+    def test_two_concurrent_requests_create_exactly_one_active_row(self):
+        superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000991",
+            password="Concurrency-test-only-2026!",
+            full_name="Admin concurrencia",
+        )
+        barrier = Barrier(2)
+
+        def create_request(suffix):
+            close_old_connections()
+            try:
+                actor = get_user_model().objects.get(pk=superadmin.pk)
+                barrier.wait(timeout=10)
+                try:
+                    request_demo_refresh(
+                        actor=actor,
+                        origin_digest=suffix * 64,
+                    )
+                    return "created"
+                except ActiveDemoRefreshRequestExists:
+                    return "active"
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(create_request, ("a", "b")))
+
+        self.assertEqual(sorted(results), ["active", "created"])
+        self.assertEqual(
+            DemoRefreshRequest.objects.filter(
+                status__in=(
+                    DemoRefreshRequest.Status.PENDING,
+                    DemoRefreshRequest.Status.PROCESSING,
+                )
+            ).count(),
+            1,
+        )
+
+    def test_two_concurrent_dispatchers_claim_exactly_once(self):
+        superadmin = get_user_model().objects.create_superuser(
+            normalized_phone="+34910000992",
+            password="Concurrency-test-only-2026!",
+            full_name="Admin despachador",
+        )
+        refresh_request = request_demo_refresh(
+            actor=superadmin,
+            origin_digest="c" * 64,
+        )
+        barrier = Barrier(2)
+
+        def claim_request(_index):
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                claim = claim_pending_demo_refresh()
+                return str(claim.refresh_request.public_id) if claim else "idle"
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(claim_request, range(2)))
+
+        self.assertEqual(results.count(str(refresh_request.public_id)), 1)
+        self.assertEqual(results.count("idle"), 1)
+        refresh_request.refresh_from_db()
+        self.assertEqual(refresh_request.status, DemoRefreshRequest.Status.PROCESSING)
