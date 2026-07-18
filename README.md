@@ -67,9 +67,10 @@ despliegue real. Cada ejecución de `seed_demo` restaura estas credenciales y
 elimina cualquier cambio de contraseña obligatorio de las cuentas internas de
 demostración, para que el escenario académico siga siendo reproducible.
 
-Los personajes, relaciones y citas comprobables de Peluquería Mari se describen
-en [`docs/SUPUESTOS_USO_DEMO.md`](docs/SUPUESTOS_USO_DEMO.md). Son datos
-ficticios preparados para evaluación y no corresponden a personas reales.
+Los personajes, relaciones y citas comprobables de Peluquería Mari y Barbería
+Norte se describen en
+[`docs/SUPUESTOS_USO_DEMO.md`](docs/SUPUESTOS_USO_DEMO.md). Son datos ficticios
+preparados para evaluación y no corresponden a personas reales.
 
 ## Estado actual
 
@@ -79,9 +80,27 @@ Funciona con `DEBUG=False`, PostgreSQL, Nginx, Gunicorn por socket interno y HTT
 Let's Encrypt. El entorno muestra de forma explícita que no existe actividad
 comercial y utiliza `agendasalon@brvsoftwarestudio.com` como contacto real.
 
-P1 está publicada y aceptada en producción con el SHA funcional
-`105531945452b5529be6891ee47034c164e804f3`. El cierre pasó por las PR #7
-(`c4f60c8`) y #8 (`1055319`) y por las ejecuciones de CI `29573943958` y
+La versión funcional desplegada en producción corresponde al commit
+`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La ejecución de CI de esa versión,
+`29625418697`, completó correctamente sus cuatro trabajos. `main` puede incluir
+commits documentales posteriores que no alteran el código desplegado. El escenario canónico
+contiene 2 negocios, 3 cuentas internas, 28 servicios, 36 fichas de cliente, 11
+accesos cliente, 4 relaciones de representación y 90 citas. De estas últimas,
+37 están atendidas, 6 no presentadas, 9 canceladas y 38 confirmadas; 30 proceden
+de la reserva web y 8 fueron solicitadas para otra persona autorizada.
+
+El 18 de julio de 2026 se completó una única aceptación manual de la
+regeneración con fecha base `2026-07-18`: ejecución
+`682f8572-de61-4140-b1f5-41a2118b233a` y huella semántica
+`72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`. El
+temporizador quedó habilitado y activo a las 04:06, una vez pasada la ventana de
+hoy, con `Persistent=false`. Su siguiente ejecución está programada para el 19
+de julio de 2026 a las `04:05 Europe/Madrid`; todavía no se presenta como una
+ejecución automática observada.
+
+Como antecedente histórico, P1 está publicada y aceptada en producción con el
+SHA funcional `105531945452b5529be6891ee47034c164e804f3`. El cierre pasó por
+las PR #7 (`c4f60c8`) y #8 (`1055319`) y por las ejecuciones de CI `29573943958` y
 `29574584566`, ambas correctas. La aceptación se realizó únicamente mediante
 GET y comprobaciones de solo lectura, sin dejar datos de prueba.
 
@@ -97,19 +116,20 @@ referencia pública. Servicios y temporizadores quedaron activos y el correo se
 rearmó; su primera ejecución automática, a las 11:11:27 UTC, terminó
 correctamente con 0 procesados, enviados, reprogramados, fallidos y cancelados.
 
-P2 está publicada y aceptada en producción con el SHA funcional
-`ed07e8e1d47eb55620df297636cd26ee10fe25c3`. La PR #10 y la ejecución de CI
-`29589984747`, correcta en todas sus puertas, vinculan el código desplegado con
-la evidencia reproducible. El despliegue quedó protegido por el snapshot
+P2 también se conserva como antecedente publicado y aceptado, con el SHA
+funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`. La PR #10 y la ejecución
+de CI `29589984747`, correcta en todas sus puertas, vinculan el código desplegado
+con la evidencia reproducible. El despliegue quedó protegido por el snapshot
 `pre-agendasalon-p2-experiencia-2026-07-17-1512Z` (ID `237312606`) y por la
 copia posterior verificada `agendasalon-20260717T153403Z`.
 
 La aceptación pública de P2 se realizó mediante GET y comprobaciones de solo
-lectura, sin crear datos de prueba. Producción conserva exactamente 2 negocios,
-3 usuarios, 8 clientes, 4 accesos y 23 citas; mantiene 2 sesiones activas y 0
-caducadas, y no contiene solicitudes de alta, mensajes en outbox ni revisiones
-de citas afectadas por festivos. P1 se conserva como antecedente publicado y
-trazable en las PR, ejecuciones de CI, copias y snapshot indicados arriba.
+lectura, sin crear datos de prueba. En aquella aceptación, producción conservó
+exactamente 2 negocios, 3 usuarios, 8 clientes, 4 accesos y 23 citas; mantuvo 2
+sesiones activas y 0 caducadas, sin solicitudes de alta, mensajes en outbox ni
+revisiones de citas afectadas por festivos. P1 se conserva como antecedente
+publicado y trazable en las PR, ejecuciones de CI, copias y snapshot indicados
+arriba.
 
 Base Django creada con configuración separada por entorno, usuario personalizado
 interno desde el inicio, núcleo de modelos SaaS/agenda y entrada autenticada por
@@ -494,6 +514,14 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
+La versión funcional desplegada superó los cuatro trabajos de CI en la ejecución
+`29625418697` antes de publicarse y desplegarse con el SHA
+`714a2a22a154b102f31140bc935c4e987c0a5d7e`. Los commits documentales posteriores
+en `main` no modifican esa versión ejecutable. La aceptación manual de la
+regeneración produjo la fecha base, el identificador y la huella exactos
+indicados en «Estado actual». El disparo automático del temporizador todavía no
+forma parte de esta evidencia.
+
 La verificación de P2 ejecutó 596 pruebas Django sobre el árbol
 definitivo. SQLite terminó correctamente con 35 omisiones exclusivas de
 PostgreSQL y PostgreSQL 17 completó 596 de 596 sin omisiones. La cobertura con
@@ -536,6 +564,15 @@ mostrarlos en las páginas legales. En modo comercial, el valor debe ser `0` y
 producción sigue exigiendo la identidad legal completa y real. Esta distinción
 no modifica `DEBUG=False`, PostgreSQL, HTTPS, cookies seguras ni la gestión de
 secretos.
+
+La regeneración integral solo está permitida en esta demo académica. El
+orquestador exige PostgreSQL, identidad exacta de base, web y directorio de
+medios, ausencia de otras conexiones, confirmación destructiva, estado de
+quiescencia y supresión del correo saliente. Detiene los escritores, pone los
+medios en cuarentena, conserva documentos legales, catálogo BOE y registros de
+copias, y solo publica el nuevo escenario si base de datos y medios quedan
+reconciliados. Su contrato operativo completo está en
+[`docs/OPERACION_PRODUCCION.md`](docs/OPERACION_PRODUCCION.md).
 
 Las respuestas incorporan una política CSP. Las rutas de producto solo permiten
 scripts del mismo origen; Django Admin conserva una excepción inline limitada a
@@ -616,6 +653,11 @@ sincronizaciones oficiales del BOE. La última sincronización muestra el moment
 real de finalización y descarta defensivamente cualquier registro fechado en el
 futuro, de modo que una carga demo nunca puede ocultar una operación oficial
 recién ejecutada.
+
+La regeneración nocturna no consulta Internet. Conserva únicamente la última
+foto BOE íntegra y trazable de cada año disponible, exige cobertura para toda la
+ventana temporal del escenario y falla sin sustituir la demo si falta un año
+necesario o cambia la firma del catálogo durante la operación.
 
 La misma operación está disponible por consola:
 
