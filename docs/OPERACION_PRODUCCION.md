@@ -5,13 +5,20 @@ demo académica quedó publicada el 14 de julio de 2026 en
 `https://agendasalon.brvsoftwarestudio.com`; los comandos siguen requiriendo una
 ejecución deliberada y no se activan por leer este documento.
 
-Estado al cierre operativo de P2: el SHA funcional
-`ed07e8e1d47eb55620df297636cd26ee10fe25c3` está desplegado y aceptado en
-producción. La integración pasó por la PR #10 y la ejecución de CI
-`29589984747` finalizó correctamente en sus cuatro trabajos. P1 se conserva
-como antecedente trazable en las PR #7, #8 y #9.
+Estado vigente: GitHub `main` y producción están alineados en
+`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La ejecución de CI
+`29625418697` finalizó correctamente en sus cuatro trabajos. P0, P1 y P2 se
+conservan como hitos históricos trazables; sus recuentos no describen el
+escenario actual.
 
-El despliegue se protegió con la copia fría
+La aceptación vigente conserva 2 negocios, 3 cuentas internas, 28 servicios,
+36 fichas de cliente, 11 accesos cliente, 4 relaciones de representación y 90
+citas. La regeneración manual aceptada el 18 de julio de 2026 utilizó la fecha
+base `2026-07-18`, el identificador
+`682f8572-de61-4140-b1f5-41a2118b233a` y la huella semántica
+`72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`.
+
+Como antecedente, el despliegue de P2 se protegió con la copia fría
 `agendasalon-20260717T150928Z`, conservada fuera de la retención automática, y
 el snapshot `pre-agendasalon-p2-experiencia-2026-07-17-1512Z`, ID `237312606`,
 acción `3296249201`, creado el 17 de julio de 2026 a las 15:12:36 UTC con el
@@ -19,7 +26,7 @@ Droplet apagado. Debe conservarse al menos hasta el
 `2026-07-21T15:12:36Z`. La copia posterior autenticada, verificada y validada
 con `pg_restore --list` es `agendasalon-20260717T153403Z`.
 
-Se aplicaron exclusivamente
+Como antecedente del despliegue P2, se aplicaron exclusivamente
 `holidays.0005_holidayappointmentreview` y
 `customers.0015_businessclientaccess_public_registration_expires_at`. La
 primera purga controlada no encontró candidatas y la limpieza retiró cinco
@@ -110,6 +117,54 @@ postgresql://usuario:contraseña@servidor:5432/agendasalon?sslmode=require
 La URL y el resto de secretos deben vivir en el gestor de variables del
 servidor, nunca en Git, el README, una unidad de servicio ni la línea de
 comandos.
+
+## Regeneración controlada de la demo académica
+
+`refresh_demo` no es un comando de mantenimiento general ni debe ejecutarse
+contra datos reales. El proceso solo continúa si coinciden todas estas barreras:
+
+- perfil `config.settings.prod`, `DEBUG=False`, PostgreSQL y modo legal de demo;
+- confirmación explícita `--confirm-full-reset`;
+- base, usuario, host, puerto, web, directorio de medios y marcador de
+  quiescencia iguales a los valores esperados del servidor;
+- conjunto de tablas exactamente conocido, migraciones al día y ninguna otra
+  conexión cliente a la base;
+- `AGENDA_DEMO_REFRESH_ENABLED=1`, correo transaccional desactivado y
+  `AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=1`;
+- catálogo BOE íntegro para todos los años que atraviesa la ventana temporal.
+
+La unidad root `agendasalon-demo-refresh.service` ejecuta el orquestador
+versionado `ops/run_demo_refresh.sh`. Este verifica la última copia canónica
+existente, detiene Gunicorn y los temporizadores capaces de escribir, mueve los
+medios a una cuarentena reversible y baja privilegios antes de llamar a Django.
+La limpieza y la siembra se realizan dentro de una transacción con bloqueos
+PostgreSQL. Tras confirmar el recibo y el escenario, crea y verifica una nueva
+copia canónica limpia. El correo usa un backend nulo durante todo el proceso. Si
+base de datos y medios no quedan reconciliados, la aplicación no se reabre como
+si el refresco hubiera terminado bien.
+
+Se eliminan los datos mutables de producto y cualquier cuenta interna ajena a
+las tres identidades canónicas. Se conservan sus filas de usuario, los documentos
+legales publicados, la foto BOE válida, el historial de copias y los recibos de
+regeneración. El postflight exige además outbox, solicitudes, sesiones, grupos,
+medios personalizados y otros residuos de evaluación a cero antes de aceptar la
+huella del escenario.
+
+El temporizador `agendasalon-demo-refresh.timer` está definido para las
+`04:05 Europe/Madrid`, con `Persistent=false`, `AccuracySec=1min` y sin retraso
+aleatorio. Quedó habilitado y activo el 18 de julio de 2026 a las 04:06, una vez
+pasada la ventana de hoy, y systemd fijó la siguiente ejecución para el 19 de
+julio a las 04:05. Hasta observar su resultado real en systemd y en el recibo
+de PostgreSQL, solo consta una aceptación manual; no una ejecución automática.
+
+La comprobación de estado se realiza sin lanzar el refresco:
+
+```bash
+systemctl is-enabled agendasalon-demo-refresh.timer
+systemctl list-timers --all agendasalon-demo-refresh.timer
+systemctl show agendasalon-demo-refresh.service -p Result -p ExecMainStatus
+journalctl -u agendasalon-demo-refresh.service -n 100 --no-pager
+```
 
 ## Correo transaccional
 

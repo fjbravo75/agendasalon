@@ -15,12 +15,22 @@ La revisión distingue tres estados:
 - **Pendiente de operación**: depende de infraestructura, automatización o
   procedimientos que no deben fingirse en el entorno local.
 
-Fecha de la evidencia local más reciente: **17 de julio de 2026**.
+Fecha de la evidencia local más reciente: **18 de julio de 2026**.
 
 La evidencia de publicación no se infiere de la fecha de este documento: debe
 comprobarse por SHA exacto, resultado de CI y registro operativo del despliegue.
 
-> **Bloque P2 verificado en despliegue.** El SHA funcional
+> **Estado vigente verificado en despliegue.** GitHub `main` y producción están
+> alineados en `714a2a22a154b102f31140bc935c4e987c0a5d7e`. La CI
+> `29625418697` terminó correctamente en sus cuatro trabajos. La regeneración
+> manual aceptada tiene identificador
+> `682f8572-de61-4140-b1f5-41a2118b233a`, fecha base `2026-07-18` y huella
+> `72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`.
+> El temporizador nocturno está habilitado y activo, con siguiente ejecución el
+> 19 de julio a las 04:05; todavía no existe una primera ejecución automática
+> observada.
+
+> **Antecedente P2 verificado en despliegue.** El SHA funcional
 > `ed07e8e1d47eb55620df297636cd26ee10fe25c3` está publicado y aceptado. La PR
 > #10 y la ejecución de CI `29589984747`, correcta en todas sus puertas, vinculan
 > la implementación con la evidencia reproducible. La aceptación de producción
@@ -44,10 +54,10 @@ enviados, reprogramados, fallidos y cancelados.
 
 El despliegue de P2 quedó protegido por el snapshot
 `pre-agendasalon-p2-experiencia-2026-07-17-1512Z` (ID `237312606`) y por la
-copia posterior verificada `agendasalon-20260717T153403Z`. Producción conserva
-2 negocios, 3 usuarios, 8 clientes, 4 accesos y 23 citas; mantiene 2 sesiones
-activas y 0 caducadas, y no contiene solicitudes de alta, mensajes en outbox ni
-revisiones de citas afectadas por festivos.
+copia posterior verificada `agendasalon-20260717T153403Z`. En aquella
+aceptación, producción conservó 2 negocios, 3 usuarios, 8 clientes, 4 accesos y
+23 citas; mantuvo 2 sesiones activas y 0 caducadas, sin solicitudes de alta,
+mensajes en outbox ni revisiones de citas afectadas por festivos.
 
 ## Arquitectura de seguridad
 
@@ -123,6 +133,7 @@ La aplicación separa cuatro superficies:
 | Galería pública por negocio | Las imágenes propias se relacionan con un único negocio y el formulario solo permite seleccionar archivos de esa misma empresa | `BusinessPublicImage`, formulario de ajustes y pruebas de aislamiento | Aplicado y verificado |
 | Secretos | Variables de entorno obligatorias en producción; arranque detenido si faltan secreto, hosts o PostgreSQL | `config/settings/prod.py`, `.env.example`, pruebas de producción | Aplicado y verificado |
 | Base de datos | SQLite solo para desarrollo; PostgreSQL obligatorio en producción, conexión persistente con comprobación de salud | `config/settings/database.py`, `config/settings/prod.py` | Aplicado y verificado |
+| Regeneración académica | Borrado integral limitado al modo demo mediante confirmación explícita, identidad exacta del entorno, quiescencia, exclusión de conexiones, transacción PostgreSQL, cuarentena de medios, supresión SMTP y postflight sin residuos | `apps/core/demo_integrity.py`, `refresh_demo`, `ops/run_demo_refresh.sh` y unidades systemd | Aceptación manual verificada; primer disparo automático pendiente |
 | HTTPS | Redirección a HTTPS, cookies seguras, orígenes CSRF configurables y HSTS inicial | `config/settings/prod.py` y validación pública del 14-07-2026 | Verificado en despliegue |
 | Dependencias | Versiones fijadas; auditorías Python y Node sin vulnerabilidades conocidas en la fecha de revisión | `requirements.txt`, `package-lock.json`, comandos de evidencia | Aplicado y verificado |
 | Copias | Copia diaria de PostgreSQL y `media`, hashes SHA-256, manifiesto HMAC, retención 7/4/6 y control de frescura inferior a 36 horas | `ops/backup_restore.py`, `ops/test_backup_restore.py`, `ops/systemd/` | Verificado en despliegue |
@@ -332,6 +343,13 @@ personales. Con `AGENDA_PLATFORM_LEGAL_DEMO=0`, el modo comercial continúa
 exigiendo la identidad completa y real. La elección no relaja ninguna medida
 técnica del perfil de producción.
 
+La barrera `AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL` solo puede activarse en modo
+académico y fuerza un backend de correo nulo. El orquestador de regeneración
+exige además `AGENDA_DEMO_REFRESH_ENABLED`, identidad exacta de PostgreSQL,
+plataforma y medios, y un marcador de quiescencia válido. Estos indicadores no
+convierten el comando en seguro por sí solos: las comprobaciones de tablas,
+migraciones, conexiones, BOE y rutas canónicas deben superarse conjuntamente.
+
 PostgreSQL es obligatorio en producción. La URL de conexión se obtiene del
 entorno y no se pasa a la herramienta de copias mediante argumentos visibles en
 la lista de procesos. `.env.example` contiene únicamente nombres y ejemplos sin
@@ -430,7 +448,30 @@ identidad fiscal real, política de privacidad, base jurídica, información al
 usuario, contratos con encargados, plazos definitivos de conservación y
 procedimiento de ejercicio de derechos.
 
+La demo pública usa exclusivamente identidades ficticias. Su regeneración
+elimina de forma deliberada negocios, clientes, citas, accesos, sesiones,
+solicitudes, outbox, evidencias operativas y medios introducidos durante una
+evaluación. Este borrado es aceptable únicamente por el contrato académico de
+residuo cero; no debe trasladarse a un entorno comercial ni utilizarse con
+información real. Los documentos legales publicados, la foto BOE trazable, el
+historial de copias y los recibos técnicos se conservan y se comparan mediante
+firmas antes y después de la operación.
+
 ## Evidencias reproducibles
+
+### Evidencia vigente de escenario y regeneración académica
+
+| Comprobación | Resultado |
+| --- | --- |
+| SHA común a `main` y producción | `714a2a22a154b102f31140bc935c4e987c0a5d7e` |
+| CI | Ejecución `29625418697`, cuatro trabajos correctos |
+| Estado canónico | 2 negocios, 3 cuentas internas, 28 servicios, 36 clientes, 11 accesos, 4 relaciones y 90 citas |
+| Aceptación manual | Una ejecución correcta el 18-07-2026, con fecha base `2026-07-18` |
+| Identificador | `682f8572-de61-4140-b1f5-41a2118b233a` |
+| Huella semántica | `72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0` |
+| Correo durante el refresco | Suprimido por configuración y backend nulo |
+| Temporizador | Habilitado y activo; siguiente ejecución el 19-07-2026 a las `04:05 Europe/Madrid`, `Persistent=false` |
+| Primera ejecución automática | Pendiente de observación; no acreditada por la prueba manual |
 
 ### Evidencia publicada de P2
 
@@ -533,7 +574,7 @@ galería conservan una sola. Los PoCs originales confirman el cierre: el de
 permisos termina en `PASS` y el que exigía aceptar trece imágenes falla en la
 decimotercera solicitud, como corresponde al nuevo control.
 
-## Riesgos residuales tras la publicación de P2
+## Riesgos residuales vigentes
 
 Las escrituras directas de agenda desde Django Admin, la evidencia legal no
 ligada a la versión mostrada y la outbox sin `lease` dejan de figurar como
@@ -549,6 +590,7 @@ funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`.
 | --- | --- | --- |
 | HTTPS público | Cerrado para la demo | Certificado válido, redirección HTTP, cabeceras, acceso y reserva comprobados en `agendasalon.brvsoftwarestudio.com` |
 | Terminación TLS del proxy | Cerrado para la demo | Nginx sobrescribe `X-Forwarded-Proto`, Gunicorn solo escucha en socket y Django confía únicamente en el proxy local declarado |
+| Primera ejecución automática del refresco | Pendiente de operación | El servicio ya superó una aceptación manual; el timer está habilitado y activo y debe observarse el primer disparo real previsto para el 19-07-2026 a las 04:05 |
 | Copias sin destino externo cifrado | Alta para continuidad; bloqueante para explotación comercial | La retención 7/4/6 y la vigilancia local están activas; falta elegir el destino externo y repetir una restauración desde él |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
 | Resolución asistida de citas afectadas por un festivo importado | Cerrada para la demo en P2 | Bandeja profesional privada, agregado superadministrador sin datos personales y confirmación manual idempotente publicados y aceptados en producción |
@@ -566,6 +608,12 @@ AgendaSalon supera el alcance técnico exigible para explicar autenticación,
 hashing, validación, CSRF, XSS, permisos, secretos y copias de seguridad. Los
 controles de aplicación están implementados y respaldados por pruebas.
 
+La versión vigente añade un escenario académico realista y un mecanismo de
+regeneración protegido. La CI, el SHA común y la aceptación manual acreditan el
+estado publicado; el temporizador está habilitado, pero aún no acreditan su
+primer disparo automático. Esta distinción se mantiene como parte de la
+evidencia y no como un resultado supuesto.
+
 El bloque P0 queda como antecedente histórico en el SHA
 `5c68a260d1d87ed00c908d25bf519c3f34fea712`. P1 se conserva como antecedente
 publicado: su SHA funcional `105531945452b5529be6891ee47034c164e804f3`
@@ -576,13 +624,13 @@ snapshot y la aceptación operativa acreditan el despliegue; la PR #9 sincroniz�
 la documentación y dejó `1e4c6cdbeaca72ca3df4c6b5c8c0f138ef02f489` como SHA final
 de `main` y de producción.
 
-P2 es la versión funcional publicada y aceptada: 596 pruebas Django correctas
-en PostgreSQL 17, 596 ejecutadas correctamente en SQLite con 35 omisiones
-exclusivas de PostgreSQL, 34 de 34 pruebas frontend y 85 % de cobertura con
-ramas. La PR #10, el CI `29589984747`, el snapshot ID `237312606`, la copia
-posterior `agendasalon-20260717T153403Z`, las migraciones, los temporizadores y
-la aceptación operativa sin residuos acreditan el SHA funcional
-`ed07e8e1d47eb55620df297636cd26ee10fe25c3`.
+P2 queda como antecedente funcional publicado y aceptado: 596 pruebas Django
+correctas en PostgreSQL 17, 596 ejecutadas correctamente en SQLite con 35
+omisiones exclusivas de PostgreSQL, 34 de 34 pruebas frontend y 85 % de
+cobertura con ramas. La PR #10, el CI `29589984747`, el snapshot ID
+`237312606`, la copia posterior `agendasalon-20260717T153403Z`, las migraciones,
+los temporizadores y la aceptación operativa sin residuos acreditan el SHA
+funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`.
 
 La aplicación está publicada como **demo académica** y HTTPS, proxy, aislamiento,
 copias locales, retención y vigilancia de frescura disponen de evidencia en el

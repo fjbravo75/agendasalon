@@ -1,4 +1,4 @@
-# Supuestos de uso demostrables en Peluquería Mari
+# Supuestos de uso demostrables en Peluquería Mari y Barbería Norte
 
 Este documento explica los personajes ficticios de la semilla académica y qué
 capacidad real de AgendaSalon demuestra cada uno. Los nombres, teléfonos y
@@ -6,6 +6,20 @@ relaciones no corresponden a personas reales.
 
 La contraseña común de las cuentas indicadas en el `README.md` es
 `DemoAgendaSalon2026!`.
+
+## Radiografía del escenario canónico
+
+La demo contiene 2 negocios, 3 cuentas internas, 28 servicios —14 por
+negocio—, 36 fichas de cliente —22 en Peluquería Mari y 14 en Barbería Norte—,
+11 accesos cliente y 4 relaciones de representación. Sus 90 citas se reparten
+en 37 atendidas, 6 no presentadas, 9 canceladas y 38 confirmadas. Hay ejemplos
+de teléfono, WhatsApp, correo, mostrador y web; 30 citas proceden de la reserva
+web y 8 fueron solicitadas para otra persona autorizada.
+
+Las fechas no están fijadas a una semana envejecida. En cada regeneración, el
+histórico se sitúa en los días laborables anteriores y las citas futuras en los
+siguientes días laborables disponibles. Así se mantienen demostrables tanto la
+actividad pasada como la agenda próxima.
 
 ## Personajes de la demo
 
@@ -21,6 +35,13 @@ La contraseña común de las cuentas indicadas en el `README.md` es
   contacto externo: puede pedir citas por teléfono o en el local, pero no
   reservar online.
 - **Carmen Ruiz** representa una clienta corriente sin relaciones delegadas.
+- **Isabel Torres** tiene acceso propio y puede reservar para su madre, Teresa
+  García.
+- **Óscar Cabrera** tiene acceso en Barbería Norte y puede reservar para su hijo
+  Nico.
+
+El resto de las fichas aporta volumen realista a búsquedas, listados, estados y
+agenda sin convertir cada persona ficticia en un caso de uso distinto.
 
 ## Caso 1. Una madre reserva para ella y para su hijo
 
@@ -28,7 +49,8 @@ María y Lucas aparecen como dos clientes distintos. La ficha de Lucas muestra a
 María como `Madre`, contacto principal y persona autorizada para reservar
 online.
 
-La semilla crea dos citas de corte a la misma hora del lunes de demostración:
+La semilla crea dos citas de corte a la misma hora del primer día laborable
+futuro de la demostración:
 
 - María ocupa la Línea 1 y la reserva figura como realizada para sí misma.
 - Lucas ocupa la Línea 2 y la cita conserva que María López la solicitó como
@@ -46,7 +68,7 @@ Al entrar en la reserva pública con el teléfono `600111201`, el selector
 Daniel Vega y Rosa Martín también conservan fichas independientes. En la ficha
 de Rosa, Daniel aparece como `Cuidador` y tiene autorización online activa.
 
-La cita de Rosa del martes de demostración queda asociada a su ficha, mientras
+Una de las citas futuras de Rosa queda asociada a su ficha, mientras
 que el detalle profesional conserva que fue solicitada online por Daniel Vega en
 calidad de cuidador.
 
@@ -65,6 +87,14 @@ pedir una cita en el mostrador y disponer de permiso digital. AgendaSalon no
 convierte un número de teléfono en una cuenta ni concede acceso online de forma
 automática.
 
+## Caso 4. La misma regla funciona en los dos negocios
+
+Isabel y Teresa reproducen en Peluquería Mari una relación de hija y madre.
+Óscar y Nico demuestran en Barbería Norte que el permiso no depende del tipo de
+salón: Nico conserva su propia ficha y su cita infantil, mientras que la reserva
+recuerda que la solicitó su padre. Una autorización nunca cruza de un negocio a
+otro.
+
 ## Qué puede comprobar el evaluador
 
 Con la cuenta profesional de Peluquería Mari:
@@ -76,6 +106,16 @@ Con la cuenta profesional de Peluquería Mari:
    cuidador.
 5. Abrir las citas sembradas de Lucas y Rosa para ver quién las solicitó y qué
    relación tenía con la persona atendida.
+6. Revisar los 14 servicios de Peluquería Mari, incluidos los dos pausados, y
+   comprobar el histórico de citas atendidas, canceladas y no presentadas.
+
+Con la cuenta profesional de Barbería Norte:
+
+1. Abrir `Clientes` y buscar `Nico Cabrera`.
+2. Comprobar la autorización de Óscar Cabrera como padre.
+3. Abrir una cita de Nico y verificar quién la solicitó.
+4. Revisar sus 14 servicios y la agenda futura generada con datos propios de la
+   barbería.
 
 Con las cuentas cliente:
 
@@ -85,10 +125,29 @@ Con las cuentas cliente:
 4. Comprobar que el selector solo muestra la ficha propia y la persona para la
    que existe una autorización expresa.
 
+Óscar puede repetir el mismo recorrido desde
+`/clientes/barberia-norte/entrar/` y `/reservar/barberia-norte/`.
+
+## Regeneración diaria de la demo pública
+
+La regeneración borra los cambios mutables realizados durante una evaluación y
+reconstruye este escenario ficticio. También retira negocios, cuentas, citas,
+sesiones, solicitudes y medios añadidos fuera del contrato canónico. Conserva
+la documentación legal publicada, la foto oficial íntegra del BOE, el historial
+de copias y los recibos técnicos de regeneración.
+
+El 18 de julio de 2026 se aceptó una ejecución manual con fecha base
+`2026-07-18`, identificador `682f8572-de61-4140-b1f5-41a2118b233a` y huella
+`72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`. El
+temporizador quedó habilitado y activo a las 04:06, con primera ejecución
+prevista el 19 de julio a las `04:05 Europe/Madrid`; todavía no se afirma que
+exista una ejecución automática observada.
+
 ## Límites conscientes
 
 La demo no permite que una cuenta cliente cree por sí sola nuevas fichas de
 familiares o dependientes. La ficha la crea el negocio y el permiso se concede
 desde el panel profesional. Tampoco existe una cesta familiar: dos personas
 requieren dos citas, aunque puedan quedar a la misma hora si existen dos líneas
-de trabajo libres.
+de trabajo libres. Al ser un entorno que se regenera, no debe utilizarse para
+guardar datos reales ni trabajo que deba conservarse.
