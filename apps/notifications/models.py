@@ -105,6 +105,7 @@ class OutboundEmail(models.Model):
         CLIENT_PASSWORD_RESET = "client_password_reset", "Recuperación de contraseña cliente"
         APPOINTMENT_CONFIRMATION = "appointment_confirmation", "Confirmación de cita"
         APPOINTMENT_REMINDER = "appointment_reminder", "Recordatorio de cita"
+        OPERATIONAL_NOTICE = "operational_notice", "Aviso operativo"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pendiente"
@@ -150,6 +151,7 @@ class OutboundEmail(models.Model):
         related_name="outbound_emails",
     )
     recipient_email = models.EmailField("destinatario")
+    payload = models.JSONField("contenido operativo", default=dict, blank=True)
     deduplication_key = models.CharField(max_length=255, unique=True)
     delivery_reference = models.UUIDField(
         "identificador del aviso",

@@ -8,6 +8,8 @@ from .prod import *  # noqa: F403
 # conexiones SMTP ni entregar mensajes fuera del proceso de prueba.
 AGENDA_TRANSACTIONAL_EMAIL_ENABLED = True
 AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL = False
+AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED = True
+AGENDA_MANUAL_DEMO_REFRESH_ENABLED = True
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 SECURE_SSL_REDIRECT = False

@@ -1,13 +1,13 @@
 from functools import wraps
 
 import requests
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -44,8 +44,25 @@ from apps.holidays.services import (
     latest_boe_national_holiday_run,
     sync_boe_national_holidays,
 )
+from apps.core.security_throttle import (
+    ThrottleLimit,
+    request_ip,
+    reserve_throttle_attempts,
+)
+from apps.core.features import (
+    operational_notification_delivery_enabled,
+    operational_notifications_enabled,
+    transactional_email_delivery_enabled,
+)
 from apps.legal.models import LegalAcceptance, LegalAcceptanceEvent
-from apps.notifications.services import queue_and_dispatch, queue_professional_activation
+from apps.notifications.forms import BusinessNotificationSettingsForm
+from apps.notifications.models import OutboundEmail
+from apps.notifications.services import (
+    queue_and_dispatch,
+    queue_operational_email_verification_safely,
+    queue_operational_notice_on_commit,
+    queue_professional_activation,
+)
 from apps.legal.services import business_legal_status
 
 
@@ -174,6 +191,17 @@ def superadmin_business_create(request):
                 business.save(update_fields=["legal_compliance_enabled", "updated_at"])
                 BusinessCalendarSettings.objects.create(business=business)
                 professional = professional_form.create_professional(business=business)
+                business.notification_email = professional.email
+                business.notification_email_normalized = professional.email_normalized
+                business.notification_email_verified_at = professional.email_verified_at
+                business.save(
+                    update_fields=[
+                        "notification_email",
+                        "notification_email_normalized",
+                        "notification_email_verified_at",
+                        "updated_at",
+                    ]
+                )
                 record_business_activity(
                     business=business,
                     category=BusinessActivityEvent.Category.PLATFORM,
@@ -210,7 +238,16 @@ def superadmin_business_create(request):
             delivery = queue_and_dispatch(
                 queue_professional_activation(professional, business=business)
             )
-            if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            queue_operational_notice_on_commit(
+                scope="platform",
+                code="business_created",
+                deduplication_key=f"business-created:{business.pk}",
+                action_path=reverse(
+                    "businesses:superadmin_business_detail",
+                    args=[business.pk],
+                ),
+            )
+            if not transactional_email_delivery_enabled():
                 messages.info(
                     request,
                     f"{business.commercial_name} ya está creado y el acceso de "
@@ -355,7 +392,7 @@ def superadmin_business_detail(request, business_id):
             "online_appointments_count": online_appointments_count,
             "professional_appointments_count": professional_appointments_count,
             "legal_status": legal_status,
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
         },
     )
 
@@ -507,6 +544,21 @@ def superadmin_professional_create(request, business_id):
         with transaction.atomic():
             professional = professional_form.create_professional(business=business)
             membership = BusinessMembership.objects.get(business=business, user=professional)
+            if (
+                not business.notification_email_normalized
+                and BusinessMembership.objects.filter(business=business).count() == 1
+            ):
+                business.notification_email = professional.email
+                business.notification_email_normalized = professional.email_normalized
+                business.notification_email_verified_at = professional.email_verified_at
+                business.save(
+                    update_fields=[
+                        "notification_email",
+                        "notification_email_normalized",
+                        "notification_email_verified_at",
+                        "updated_at",
+                    ]
+                )
             record_business_activity(
                 business=business,
                 category=BusinessActivityEvent.Category.ACCESS,
@@ -520,7 +572,7 @@ def superadmin_professional_create(request, business_id):
         delivery = queue_and_dispatch(
             queue_professional_activation(professional, business=business)
         )
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             messages.info(
                 request,
                 f"El acceso de {professional.full_name} queda preparado. El correo "
@@ -559,7 +611,7 @@ def superadmin_professional_activation_resend(request, business_id, membership_i
         delivery = queue_and_dispatch(
             queue_professional_activation(user, business=membership.business)
         )
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             messages.info(
                 request,
                 f"La cuenta de {user.full_name} sigue preparada. El correo externo de "
@@ -707,6 +759,38 @@ def superadmin_holiday_sync(request):
             ),
         )
         if run.affected_appointments:
+            run_reference = getattr(run, "pk", None) or (
+                f"{target_year}:{run.items_created}:{run.items_updated}:"
+                f"{run.items_removed}:{run.affected_appointments}:"
+                f"{run.affected_businesses}"
+            )
+            queue_operational_notice_on_commit(
+                scope="platform",
+                code="holiday_impact",
+                deduplication_key=f"holiday-impact:{run_reference}",
+                action_path=(
+                    f"{reverse('platform_settings:superadmin_platform_settings')}"
+                    f"?holiday_year={target_year}#festivos-nacionales"
+                ),
+                context={
+                    "appointments": run.affected_appointments,
+                    "businesses": run.affected_businesses,
+                },
+            )
+            for impact in pending_holiday_business_summaries(year=target_year):
+                impacted_business = Business.objects.filter(pk=impact.business_id).first()
+                if impacted_business is None:
+                    continue
+                queue_operational_notice_on_commit(
+                    scope="business",
+                    code="holiday_review",
+                    deduplication_key=(
+                        f"holiday-impact:{run_reference}:{impact.business_id}"
+                    ),
+                    business=impacted_business,
+                    action_path=reverse("booking:professional_schedule"),
+                    context={"appointments": impact.appointment_count},
+                )
             appointment_text = (
                 "1 cita futura"
                 if run.affected_appointments == 1
@@ -739,12 +823,163 @@ def professional_settings(request):
     if business is None:
         return redirect("accounts:no_business")
 
+    form_kind = request.POST.get("form_kind", "appearance")
+    if (
+        request.method == "POST"
+        and form_kind == "notifications"
+        and not operational_notifications_enabled()
+    ):
+        raise Http404
     settings_form = BusinessVisualSettingsForm(
-        request.POST or None,
-        request.FILES or None,
+        request.POST if request.method == "POST" and form_kind == "appearance" else None,
+        request.FILES if request.method == "POST" and form_kind == "appearance" else None,
         instance=business,
     )
-    if request.method == "POST" and settings_form.is_valid():
+    notification_form = BusinessNotificationSettingsForm(
+        request.POST if request.method == "POST" and form_kind == "notifications" else None,
+        instance=business,
+    )
+    if request.method == "POST" and form_kind == "notifications" and notification_form.is_valid():
+        intent = request.POST.get("intent", "save")
+        settings_changed = bool(notification_form.changed_data)
+        if settings_changed:
+            settings_reservation = reserve_throttle_attempts(
+                limits=(
+                    ThrottleLimit(
+                        scope="operational_settings_user",
+                        key=str(request.user.pk),
+                        limit=20,
+                        window_seconds=60 * 60,
+                    ),
+                    ThrottleLimit(
+                        scope="operational_settings_ip",
+                        key=request_ip(request),
+                        limit=60,
+                        window_seconds=60 * 60,
+                    ),
+                    ThrottleLimit(
+                        scope="operational_settings_email",
+                        key=notification_form.cleaned_data["notification_email"] or "sin-correo",
+                        limit=20,
+                        window_seconds=60 * 60,
+                    ),
+                )
+            )
+            if not settings_reservation.allowed:
+                messages.error(request, "Espera antes de volver a cambiar los avisos.")
+                return redirect("business_settings:professional_settings")
+            with transaction.atomic():
+                business = notification_form.save()
+                record_business_activity(
+                    business=business,
+                    category=BusinessActivityEvent.Category.CONFIGURATION,
+                    event_type=BusinessActivityEvent.EventType.NOTIFICATION_SETTINGS_UPDATED,
+                    origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+                    summary="Se actualizaron el canal y las preferencias de avisos.",
+                    actor=request.user,
+                    entity=business,
+                    entity_type="business",
+                    changes={
+                        "channel_configured": bool(business.notification_email_normalized),
+                        "channel_verified": bool(business.notification_email_verified_at),
+                        "enabled": business.notifications_enabled,
+                        "preferences": {
+                            name: bool(getattr(business, name))
+                            for name in (
+                                "notify_new_appointments",
+                                "notify_cancellations",
+                                "notify_client_access",
+                                "notify_holiday_reviews",
+                                "notify_email_failures",
+                            )
+                        },
+                    },
+                )
+        verification_pending = bool(
+            business.notification_email_normalized
+            and business.notification_email_verified_at is None
+        )
+        should_send_verification = verification_pending and (
+            "notification_email" in notification_form.changed_data or intent == "resend"
+        )
+        verification_reserved = None
+        if should_send_verification:
+            verification_reserved = reserve_throttle_attempts(
+                limits=(
+                    ThrottleLimit(
+                        scope="operational_verification_user",
+                        key=str(request.user.pk),
+                        limit=5,
+                        window_seconds=60 * 60,
+                    ),
+                    ThrottleLimit(
+                        scope="operational_verification_ip",
+                        key=request_ip(request),
+                        limit=15,
+                        window_seconds=60 * 60,
+                    ),
+                    ThrottleLimit(
+                        scope="operational_verification_email",
+                        key=business.notification_email_normalized,
+                        limit=5,
+                        window_seconds=60 * 60,
+                    ),
+                )
+            )
+        verification_delivery = None
+        if should_send_verification and verification_reserved.allowed:
+            verification_delivery = queue_operational_email_verification_safely(
+                scope="business",
+                target=business,
+                business=business,
+            )
+        if (
+            verification_delivery is not None
+            and verification_delivery.status == OutboundEmail.Status.SENT
+        ):
+            messages.info(
+                request,
+                "Los avisos quedan guardados. El servicio de correo ha aceptado el "
+                "enlace de verificación; revisa esa bandeja para confirmarlo.",
+            )
+        elif verification_delivery is not None and verification_delivery.status in {
+            OutboundEmail.Status.PENDING,
+            OutboundEmail.Status.PROCESSING,
+        }:
+            messages.info(
+                request,
+                "Los avisos quedan guardados. El enlace de verificación está en cola "
+                "y se volverá a intentar automáticamente.",
+            )
+        elif should_send_verification and not operational_notification_delivery_enabled():
+            messages.warning(
+                request,
+                "Los avisos quedan guardados. La entrega externa está pausada; podrás "
+                "reenviar la verificación cuando vuelva a estar disponible.",
+            )
+        elif should_send_verification and verification_reserved.allowed:
+            messages.warning(
+                request,
+                "Los avisos quedan guardados, pero el enlace no ha podido prepararse. "
+                "Inténtalo de nuevo.",
+            )
+        elif should_send_verification:
+            messages.warning(
+                request,
+                "Los avisos quedan guardados. Espera antes de solicitar otro enlace de verificación.",
+            )
+        elif not settings_changed:
+            messages.info(request, "No había cambios que guardar.")
+        elif verification_pending:
+            messages.info(
+                request,
+                "Los cambios quedan guardados. El correo continúa pendiente de verificar.",
+            )
+        else:
+            messages.success(request, "Los avisos del negocio quedan guardados.")
+        return redirect("business_settings:professional_settings")
+
+    if request.method == "POST" and form_kind == "appearance" and settings_form.is_valid():
         theme_changed = "professional_theme" in settings_form.changed_data
         image_uploaded = "new_public_image" in settings_form.changed_data
         image_selected = "public_image_choice" in settings_form.changed_data
@@ -799,6 +1034,10 @@ def professional_settings(request):
         {
             "business": business,
             "settings_form": settings_form,
+            "notification_form": notification_form,
+            "business_failed_email_count": business.outbound_emails.filter(
+                status="failed"
+            ).count(),
             "client_auth_theme": get_business_visual_theme(business),
             "client_auth_image_url": get_business_public_image_url(business),
             "public_image_is_custom": business.public_images.filter(is_selected=True).exists(),

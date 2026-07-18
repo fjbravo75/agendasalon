@@ -1,6 +1,6 @@
-from django.conf import settings
 from django.shortcuts import redirect, render
 from django.db import transaction
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -13,6 +13,7 @@ from apps.core.security_throttle import (
     request_ip,
     reserve_throttle_attempts,
 )
+from apps.core.features import transactional_email_delivery_enabled
 from apps.legal.models import LegalDocument
 from apps.legal.presentations import (
     LegalPresentationError,
@@ -22,6 +23,7 @@ from apps.legal.presentations import (
     resolve_legal_presentation,
 )
 from apps.legal.services import get_active_document, platform_legal_context
+from apps.notifications.services import queue_operational_notice_on_commit
 
 
 BUSINESS_SIGNUP_THROTTLE_MESSAGE = (
@@ -100,6 +102,15 @@ def business_signup_request(request):
                             )
                             signup_request.privacy_acknowledged_at = timezone.now()
                             signup_request.save()
+                            queue_operational_notice_on_commit(
+                                scope="platform",
+                                code="signup_request",
+                                deduplication_key=f"signup-request:{signup_request.pk}",
+                                action_path=reverse(
+                                    "businesses:superadmin_signup_request_detail",
+                                    args=[signup_request.pk],
+                                ),
+                            )
                         return redirect("business_signup_request_success")
             except LegalPresentationError as exc:
                 clear_legal_confirmation_fields(
@@ -138,7 +149,7 @@ def business_signup_request(request):
             "legal_presentation_token": legal_presentation_token,
             "legal_unavailable_message": legal_unavailable_message,
             "internal_login_image_url": get_platform_login_image_url(),
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
         },
         status=response_status,
     )
@@ -156,6 +167,6 @@ def business_signup_request_success(request):
         "businesses/signup_request_success.html",
         {
             "internal_login_image_url": get_platform_login_image_url(),
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
         },
     )

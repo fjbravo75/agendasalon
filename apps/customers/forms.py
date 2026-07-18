@@ -1,10 +1,10 @@
 from django import forms
-from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 
 from apps.core.email import normalize_and_validate_routable_email
+from apps.core.features import transactional_email_delivery_enabled
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
 from apps.customers.services import (
@@ -56,7 +56,7 @@ def _normalize_routable_email(value):
     try:
         return normalize_and_validate_routable_email(value)
     except DjangoValidationError as exc:
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             raise forms.ValidationError(DEMO_EMAIL_VALIDATION_MESSAGE) from exc
         raise
 
@@ -808,7 +808,7 @@ class ProfessionalClientEditForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.business = business
         self.instance = instance
-        if self.access is not None and not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if self.access is not None and not transactional_email_delivery_enabled():
             self.fields["email"].widget.attrs.update(
                 {
                     "readonly": True,
@@ -856,7 +856,7 @@ class ProfessionalClientEditForm(forms.Form):
 
         if self.access is None or normalized_email == current_email_normalized:
             return normalized_email
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             raise forms.ValidationError(
                 "El correo de una cuenta online no puede cambiarse en esta demostración "
                 "porque no se entregan enlaces de verificación. Los demás datos sí pueden editarse."

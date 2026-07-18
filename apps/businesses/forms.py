@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from django import forms
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -24,6 +23,7 @@ from apps.businesses.models import (
     PlatformSettings,
 )
 from apps.core.email import normalize_and_validate_routable_email
+from apps.core.features import transactional_email_delivery_enabled
 from apps.core.phone import normalize_phone
 
 
@@ -37,7 +37,7 @@ def _normalize_routable_email(value):
     try:
         return normalize_and_validate_routable_email(value)
     except ValidationError as exc:
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             raise forms.ValidationError(DEMO_EMAIL_VALIDATION_MESSAGE) from exc
         raise
 
@@ -101,6 +101,11 @@ class BusinessForm(forms.ModelForm):
             "public_description": "Descripción pública",
             "is_active": "Negocio activo",
             "public_booking_enabled": "Reserva pública activa",
+        }
+        help_texts = {
+            "public_email": (
+                "Puede mostrarse a los clientes. No se utiliza para avisos internos."
+            )
         }
         widgets = {
             "commercial_name": forms.TextInput(
@@ -202,16 +207,18 @@ class ProfessionalCreateForm(forms.Form):
             }
         ),
         help_text=(
-            "Enviaremos aquí un enlace para activar la cuenta y crear su contraseña."
+            "Enviaremos aquí un enlace para activar la cuenta y crear su contraseña. "
+            "Si es el primer acceso del negocio, también se propondrá como correo de "
+            "avisos; después podrá cambiarse en Ajustes."
         ),
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             self.fields["email"].help_text = (
-                "Se guardará como dato del acceso. En esta demostración académica "
-                "no se entregan correos externos."
+                "Se guardará como dato del acceso y se propondrá como correo de avisos. "
+                "En esta demostración académica no se entregan correos externos."
             )
         for field_name in ("phone", "email"):
             self.fields[field_name].widget.attrs["aria-describedby"] = (
@@ -336,7 +343,7 @@ class BusinessSignupRequestForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             self.fields["email"].help_text = (
                 "Lo guardaremos como dato de contacto. En esta demostración "
                 "académica no se entregan mensajes externos."
@@ -357,7 +364,7 @@ class BusinessSignupRequestForm(forms.ModelForm):
     def clean_email(self):
         email = _normalize_routable_email(self.cleaned_data.get("email", ""))
         if not email:
-            if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+            if not transactional_email_delivery_enabled():
                 raise forms.ValidationError(
                     "Indica un correo válido como dato de contacto. En esta "
                     "demostración académica no se entregan mensajes externos."
@@ -559,7 +566,7 @@ class BusinessVisualSettingsForm(forms.ModelForm):
         business = super().save(commit=False)
         if commit:
             with transaction.atomic():
-                business.save()
+                business.save(update_fields=["professional_theme", "updated_at"])
                 locked_business = Business.objects.select_for_update().get(pk=business.pk)
                 uploaded_image = self.cleaned_data.get("new_public_image")
                 choice = self.cleaned_data["public_image_choice"]
@@ -729,7 +736,9 @@ class PlatformVisualSettingsForm(forms.ModelForm):
         platform_settings.pk = PlatformSettings.SINGLETON_PK
         platform_settings.updated_by = updated_by
         if commit:
-            platform_settings.save()
+            platform_settings.save(
+                update_fields=["admin_theme", "updated_by", "updated_at"]
+            )
             uploaded_image = self.cleaned_data.get("new_login_image")
             choice = self.cleaned_data["login_image_choice"]
             if uploaded_image:

@@ -1,6 +1,5 @@
 from urllib.parse import urlencode
 
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login, logout, update_session_auth_hash
 from django.contrib.auth.tokens import default_token_generator
@@ -36,8 +35,11 @@ from apps.core.security_throttle import (
     reserve_throttle_attempts,
     settle_successful_throttle,
 )
+from apps.core.features import transactional_email_delivery_enabled
 from apps.notifications.services import (
+    mark_operational_email_verified_from_account_on_commit,
     queue_and_dispatch,
+    queue_operational_notice_on_commit,
     queue_professional_email_verification,
 )
 
@@ -193,6 +195,7 @@ def _verify_professional_email_from_token(uidb64, token):
     user.email_verified_at = timezone.now()
     user.email_verification_required = False
     user.save(update_fields=["email_verified_at", "email_verification_required"])
+    mark_operational_email_verified_from_account_on_commit(user)
     return user
 
 
@@ -207,6 +210,18 @@ def professional_activate(request, uidb64, token):
         user.email_verification_required = False
         user.password_change_required = False
         user.save()
+        mark_operational_email_verified_from_account_on_commit(user)
+        business = get_primary_business_for_user(user)
+        queue_operational_notice_on_commit(
+            scope="platform",
+            code="professional_activated",
+            deduplication_key=f"professional-activated:{user.pk}",
+            action_path=(
+                reverse("businesses:superadmin_business_detail", args=[business.pk])
+                if business is not None
+                else reverse("businesses:superadmin_business_list")
+            ),
+        )
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         messages.success(request, "Tu cuenta ya está activa. La contraseña solo la conoces tú.")
         response = redirect(get_post_login_redirect_url(user))
@@ -250,7 +265,7 @@ def account_email(request):
         delivery = queue_and_dispatch(
             queue_professional_email_verification(user, business=business)
         )
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             messages.info(
                 request,
                 "Correo guardado. En esta demostración académica no se entregan "
@@ -273,7 +288,7 @@ def account_email(request):
             "email_form": form,
             "next_url": next_url,
             "delivery": delivery,
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
         },
     )
 

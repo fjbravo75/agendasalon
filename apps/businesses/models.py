@@ -39,6 +39,28 @@ class Business(models.Model):
     public_description = models.TextField("descripción pública", blank=True)
     public_phone = models.CharField("teléfono público", max_length=32, blank=True)
     public_email = models.EmailField("correo público", blank=True)
+    notification_email = models.EmailField("correo de avisos", blank=True)
+    notification_email_normalized = models.EmailField(
+        "correo de avisos normalizado",
+        blank=True,
+        editable=False,
+    )
+    notification_email_verified_at = models.DateTimeField(
+        "correo de avisos verificado el",
+        null=True,
+        blank=True,
+    )
+    notification_email_verification_nonce = models.UUIDField(
+        "nonce de verificación del correo de avisos",
+        default=uuid4,
+        editable=False,
+    )
+    notifications_enabled = models.BooleanField("avisos por correo activos", default=True)
+    notify_new_appointments = models.BooleanField("avisar de nuevas citas", default=True)
+    notify_cancellations = models.BooleanField("avisar de cancelaciones", default=True)
+    notify_client_access = models.BooleanField("avisar de altas cliente", default=True)
+    notify_holiday_reviews = models.BooleanField("avisar de revisiones por festivos", default=True)
+    notify_email_failures = models.BooleanField("avisar de fallos de correo", default=True)
     address = models.CharField("dirección", max_length=255, blank=True)
     city = models.CharField("localidad", max_length=120, blank=True)
     province = models.CharField("provincia", max_length=120, blank=True)
@@ -310,6 +332,27 @@ class PlatformSettings(models.Model):
         choices=LoginImagePreset.choices,
         default=LoginImagePreset.AGENDASALON,
     )
+    notification_email = models.EmailField("correo de avisos", blank=True)
+    notification_email_normalized = models.EmailField(
+        "correo de avisos normalizado",
+        blank=True,
+        editable=False,
+    )
+    notification_email_verified_at = models.DateTimeField(
+        "correo de avisos verificado el",
+        null=True,
+        blank=True,
+    )
+    notification_email_verification_nonce = models.UUIDField(
+        "nonce de verificación del correo de avisos",
+        default=uuid4,
+        editable=False,
+    )
+    notifications_enabled = models.BooleanField("avisos por correo activos", default=True)
+    notify_continuity = models.BooleanField("avisar de continuidad", default=True)
+    notify_demo_refresh = models.BooleanField("avisar de regeneraciones", default=True)
+    notify_signup_requests = models.BooleanField("avisar de solicitudes de alta", default=True)
+    notify_email_failures = models.BooleanField("avisar de fallos de correo", default=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -475,6 +518,10 @@ class BusinessActivityEvent(models.Model):
         PUBLIC_BOOKING_ENABLED = "public_booking_enabled", "Reserva pública activada"
         PUBLIC_BOOKING_DISABLED = "public_booking_disabled", "Reserva pública pausada"
         VISUAL_SETTINGS_UPDATED = "visual_settings_updated", "Apariencia actualizada"
+        NOTIFICATION_SETTINGS_UPDATED = (
+            "notification_settings_updated",
+            "Avisos actualizados",
+        )
         MEMBERSHIP_CREATED = "membership_created", "Acceso profesional creado"
         MEMBERSHIP_PAUSED = "membership_paused", "Acceso profesional pausado"
         MEMBERSHIP_REACTIVATED = "membership_reactivated", "Acceso profesional reactivado"
@@ -537,5 +584,64 @@ class BusinessActivityEvent(models.Model):
 
     def __str__(self):
         return f"{self.business}: {self.summary}"
+
+
+class PlatformActivityEvent(models.Model):
+    """Trazabilidad append-only de acciones operativas de plataforma."""
+
+    class EventType(models.TextChoices):
+        NOTIFICATION_SETTINGS_UPDATED = (
+            "notification_settings_updated",
+            "Avisos actualizados",
+        )
+        NOTIFICATION_EMAIL_VERIFIED = (
+            "notification_email_verified",
+            "Correo de avisos verificado",
+        )
+        NOTIFICATION_TEST_QUEUED = (
+            "notification_test_queued",
+            "Prueba de correo",
+        )
+        NOTIFICATION_CAPACITY_REACHED = (
+            "notification_capacity_reached",
+            "Límite de avisos alcanzado",
+        )
+
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="platform_activity_events",
+        verbose_name="usuario actor",
+    )
+    actor_label = models.CharField("identidad del actor", max_length=160, blank=True)
+    event_type = models.CharField("tipo de evento", max_length=48, choices=EventType.choices)
+    summary = models.CharField("resumen", max_length=255)
+    changes = models.JSONField("cambios", default=dict, blank=True)
+    created_at = models.DateTimeField("fecha y hora", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "movimiento de plataforma"
+        verbose_name_plural = "movimientos de plataforma"
+        ordering = ("-created_at", "-pk")
+        indexes = [
+            models.Index(
+                fields=("event_type", "-created_at"),
+                name="platform_event_recent_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return self.summary
+
+    def save(self, *args, **kwargs):
+        if self.actor_user_id and not self.actor_label:
+            self.actor_label = (
+                self.actor_user.full_name
+                or self.actor_user.phone
+                or "Usuario de AgendaSalon"
+            )[:160]
+        super().save(*args, **kwargs)
 
 # Create your models here.

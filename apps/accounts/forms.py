@@ -1,10 +1,10 @@
 from django import forms
-from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm, SetPasswordForm
 
 from apps.core.email import normalize_and_validate_routable_email
+from apps.core.features import transactional_email_delivery_enabled
 from apps.core.phone import normalize_phone
 
 
@@ -18,7 +18,7 @@ def _normalize_routable_email(value):
     try:
         return normalize_and_validate_routable_email(value)
     except forms.ValidationError as exc:
-        if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+        if not transactional_email_delivery_enabled():
             raise forms.ValidationError(DEMO_EMAIL_VALIDATION_MESSAGE) from exc
         raise
 

@@ -87,21 +87,21 @@
               <div class="login-field{% if registration_form.email.errors %} is-error{% endif %}">
                 <label for="{{ registration_form.email.id_for_label }}">CORREO ELECTRÓNICO <span aria-hidden="true">*</span></label>
                 {{ registration_form.email }}
-                <small>{% if transactional_email_enabled %}Te enviaremos un enlace para verificarlo y los avisos de tus citas.{% else %}Se guardará como parte de la solicitud, pero esta demo no enviará enlaces ni avisos externos.{% endif %}</small>
+                <small>{% if transactional_email_enabled %}Te enviaremos un enlace para verificarlo y, después, las confirmaciones y recordatorios de tus citas.{% else %}Se guardará como parte de la solicitud, pero esta demo no enviará enlaces ni avisos externos.{% endif %}</small>
                 {% if registration_form.email.errors %}<div class="login-field-error" role="alert">{{ registration_form.email.errors }}</div>{% endif %}
               </div>
 
               {% if business.legal_compliance_enabled %}
                 <div class="legal-consent">
                   <p>
-                    {% if transactional_email_enabled %}Antes de activar la cuenta te pediremos confirmar que has recibido la{% else %}La información de privacidad forma parte del flujo completo de activación. Esta demo no enviará el enlace necesario para continuar. Puedes consultar la{% endif %}
+                    {% if transactional_email_enabled %}En el enlace de verificación te pediremos confirmar que has leído la{% else %}La información de privacidad forma parte del flujo completo de activación. Esta demo no enviará el enlace necesario para continuar. Puedes consultar la{% endif %}
                     <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">información sobre el tratamiento de tus datos<span class="legal-new-tab-note"> (se abre en otra pestaña)</span></a>
                     por {{ business.commercial_name }}. No incluye consentimiento para publicidad.
                   </p>
                 </div>
               {% endif %}
 
-              <button class="login-button" type="submit">{% if not transactional_email_enabled %}Registrar solicitud (sin envío){% elif has_pending_booking %}Verificar correo y continuar{% else %}Verificar mi correo{% endif %}</button>
+              <button class="login-button" type="submit">{% if not transactional_email_enabled %}Registrar solicitud (sin envío){% elif has_pending_booking %}Enviar enlace y continuar{% else %}Enviar enlace de verificación{% endif %}</button>
             </form>
             <div class="login-panel-note client-auth-note">
               {% if transactional_email_enabled %}¿Ya tienes cuenta?{% else %}¿Quieres completar una reserva en la demo?{% endif %}
