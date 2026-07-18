@@ -439,6 +439,7 @@ PRESERVED_MODEL_LABELS = frozenset(
         "auth.Permission",
         "contenttypes.ContentType",
         "core.DemoRefreshReceipt",
+        "core.DemoRefreshRequest",
         "dashboards.BackupExecution",
         "holidays.HolidaySyncRun",
         "holidays.OfficialHoliday",
@@ -872,7 +873,7 @@ def _fingerprint(payload) -> str:
 def protected_records_signature() -> str:
     """Firma de los registros globales que el refresco no puede alterar."""
 
-    from apps.core.models import DemoRefreshReceipt
+    from apps.core.models import DemoRefreshReceipt, DemoRefreshRequest
     from apps.dashboards.models import BackupExecution
     from apps.holidays.models import HolidaySyncRun, OfficialHoliday
     from apps.legal.models import LegalDocument
@@ -885,6 +886,21 @@ def protected_records_signature() -> str:
                 "base_date",
                 "fingerprint",
                 "completed_at",
+            )
+        ),
+        "demo_refresh_requests": list(
+            DemoRefreshRequest._base_manager.order_by("pk").values_list(
+                "pk",
+                "public_id",
+                "requested_by_id",
+                "base_date",
+                "status",
+                "requested_at",
+                "started_at",
+                "finished_at",
+                "receipt_id",
+                "failure_code",
+                "origin_digest",
             )
         ),
         "legal_documents": list(

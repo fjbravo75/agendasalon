@@ -9,7 +9,7 @@
       <div>
         <span>Supervisión técnica</span>
         <h1>Continuidad del servicio</h1>
-        <p>Estado verificable de las copias de AgendaSalon. Este panel no permite descargar, ejecutar ni restaurar copias.</p>
+        <p>Estado verificable de las copias y de la regeneración de AgendaSalon. Las copias no pueden descargarse ni restaurarse desde este panel.</p>
       </div>
       <a class="button button--secondary" href="{% url 'dashboards:superadmin_home' %}">Volver al dashboard</a>
     </header>
@@ -95,5 +95,106 @@
         </nav>
       {% endif %}
     </section>
+
+    {% if agenda_manual_demo_refresh_enabled %}
+      <section class="continuity-refresh{% if demo_refresh.needs_attention %} continuity-refresh--attention{% endif %}" aria-labelledby="continuity-refresh-title">
+        <header class="continuity-refresh__header">
+          <div>
+            <span>Mantenimiento de la demostración</span>
+            <h2 id="continuity-refresh-title">Regeneración manual</h2>
+            <p>Recupera Peluquería Mari y Barbería Norte con sus datos originales, adaptados al calendario del día en que se ejecute.</p>
+          </div>
+          {% if demo_refresh.active_request %}
+            <span class="settings-state">{{ demo_refresh.active_request.get_status_display }}</span>
+          {% endif %}
+        </header>
+
+        <dl class="continuity-refresh__facts">
+          <div>
+            <dt>Última solicitud</dt>
+            <dd>
+              {% if demo_refresh.latest_request %}
+                {{ demo_refresh.latest_request.get_status_display }} · {{ demo_refresh.latest_request.requested_at|date:"d/m/Y · H:i" }}
+              {% else %}
+                Sin solicitudes manuales
+              {% endif %}
+            </dd>
+          </div>
+          <div><dt>Fecha base si regeneras ahora</dt><dd>{{ demo_refresh.base_date|date:"d/m/Y" }}</dd></div>
+          <div><dt>Negocios adicionales</dt><dd>{{ demo_refresh.counts.additional_businesses }}</dd></div>
+          <div><dt>Correos pendientes</dt><dd>{{ demo_refresh.counts.outbound_pending }}</dd></div>
+        </dl>
+
+        {% if demo_refresh.latest_request and not demo_refresh.active_request %}
+          <article class="continuity-run continuity-run--{{ demo_refresh.latest_request.status }} continuity-refresh__result" aria-labelledby="continuity-refresh-result-title">
+            <div class="continuity-run__identity">
+              <span>Resultado de la última solicitud</span>
+              <strong id="continuity-refresh-result-title">{{ demo_refresh.latest_request.get_status_display }}</strong>
+              <small>Referencia {{ demo_refresh.latest_request.public_id }}</small>
+            </div>
+            <dl>
+              <div>
+                <dt>Finalizada</dt>
+                <dd>{% if demo_refresh.latest_request.finished_at %}{{ demo_refresh.latest_request.finished_at|date:"d/m/Y · H:i:s" }}{% else %}Sin cierre registrado{% endif %}</dd>
+              </div>
+              <div>
+                <dt>{% if demo_refresh.latest_request.receipt %}Fecha base aplicada{% else %}Fecha base solicitada{% endif %}</dt>
+                <dd>{% if demo_refresh.latest_request.receipt %}{{ demo_refresh.latest_request.receipt.base_date|date:"d/m/Y" }}{% else %}{{ demo_refresh.latest_request.base_date|date:"d/m/Y" }}{% endif %}</dd>
+              </div>
+              <div>
+                <dt>Recibo técnico</dt>
+                <dd>{% if demo_refresh.latest_request.receipt %}Verificado{% elif demo_refresh.latest_request.failure_code %}No emitido{% else %}No necesario{% endif %}</dd>
+              </div>
+              <div>
+                <dt>Resultado</dt>
+                <dd>
+                  {% if demo_refresh.latest_request.status == "failed" and demo_refresh.latest_request.receipt %}
+                    Datos canónicos verificados; cierre operativo fallido
+                  {% elif demo_refresh.latest_request.receipt %}
+                    Escenario canónico comprobado
+                  {% elif demo_refresh.latest_request.failure_code %}
+                    No pudo darse por verificado
+                  {% else %}
+                    Solicitud cerrada sin ejecución
+                  {% endif %}
+                </dd>
+              </div>
+            </dl>
+            {% if demo_refresh.latest_request.receipt %}
+              <small>Huella del escenario: <code>{{ demo_refresh.latest_request.receipt.fingerprint }}</code></small>
+            {% endif %}
+            {% if demo_refresh.latest_request.failure_code %}
+              <small>Referencia técnica: <code>{{ demo_refresh.latest_request.failure_code }}</code>. Revisa la incidencia antes de solicitar otra regeneración.</small>
+            {% endif %}
+          </article>
+        {% endif %}
+
+        {% if demo_refresh.needs_attention %}
+          <div class="alert alert--info" role="status">
+            {% if demo_refresh.latest_request.status == "failed" %}
+              La última solicitud terminó con una incidencia operativa. Revisa el resultado técnico antes de solicitar otra regeneración.
+            {% elif demo_refresh.latest_receipt %}
+              La última regeneración supera el periodo recomendado. La limpieza es manual y no se ejecutará por sí sola.
+            {% else %}
+              Todavía no hay una regeneración verificada en este entorno.
+            {% endif %}
+          </div>
+        {% endif %}
+        {% if demo_refresh.has_mutable_changes %}
+          <div class="alert alert--info" role="status">La demostración contiene cambios ajenos al escenario inicial. Se eliminarán si confirmas la regeneración.</div>
+        {% endif %}
+
+        <div class="continuity-refresh__action">
+          <p>
+            Se borrarán los cambios y datos mutables actuales, incluidas las sesiones abiertas y cualquier negocio nuevo. La documentación legal, el BOE, las copias y los recibos técnicos se conservarán.
+          </p>
+          {% if demo_refresh.active_request %}
+            <strong>La solicitud ya está registrada. No hace falta repetirla.</strong>
+          {% else %}
+            <a class="button button--secondary" href="{% url 'dashboards:superadmin_demo_refresh' %}">Revisar regeneración</a>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
   </section>
 {% endblock %}

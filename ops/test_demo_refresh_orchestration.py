@@ -12,6 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "ops" / "run_demo_refresh.sh"
 SERVICE = ROOT / "ops" / "systemd" / "agendasalon-demo-refresh.service"
 TIMER = ROOT / "ops" / "systemd" / "agendasalon-demo-refresh.timer"
+DISPATCH_SCRIPT = ROOT / "ops" / "run_demo_refresh_dispatch.sh"
+DISPATCH_SERVICE = (
+    ROOT / "ops" / "systemd" / "agendasalon-demo-refresh-dispatch.service"
+)
+DISPATCH_TIMER = ROOT / "ops" / "systemd" / "agendasalon-demo-refresh-dispatch.timer"
 START_GUARD = ROOT / "ops" / "systemd" / "agendasalon-demo-start-guard"
 GUNICORN_DROP_IN = (
     ROOT
@@ -136,7 +141,15 @@ quiesce_application
             self.script.index("preflight() {")
         ]
         self.assertIn('Path(f"/proc/{pid}/environ").read_bytes()', validation)
-        self.assertIn('b"AGENDA_TRANSACTIONAL_EMAIL_ENABLED": b"0"', validation)
+        self.assertIn(
+            'b"AGENDA_TRANSACTIONAL_EMAIL_ENABLED": expected_email',
+            validation,
+        )
+        self.assertIn('expected_email not in {b"0", b"1"}', validation)
+        self.assertIn(
+            '"${AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED}"',
+            validation,
+        )
         self.assertIn('b"AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL": b"0"', validation)
         self.assertIn(
             'runuser -u "${APP_USER}" -g "${APP_GROUP}" -- "${PYTHON}" -I -c',
@@ -147,6 +160,18 @@ quiesce_application
         self.assertIn('[[ "${main_pid_after}" == "${main_pid}" ]]', validation)
         self.assertNotIn('[[ -r "/proc/${main_pid}/environ" ]]', validation)
         self.assertNotIn("printenv", validation)
+
+    def test_live_gunicorn_environment_python_is_valid(self):
+        validation = self.script[
+            self.script.index("live_gunicorn_environment_is_safe() {") :
+            self.script.index("write_runtime_failure_marker() {")
+        ]
+        opener = '-- "${PYTHON}" -I -c \'\n'
+        closer = '\n\' "${pid}"'
+        self.assertIn(opener, validation)
+        embedded_python = validation.split(opener, 1)[1].split(closer, 1)[0]
+
+        compile(embedded_python, "run_demo_refresh.live_environment", "exec")
 
     def test_all_five_timer_service_pairs_and_gunicorn_are_managed(self):
         stems = (
@@ -296,15 +321,50 @@ quiesce_application
         )
         self.assertIn("servicios escritores detenidos", on_exit)
         self.assertIn("rearme de temporizadores incompleto", on_exit)
+        self.assertIn("write_runtime_failure_marker", on_exit)
         self.assertNotIn('rm -f -- "${STATE_FILE_CANONICAL}"', on_exit)
         self.assertIn('WAS_ACTIVE["$unit"]', self.script)
         self.assertIn('WAS_ENABLED["$unit"]', self.script)
 
-    def test_email_and_historical_backup_timers_must_stay_disabled(self):
+    def test_email_is_captured_but_historical_backup_stays_disabled(self):
         self.assertIn('EMAIL_TIMER_UNIT="agendasalon-email.timer"', self.script)
         self.assertIn('BACKUP_TIMER_UNIT="backup-agendasalon.timer"', self.script)
+        disabled = self.script[
+            self.script.index("readonly -a DISABLED_TIMER_UNITS=(") :
+            self.script.index("readonly -a REQUIRED_TIMER_UNITS=(")
+        ]
+        managed = self.script[
+            self.script.index("readonly -a TIMER_UNITS=(") :
+            self.script.index("readonly -a ONESHOT_UNITS=(")
+        ]
+        self.assertIn('"${BACKUP_TIMER_UNIT}"', disabled)
+        self.assertNotIn('"${EMAIL_TIMER_UNIT}"', disabled)
+        self.assertIn('"${EMAIL_TIMER_UNIT}"', managed)
+        self.assertIn('"${DAILY_REFRESH_TIMER_UNIT}"', managed)
+        self.assertIn('"${MANUAL_DISPATCH_TIMER_UNIT}"', managed)
         self.assertIn('for disabled_timer in "${DISABLED_TIMER_UNITS[@]}"', self.script)
         self.assertIn("un temporizador incompatible debe permanecer deshabilitado", self.script)
+
+    def test_manual_timer_and_feature_flag_must_be_operationally_coherent(self):
+        preflight = self.script[
+            self.script.index("preflight() {") :
+            self.script.index("capture_operational_state() {")
+        ]
+        self.assertIn('AGENDA_MANUAL_DEMO_REFRESH_ENABLED:-', preflight)
+        self.assertIn("daily_refresh_ready=0", preflight)
+        self.assertIn("manual_refresh_ready=0", preflight)
+        self.assertIn("habilitada sin su despachador", preflight)
+        self.assertIn("activo con la función deshabilitada", preflight)
+
+    def test_manual_uuid_is_strict_and_only_allowed_with_the_manual_feature(self):
+        prepare = self.script[
+            self.script.index("prepare_media_quarantine() {") :
+            self.script.index("quarantine_media() {")
+        ]
+        self.assertIn('AGENDA_DEMO_REFRESH_RUN_ID', prepare)
+        self.assertIn('AGENDA_MANUAL_DEMO_REFRESH_ENABLED', prepare)
+        self.assertIn("[0-9a-f]{8}", prepare)
+        self.assertNotIn("eval", prepare)
 
     def test_media_rollback_never_accepts_a_missing_quarantine_after_move(self):
         restore = self.script[
@@ -374,6 +434,15 @@ quiesce_application
         )
         self.assertIn('systemctl start "$unit"', restore)
         self.assertIn('for unit in "${TIMER_TRIGGERED_ONESHOT_UNITS[@]}"', restore)
+        self.assertIn("if (( failed != 0 )); then", restore)
+        self.assertIn("ensure_writers_stopped", restore)
+        self.assertIn("quedan detenidos hasta revision manual", restore)
+        self.assertIn("write_runtime_failure_marker", restore)
+        self.assertIn("se activó un temporizador que estaba detenido", restore)
+        self.assertLess(
+            restore.index("ensure_writers_stopped"),
+            restore.rindex("return 1"),
+        )
 
         main = self.script[self.script.index("main() {") :]
         self.assertLess(main.index("rearm_operational_state"), main.index("postflight_runtime"))
@@ -490,6 +559,11 @@ class DemoRefreshSystemdContractTests(unittest.TestCase):
         self.assertIn("la guardia no pertenece a root", guard)
         self.assertIn('flock --shared --nonblock 9', guard)
         self.assertIn('STATE_FILE="${STATE_DIR}/demo-refresh.state"', guard)
+        self.assertIn(
+            'RUNTIME_FAILURE_MARKER="${STATE_DIR}/demo-refresh-runtime-failed"',
+            guard,
+        )
+        self.assertIn("existe un fallo operativo pendiente de revisión", guard)
         self.assertIn(".media-refresh-quarantine-*", guard)
         self.assertIn("--canonical-backup", guard)
         self.assertIn("--runtime-rearm", guard)
@@ -535,6 +609,175 @@ class DemoRefreshSystemdContractTests(unittest.TestCase):
         self.assertIn("TimeoutStartSec=15min", backup)
         self.assertNotIn("--backup-root /var/backups/agendasalon ", backup)
         self.assertNotIn("--backup-root /var/backups/agendasalon ", health)
+
+
+class DemoRefreshDispatchContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.script = DISPATCH_SCRIPT.read_text(encoding="utf-8")
+        cls.service = DISPATCH_SERVICE.read_text(encoding="utf-8")
+        cls.timer = DISPATCH_TIMER.read_text(encoding="utf-8")
+
+    def test_dispatcher_claims_as_app_user_and_only_root_runs_the_orchestrator(self):
+        self.assertIn("set -Eeuo pipefail", self.script)
+        self.assertIn('[[ "$(id -u)" == "0" ]]', self.script)
+        self.assertIn(
+            'runuser -u "${APP_USER}" -g "${APP_GROUP}" -- env',
+            self.script,
+        )
+        self.assertIn("claim_demo_refresh_request", self.script)
+        self.assertIn("finalize_demo_refresh_request", self.script)
+        self.assertIn('"${ORCHESTRATOR}" || orchestrator_status=$?', self.script)
+        self.assertIn('AGENDA_DEMO_REFRESH_RUN_ID="${request_id}"', self.script)
+        self.assertIn('AGENDA_DEMO_BASE_DATE="${base_date}"', self.script)
+        self.assertNotIn("eval", self.script)
+        self.assertNotIn("source ", self.script)
+        self.assertNotIn("sudo", self.script)
+
+    def test_dispatch_service_is_root_hardened_but_not_managed_by_its_child(self):
+        self.assertIn("User=root", self.service)
+        self.assertIn("Group=root", self.service)
+        self.assertIn("NoNewPrivileges=true", self.service)
+        self.assertIn("ProtectSystem=strict", self.service)
+        self.assertIn("Restart=no", self.service)
+        self.assertIn(
+            "ExecStart=/usr/local/sbin/agendasalon-demo-refresh-dispatch",
+            self.service,
+        )
+        orchestrator = SCRIPT.read_text(encoding="utf-8")
+        self.assertNotIn('"agendasalon-demo-refresh-dispatch.service"', orchestrator)
+        self.assertIn('"agendasalon-demo-refresh-dispatch.timer"', orchestrator)
+
+    def test_every_dispatch_database_access_participates_in_the_refresh_lock(self):
+        self.assertIn(
+            'LOCK_FILE="/run/lock/agendasalon-demo-refresh.lock"',
+            self.script,
+        )
+        run_django = self.script[
+            self.script.index("run_django() {") :
+            self.script.index("runtime_is_recoverable() {")
+        ]
+        self.assertIn("flock --shared --nonblock", run_django)
+        self.assertIn("flock --shared --timeout 2400", run_django)
+        self.assertIn("claim_status == 75", self.script)
+        self.assertIn("la cola no se ha tocado", self.script)
+
+    def test_dispatcher_reconciles_receipts_only_with_a_clean_runtime(self):
+        recovery = self.script[
+            self.script.index("runtime_is_recoverable() {") :
+            self.script.index("main() {")
+        ]
+        self.assertIn('[[ ! -e "${STATE_FILE}"', recovery)
+        self.assertIn('[[ ! -e "${RUNTIME_FAILURE_MARKER}"', recovery)
+        self.assertIn(".media-refresh-quarantine-*", recovery)
+        self.assertIn('systemctl is-active --quiet "${GUNICORN_UNIT}"', recovery)
+        self.assertIn("--result completed", recovery)
+        self.assertIn("--failure-code runtime_recovery_required", recovery)
+        self.assertIn("flock --shared --timeout 2400", recovery)
+
+    def test_recovery_requires_the_full_writer_timer_contract(self):
+        timer_contract = self.script[
+            self.script.index("runtime_timers_are_safe() {") :
+            self.script.index("runtime_is_recoverable() {")
+        ]
+        for unit in (
+            "agendasalon-registration-purge.timer",
+            "agendasalon-session-cleanup.timer",
+            "check-agendasalon-backup.timer",
+            "agendasalon-demo-refresh-dispatch.timer",
+            "agendasalon-email.timer",
+            "agendasalon-demo-refresh.timer",
+            "backup-agendasalon.timer",
+        ):
+            self.assertIn(unit, self.script)
+        self.assertIn("AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED", timer_contract)
+        self.assertIn("AGENDA_MANUAL_DEMO_REFRESH_ENABLED", timer_contract)
+        self.assertIn('timer_has_exact_state "${BACKUP_TIMER_UNIT}" 0', timer_contract)
+        self.assertIn('[[ "${daily_active}" == "${daily_enabled}" ]]', timer_contract)
+        recovery = self.script[
+            self.script.index("runtime_is_recoverable() {") :
+            self.script.index("recover_request() {")
+        ]
+        self.assertIn("runtime_timers_are_safe", recovery)
+
+    def test_recovery_timer_contract_fails_when_a_required_timer_is_missing(self):
+        if os.name == "nt":
+            self.skipTest("la prueba conductual de Bash se ejecuta en CI")
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash no está disponible en este sistema")
+
+        library, marker, _entrypoint = self.script.rpartition('\nmain "$@"')
+        self.assertEqual(marker, '\nmain "$@"')
+        systemctl_stub = r'''
+export AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED=1
+export AGENDA_TRANSACTIONAL_EMAIL_ENABLED=1
+export AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=0
+export AGENDA_MANUAL_DEMO_REFRESH_ENABLED=1
+systemctl() {
+  local action="$1" unit="$3"
+  case "${action}" in
+    is-active|is-enabled)
+      [[ "${unit}" != "backup-agendasalon.timer" && \
+         "${unit}" != "agendasalon-demo-refresh.timer" && \
+         "${unit}" != "${MISSING_TIMER:-}" ]]
+      ;;
+    is-failed)
+      return 1
+      ;;
+    *)
+      return 97
+      ;;
+  esac
+}
+runtime_timers_are_safe
+'''
+        healthy = subprocess.run(
+            [bash],
+            input=library + systemctl_stub,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(healthy.returncode, 0, healthy.stderr or healthy.stdout)
+
+        missing = subprocess.run(
+            [bash],
+            input=(
+                library
+                + "\nexport MISSING_TIMER=agendasalon-session-cleanup.timer\n"
+                + systemctl_stub
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(missing.returncode, 0, missing.stderr or missing.stdout)
+
+    def test_dispatch_contract_rejects_multiline_output(self):
+        self.assertIn("!= *$'\\n'*", self.script)
+
+    def test_dispatch_timer_polls_after_each_inactive_run_without_persistence(self):
+        self.assertIn("OnBootSec=30s", self.timer)
+        self.assertIn("OnUnitInactiveSec=30s", self.timer)
+        self.assertIn("Persistent=false", self.timer)
+        self.assertIn("AccuracySec=1s", self.timer)
+        self.assertIn("RandomizedDelaySec=0", self.timer)
+        self.assertIn("Unit=agendasalon-demo-refresh-dispatch.service", self.timer)
+
+    def test_dispatcher_bash_syntax_is_valid_when_bash_is_available(self):
+        if os.name == "nt":
+            self.skipTest("bash -n se valida por separado en Windows")
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash no está disponible en este sistema")
+        completed = subprocess.run(
+            [bash, "-n", str(DISPATCH_SCRIPT)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 if __name__ == "__main__":

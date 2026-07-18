@@ -282,7 +282,7 @@ class SuperadminContinuityViewTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Continuidad del servicio")
-        self.assertContains(response, "no permite descargar, ejecutar ni restaurar")
+        self.assertContains(response, "no pueden descargarse ni restaurarse")
 
     def test_history_is_paginated_in_tens_without_exposing_artifact_paths(self):
         BackupExecution.objects.bulk_create(

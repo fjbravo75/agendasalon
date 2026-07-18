@@ -378,7 +378,10 @@ class SuperadminBusinessManagementTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Enlace de activación reenviado a pendiente@example.com")
+        self.assertContains(
+            response,
+            "El servicio de correo ha aceptado un nuevo enlace de activación para pendiente@example.com",
+        )
         self.assertNotContains(response, "correo externo de activación está desactivado")
 
     def test_superadmin_can_pause_business_without_deleting_history(self):

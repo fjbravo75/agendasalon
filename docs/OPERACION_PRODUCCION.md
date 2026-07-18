@@ -47,7 +47,9 @@ perfil por defecto y detienen el arranque cuando falta alguna de estas variables
 - `DJANGO_SECRET_KEY`;
 - `DJANGO_ALLOWED_HOSTS`;
 - `DJANGO_DATABASE_URL`;
-- `AGENDA_BACKUP_HMAC_KEY`, secreto aleatorio independiente del destino de copias.
+- `AGENDA_BACKUP_HMAC_KEY`, secreto aleatorio independiente del destino de copias;
+- `AGENDA_DEMO_SUPERADMIN_PASSWORD`, únicamente en modo académico: secreto
+  privado de al menos 16 caracteres y distinto de la contraseña demo local.
 
 `AGENDA_BACKUP_SCHEDULE_CONFIGURED=1` declara en el panel que el operador ha
 instalado y comprobado la programación. No activa ninguna tarea por sí solo y no
@@ -304,6 +306,91 @@ No se configura un correo real, no se pulsa ningún POST y no se envía una prue
 en la base canónica. Esos recorridos se validan en PostgreSQL desechable. La
 activación del canal y la sustitución del temporizador solo pueden decidirse tras
 publicar y aceptar por separado la segunda release.
+
+### Release 2 del contrato v0.24: regeneración manual protegida
+
+La segunda release añade una solicitud web asíncrona y un despachador root. La
+petición desde `/superadmin/continuidad/regenerar/` no ejecuta el borrado en el
+proceso HTTP: exige una única cuenta superadministradora activa, contraseña
+actual, frase exacta, confirmación explícita, CSRF y límite de intentos. Guarda
+solo una referencia pública, el actor, las fechas, el estado y un digest opaco
+del origen; nunca conserva contraseña, frase ni dirección IP en claro.
+
+La publicación debe hacerse primero de forma inerte. Antes de arrancar el nuevo
+código deben existir en `/etc/agendasalon/agendasalon.env`:
+
+```text
+AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED=0
+AGENDA_MANUAL_DEMO_REFRESH_ENABLED=0
+AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED=0
+```
+
+Además debe definirse `AGENDA_DEMO_SUPERADMIN_PASSWORD` en el gestor de secretos
+del servidor. La contraseña de producción debe ser distinta de la credencial
+demo local y se entrega a los evaluadores por un canal privado. No puede
+escribirse en Git, en la memoria versionada, en una unidad systemd ni en una
+línea de comandos. La migración aditiva de esta release es
+`core.0003_demorefreshrequest`.
+
+`AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED` debe coincidir
+siempre con `AGENDA_TRANSACTIONAL_EMAIL_ENABLED`. Ambos valen `0` durante la
+publicación inerte y pasan juntos a `1` al activar el correo real. El orquestador
+usa ese valor para comprobar que el runtime vuelve exactamente al estado previo
+después de suprimir SMTP durante la regeneración.
+
+El despliegue y la activación siguen este orden:
+
+1. crear y verificar copia y snapshot, guardar SHA, recuentos y huella previa;
+2. desplegar código, aplicar la migración e instalar el script y las unidades
+   `agendasalon-demo-refresh-dispatch.service` y `.timer`, todavía apagadas;
+3. actualizar la contraseña privada de la cuenta superadministradora y validar
+   `check --deploy`, migraciones, salud, estáticos y ausencia de cambios en la
+   demo;
+4. habilitar correo, avisos operativos y regeneración manual, y activar el
+   temporizador del despachador, que solo reclama solicitudes válidas;
+5. registrar una solicitud controlada, esperar su estado terminal y comprobar
+   recibo, huella, copia posterior, servicios, temporizadores y aplicación;
+6. únicamente después de esa aceptación, deshabilitar y detener
+   `agendasalon-demo-refresh.timer`, conservando su unidad versionada como vía de
+   reversión deliberada. No se enmascara ni se borra: el preflight debe poder
+   cargarla y comprobar que está a la vez deshabilitada e inactiva.
+
+Durante la transición, el despachador exige paridad entre las unidades diaria y
+manual y usa el mismo bloqueo de exclusión que el orquestador. Si una
+regeneración termina en un estado dudoso, no publica un éxito: deja la solicitud
+fallida, conserva el código de diagnóstico y mantiene cerrados Gunicorn y los
+escritores cuando no puede acreditar una recuperación segura.
+
+Al reiniciarse, el despachador reconcilia una solicitud que hubiera quedado `en
+curso`. Si ya existe un recibo válido, solo la completa cuando Gunicorn, socket,
+HTTP, marcadores, cuarentena, correo y temporizadores coinciden con el estado
+seguro esperado; en caso contrario la cierra con
+`runtime_recovery_required`. Si no existe recibo y el bloqueo permanece más de
+60 minutos, la cierra con `dispatcher_interrupted`. Ninguno de esos dos casos se
+presenta como regeneración completada.
+
+La regeneración borra también los destinos y preferencias de avisos guardados
+en la base, la cola saliente y las sesiones. Por eso puede enviarse el aviso de
+solicitud antes del reset, pero el resultado final se acredita siempre en
+`Continuidad` y en el recibo técnico preservado; no se promete un correo final a
+un destino que el propio proceso elimina. Un mensaje ya aceptado por el proveedor
+o recibido en un buzón externo tampoco puede retirarse retrospectivamente.
+
+Estado esperado tras la aceptación completa de R2:
+
+```bash
+systemctl is-enabled agendasalon-demo-refresh-dispatch.timer  # enabled
+systemctl is-active agendasalon-demo-refresh-dispatch.timer   # active
+systemctl is-enabled agendasalon-demo-refresh.timer           # disabled
+systemctl is-active agendasalon-demo-refresh.timer            # inactive
+systemctl list-timers --all agendasalon-demo-refresh-dispatch.timer agendasalon-demo-refresh.timer
+```
+
+Antes de la primera regeneración, revertir esta release es aditivo: se desactiva
+el despachador y se vuelve al SHA anterior sin bajar migraciones. Después de una
+regeneración aceptada, cualquier restauración de los datos debe partir de la
+copia o snapshot verificados; no se improvisa con SQL, `--fake` ni una migración
+inversa.
 
 ### Caducidad de altas públicas pendientes
 

@@ -49,12 +49,11 @@ por defecto `config.settings.dev` para desarrollo.
 
 ## Accesos de demostración
 
-La semilla local utiliza la contraseña `DemoAgendaSalon2026!` para estas
-cuentas:
+La semilla local utiliza la contraseña `DemoAgendaSalon2026!` para las cuentas
+profesionales y cliente de este apartado:
 
 | Perfil | Teléfono |
 | --- | --- |
-| Superadministrador | `+34910000001` |
 | Profesional de Peluquería Mari | `+34600111001` |
 | Profesional de Barbería Norte | `+34600222001` |
 | María López · madre que reserva para Lucas | `600111201` |
@@ -63,9 +62,10 @@ cuentas:
 | Cliente de Barbería Norte | `600222201` |
 
 Son credenciales exclusivamente demostrativas y no deben reutilizarse en un
-despliegue real. Cada ejecución de `seed_demo` restaura estas credenciales y
-elimina cualquier cambio de contraseña obligatorio de las cuentas internas de
-demostración, para que el escenario académico siga siendo reproducible.
+despliegue real. La cuenta superadministradora publicada usa una contraseña
+privada distinta, inyectada desde el entorno de producción y entregada a los
+evaluadores por un canal privado. Cada ejecución de `seed_demo` restaura esa
+contraseña privada sin escribirla en el repositorio.
 
 Los personajes, relaciones y citas comprobables de Peluquería Mari y Barbería
 Norte se describen en
@@ -375,10 +375,16 @@ rutas hasta completar la aceptación controlada. Los límites globales se fijan
 con `AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT` y
 `AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT`; cuando se alcanzan, se pausa la creación
 de nuevos avisos operativos y queda un hecho técnico sin exponer identidades.
-Los hechos de negocio y los correos ya en cola no se pierden. El indicador
-`AGENDA_MANUAL_DEMO_REFRESH_ENABLED` queda reservado para la segunda release:
-por sí solo no crea una ruta, no ejecuta la regeneración y no sustituye el
-temporizador vigente de las 04:05.
+Los hechos de negocio y los correos ya en cola no se pierden. La segunda release
+incorpora además la regeneración manual protegida. Con
+`AGENDA_MANUAL_DEMO_REFRESH_ENABLED=1`, una única cuenta activa de
+superadministrador puede revisar el alcance, volver a introducir su contraseña,
+escribir `REGENERAR DEMO` y registrar una solicitud asíncrona. La petición web no
+ejecuta procesos privilegiados: un despachador root estrecho la reclama bajo el
+mismo bloqueo que el orquestador, y Continuidad muestra después el estado y el
+recibo técnico verificable. La publicación se mantiene inerte hasta completar
+la aceptación operativa; durante la transición puede convivir con las 04:05 y,
+tras verificar el primer ciclo manual real, ese temporizador diario se retira.
 
 AgendaSalon incorpora una capa de privacidad operativa, no solo informativa.
 Los documentos legales se publican por versión y huella; cada negocio completa
@@ -493,13 +499,20 @@ caducados o acumulados. Para una fecha reproducible puede usarse
 - `/profesional/servicios/`: catálogo profesional.
 - `/profesional/horarios/`: disponibilidad, cierres, líneas y aplicación del
   calendario nacional sincronizado.
-- `/profesional/ajustes/`: modo del panel e imagen pública del negocio.
+- `/profesional/ajustes/`: apariencia pública y canal de avisos operativos del
+  negocio.
 - `/clientes/profesional/`: fichas de cliente.
 - `/superadmin/dashboard/`: estado general de AgendaSalon.
 - `/superadmin/dashboard/datos/`: datos JSON protegidos del cuadro de mando.
 - `/superadmin/negocios/`: alta y gestión de negocios y accesos profesionales.
 - `/superadmin/negocios/solicitudes/`: revisión y conversión de solicitudes de alta.
 - `/superadmin/ajustes/`: tema de administración e imagen del acceso interno.
+- `/superadmin/avisos/`: correo verificado, preferencias y actividad operativa
+  de la plataforma.
+- `/superadmin/continuidad/`: copias, salud de la demo y resultado de las
+  solicitudes de regeneración.
+- `/superadmin/continuidad/regenerar/`: revisión y confirmación protegida del
+  retorno manual al escenario canónico.
 - `/superadmin/negocios/<id>/actividad/`: historial filtrable de un negocio.
 - `/reservar/<slug>/`: reserva online híbrida.
 - `/reservar/<slug>/confirmada/`: justificante autenticado de la reserva recién
@@ -673,8 +686,9 @@ real de finalización y descarta defensivamente cualquier registro fechado en el
 futuro, de modo que una carga demo nunca puede ocultar una operación oficial
 recién ejecutada.
 
-La regeneración nocturna no consulta Internet. Conserva únicamente la última
-foto BOE íntegra y trazable de cada año disponible, exige cobertura para toda la
+La regeneración controlada de la demostración no consulta Internet. Conserva
+únicamente la última foto BOE íntegra y trazable de cada año disponible, exige
+cobertura para toda la
 ventana temporal del escenario y falla sin sustituir la demo si falta un año
 necesario o cambia la firma del catálogo durante la operación.
 

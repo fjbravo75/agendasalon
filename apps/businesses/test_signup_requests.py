@@ -284,25 +284,24 @@ class BusinessSignupRequestPublicTests(TestCase):
             "no se entregan mensajes externos.",
         )
         self.assertContains(response, "Registra una solicitud de prueba")
-        self.assertContains(response, "ni inicia contactos externos")
+        self.assertContains(response, "la persona responsable la revise")
         self.assertContains(response, "Registrar solicitud de prueba")
-        self.assertContains(response, "no se realizará ningún contacto externo")
         self.assertNotContains(response, "Contactamos por el canal que elijas")
         self.assertNotContains(response, "necesarios para poder responderte")
 
     @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
-    def test_signup_form_keeps_normal_contact_copy_when_delivery_is_enabled(self):
+    def test_signup_form_stays_academic_when_delivery_is_enabled(self):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Cuéntanos lo esencial de tu negocio")
-        self.assertContains(response, "Contactamos por el canal que elijas")
-        self.assertContains(response, "necesarios para poder responderte")
-        self.assertContains(response, "Enviar solicitud")
-        self.assertNotContains(response, "Registra una solicitud de prueba")
-        self.assertNotContains(response, "ningún contacto externo")
+        self.assertContains(response, "Registra una solicitud de prueba")
+        self.assertContains(response, "El superadministrador revisa la solicitud")
+        self.assertContains(response, "Si se aprueba, crea el negocio")
+        self.assertContains(response, "Registrar solicitud de prueba")
+        self.assertNotContains(response, "Contactamos por el canal que elijas")
+        self.assertNotContains(response, "necesarios para poder responderte")
 
-    def test_signup_success_copy_distinguishes_demo_from_real_contact(self):
+    def test_signup_success_copy_stays_academic_with_or_without_delivery(self):
         success_url = reverse("business_signup_request_success")
 
         with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
@@ -312,14 +311,12 @@ class BusinessSignupRequestPublicTests(TestCase):
 
         self.assertContains(demo_page, "Flujo académico completado")
         self.assertContains(demo_page, "La solicitud ha quedado registrada")
-        self.assertContains(demo_page, "No se enviará correo")
-        self.assertContains(demo_page, "ni se entregarán mensajes externos")
+        self.assertContains(demo_page, "Todavía no se ha creado ninguna cuenta")
         self.assertNotContains(demo_page, "contactaremos contigo")
-        self.assertContains(delivery_page, "Solicitud completada")
-        self.assertContains(delivery_page, "Ya tenemos lo necesario para empezar")
-        self.assertContains(delivery_page, "contactaremos contigo")
-        self.assertNotContains(delivery_page, "Flujo académico completado")
-        self.assertNotContains(delivery_page, "No se enviará correo")
+        self.assertContains(delivery_page, "Flujo académico completado")
+        self.assertContains(delivery_page, "La solicitud ha quedado registrada")
+        self.assertContains(delivery_page, "Todavía no se ha creado ninguna cuenta")
+        self.assertNotContains(delivery_page, "contactaremos contigo")
 
     def test_repeated_identical_request_is_idempotent_for_the_professional(self):
         first_response = self.client.post(self.url, self.valid_data)

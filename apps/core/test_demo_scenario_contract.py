@@ -91,6 +91,14 @@ class DemoScenarioPureContractTests(SimpleTestCase):
             {
                 "admin_theme": "light",
                 "login_image_preset": "agendasalon",
+                "notification_email": "",
+                "notification_email_normalized": "",
+                "notification_email_verified_at": None,
+                "notifications_enabled": True,
+                "notify_continuity": True,
+                "notify_demo_refresh": True,
+                "notify_signup_requests": True,
+                "notify_email_failures": True,
             },
         )
         self.assertEqual(demo_scenario.DEMO_ADVISORY_LOCK_ID, 4_147_326_341_001)
