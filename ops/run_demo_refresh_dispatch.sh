@@ -58,6 +58,27 @@ validate_root_executable() {
     fail "un ejecutable operativo es escribible por grupo u otros"
 }
 
+prepare_process_lock() {
+  local lock_parent mode
+  lock_parent="$(realpath -e -- "$(dirname -- "${LOCK_FILE}")")" ||
+    fail "no se puede resolver el directorio del lock"
+  [[ "${lock_parent}" == "/run/lock" && -d "${lock_parent}" && ! -L "${lock_parent}" ]] ||
+    fail "el directorio del lock no es seguro"
+  if [[ ! -e "${LOCK_FILE}" && ! -L "${LOCK_FILE}" ]]; then
+    ( set -o noclobber; : >"${LOCK_FILE}" ) 2>/dev/null || true
+  fi
+  [[ -f "${LOCK_FILE}" && ! -L "${LOCK_FILE}" ]] ||
+    fail "el lock del orquestador no es un archivo regular"
+  [[ "$(stat -c '%u' -- "${LOCK_FILE}")" == "0" ]] ||
+    fail "el lock del orquestador no pertenece a root"
+  chown root:"${APP_GROUP}" "${LOCK_FILE}"
+  chmod 0640 "${LOCK_FILE}"
+  sync -f "${LOCK_FILE}"
+  mode="$(stat -c '%a' -- "${LOCK_FILE}")"
+  [[ "$(stat -c '%U:%G' -- "${LOCK_FILE}")" == "root:${APP_GROUP}" && "${mode}" == "640" ]] ||
+    fail "el lock no es legible por los workers protegidos"
+}
+
 run_django_unlocked() {
   (
     cd "${APP_ROOT}"
@@ -162,6 +183,8 @@ main() {
   validate_root_executable "${ORCHESTRATOR}"
   [[ -x "${PYTHON}" && -f "${MANAGE_PY}" ]] ||
     fail "el runtime de la aplicación no está disponible"
+
+  prepare_process_lock
 
   local claim claim_status marker request_id base_date extra orchestrator_status=0
   set +e
