@@ -358,8 +358,18 @@ class DemoRefreshSystemdContractTests(unittest.TestCase):
             "MemoryDenyWriteExecute=true",
         ):
             self.assertIn(directive, self.service)
-        self.assertIn("RestrictSUIDSGID=false", self.service)
-        self.assertNotIn("RestrictSUIDSGID=true", self.service)
+        self.assertIn("RestrictSUIDSGID=true", self.service)
+        self.assertIn(
+            "CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER "
+            "CAP_SETGID CAP_SETUID",
+            self.service,
+        )
+        ambient_capabilities = [
+            line
+            for line in self.service.splitlines()
+            if line.startswith("AmbientCapabilities=")
+        ]
+        self.assertEqual(ambient_capabilities, ["AmbientCapabilities=CAP_SETUID"])
         self.assertIn(
             "ReadOnlyPaths=/etc/agendasalon /var/www/agendasalon/app "
             "/var/backups/agendasalon-demo-canonical",
