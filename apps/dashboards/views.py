@@ -1,16 +1,34 @@
 from datetime import datetime, time, timedelta
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_http_methods
 
 from apps.booking.models import Appointment
 from apps.booking.slot_engine import STATUS_CLOSED, get_day_availability, suggest_next_slots
 from apps.businesses.services import get_primary_business_for_user
+from apps.core.demo_refresh_requests import (
+    ActiveDemoRefreshRequestExists,
+    DemoRefreshRequestUnavailable,
+    request_demo_refresh,
+)
+from apps.core.features import manual_demo_refresh_enabled
+from apps.core.security_throttle import (
+    THROTTLE_MESSAGE,
+    ThrottleLimit,
+    request_ip,
+    reserve_throttle_attempts,
+    throttle_key_digest,
+)
 from apps.dashboards.continuity import continuity_snapshot
+from apps.dashboards.demo_refresh import demo_refresh_snapshot
+from apps.dashboards.forms import DemoRefreshConfirmationForm
 from apps.dashboards.models import BackupExecution
 
 
@@ -301,5 +319,76 @@ def superadmin_continuity(request):
             "continuity": continuity_snapshot(),
             "execution_page": page,
             "executions": page,
+            "demo_refresh": demo_refresh_snapshot(),
         },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "HEAD", "POST"])
+def superadmin_demo_refresh(request):
+    if not request.user.is_active or not request.user.is_superuser:
+        raise PermissionDenied
+    if not manual_demo_refresh_enabled():
+        raise Http404
+
+    form = DemoRefreshConfirmationForm(
+        request.POST or None,
+        user=request.user,
+    )
+    response_status = 200
+    if request.method == "POST":
+        origin = request_ip(request)
+        reservation = reserve_throttle_attempts(
+            limits=(
+                ThrottleLimit(
+                    scope="demo_refresh_user",
+                    key=str(request.user.pk),
+                    limit=5,
+                    window_seconds=15 * 60,
+                ),
+                ThrottleLimit(
+                    scope="demo_refresh_origin",
+                    key=origin,
+                    limit=10,
+                    window_seconds=15 * 60,
+                ),
+            )
+        )
+        if not reservation.allowed:
+            form.add_error(None, THROTTLE_MESSAGE)
+            response_status = 429
+        elif form.is_valid():
+            try:
+                request_demo_refresh(
+                    actor=request.user,
+                    origin_digest=throttle_key_digest(origin),
+                )
+            except ActiveDemoRefreshRequestExists:
+                form.add_error(
+                    None,
+                    "Ya hay una regeneración solicitada o en curso. Revisa su estado antes "
+                    "de volver a intentarlo.",
+                )
+                response_status = 409
+            except DemoRefreshRequestUnavailable as exc:
+                raise Http404 from exc
+            else:
+                messages.success(
+                    request,
+                    "Regeneración solicitada. La aplicación puede cerrar temporalmente "
+                    "mientras recupera la demostración y verifica el resultado.",
+                )
+                return redirect("dashboards:superadmin_continuity")
+        else:
+            response_status = 400
+
+    return render(
+        request,
+        "superadmin/demo_refresh_confirm.html",
+        {
+            "form": form,
+            "demo_refresh": demo_refresh_snapshot(),
+        },
+        status=response_status,
     )

@@ -14,20 +14,17 @@
       </div>
 
       <div class="business-signup-intro">
-        <span class="business-signup-eyebrow">{% if transactional_email_enabled %}Solicitud completada{% else %}Flujo académico completado{% endif %}</span>
-        <h1>{% if transactional_email_enabled %}Ya tenemos lo necesario para empezar.{% else %}La solicitud ha quedado registrada.{% endif %}</h1>
-        <p>{% if transactional_email_enabled %}El siguiente paso será una conversación breve y concreta sobre tu negocio.{% else %}Ya puede revisarse desde el panel del superadministrador. No se enviará correo ni se iniciará ningún contacto externo.{% endif %}</p>
+        <span class="business-signup-eyebrow">Flujo académico completado</span>
+        <h1>La solicitud ha quedado registrada.</h1>
+        <p>Ya puede revisarse desde la supervisión de AgendaSalon. Todavía no se ha creado ninguna cuenta.</p>
       </div>
 
       <aside class="login-panel business-signup-panel business-signup-success" aria-labelledby="signup-success-title">
         <div class="login-panel__inner">
           <span class="business-signup-success__mark" aria-hidden="true">✓</span>
-          <span>{% if transactional_email_enabled %}Solicitud recibida{% else %}Solicitud de prueba registrada{% endif %}</span>
-          <h2 id="signup-success-title">{% if transactional_email_enabled %}Gracias por contar con AgendaSalon.{% else %}El flujo continúa en administración.{% endif %}</h2>
-          <p>
-            {% if transactional_email_enabled %}Revisaremos la información y contactaremos contigo por el canal que has
-            elegido. Todavía no se ha creado ninguna cuenta.{% else %}La información se conserva como datos de demostración para revisar el proceso. No se ha creado ninguna cuenta ni se entregarán mensajes externos.{% endif %}
-          </p>
+          <span>Solicitud de prueba registrada</span>
+          <h2 id="signup-success-title">El flujo continúa en administración.</h2>
+          <p>La información se conserva como datos de demostración para revisar el proceso. El superadministrador decidirá si crea el negocio y envía su activación.</p>
           <a class="login-button" href="{% url 'accounts:login' %}">Volver al acceso profesional</a>
         </div>
       </aside>

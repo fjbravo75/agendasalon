@@ -20,6 +20,12 @@ class ProductionEntrypointTests(SimpleTestCase):
         "AGENDA_PLATFORM_LEGAL_DEMO",
         "AGENDA_BACKUP_SCHEDULE_CONFIGURED",
         "AGENDA_TRANSACTIONAL_EMAIL_ENABLED",
+        "AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED",
+        "AGENDA_MANUAL_DEMO_REFRESH_ENABLED",
+        "AGENDA_DEMO_SUPERADMIN_PASSWORD",
+        "AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT",
+        "AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT",
+        "AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS",
         "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL",
         "EMAIL_HOST",
         "EMAIL_PORT",
@@ -62,6 +68,9 @@ class ProductionEntrypointTests(SimpleTestCase):
             "AGENDA_PLATFORM_LEGAL_DEMO": "1",
             "AGENDA_BACKUP_SCHEDULE_CONFIGURED": "0",
             "AGENDA_TRANSACTIONAL_EMAIL_ENABLED": "0",
+            "AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED": "0",
+            "AGENDA_MANUAL_DEMO_REFRESH_ENABLED": "0",
+            "AGENDA_DEMO_SUPERADMIN_PASSWORD": "Private-evaluator-only-2026!",
             "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL": "0",
         }
         environment.update(overrides)
@@ -120,6 +129,29 @@ assert prod.AGENDA_PLATFORM_LEGAL_ADDRESS == ""
             "AGENDA_PLATFORM_TAX_ID must be empty when AGENDA_PLATFORM_LEGAL_DEMO is enabled",
             result.stderr,
         )
+
+    def test_academic_demo_requires_a_private_superadmin_password(self):
+        result = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(AGENDA_DEMO_SUPERADMIN_PASSWORD=""),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "AGENDA_DEMO_SUPERADMIN_PASSWORD is required in production",
+            result.stderr,
+        )
+
+    def test_academic_demo_rejects_the_public_local_superadmin_password(self):
+        result = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(
+                AGENDA_DEMO_SUPERADMIN_PASSWORD="DemoAgendaSalon2026!"
+            ),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must differ from the public local demo password", result.stderr)
 
     def test_commercial_mode_still_requires_real_fiscal_data(self):
         result = self._run_import(
@@ -257,6 +289,49 @@ assert prod.EMAIL_BACKEND == "django.core.mail.backends.dummy.EmailBackend"
             "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL can only be enabled in academic demo mode",
             result.stderr,
         )
+
+    def test_invalid_manual_refresh_flag_fails_closed(self):
+        result = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(AGENDA_MANUAL_DEMO_REFRESH_ENABLED="quizas"),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("AGENDA_MANUAL_DEMO_REFRESH_ENABLED must be one of", result.stderr)
+
+    def test_manual_refresh_is_rejected_outside_academic_demo_mode(self):
+        result = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(
+                AGENDA_PLATFORM_LEGAL_DEMO="0",
+                AGENDA_PLATFORM_TAX_ID="B12345678",
+                AGENDA_PLATFORM_LEGAL_ADDRESS="Calle Real, 1, Madrid",
+                AGENDA_MANUAL_DEMO_REFRESH_ENABLED="1",
+            ),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "AGENDA_MANUAL_DEMO_REFRESH_ENABLED can only be enabled in academic demo mode",
+            result.stderr,
+        )
+
+    def test_demo_refresh_recommended_age_must_be_a_positive_integer(self):
+        invalid = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(
+                AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS="no-numero"
+            ),
+        )
+        zero = self._run_import(
+            "config.settings.prod",
+            **self._base_environment(AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS="0"),
+        )
+
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("must be integers", invalid.stderr)
+        self.assertNotEqual(zero.returncode, 0)
+        self.assertIn("must be greater than zero", zero.stderr)
 
     def test_transactional_email_requires_a_lease_longer_than_its_timeout(self):
         result = self._run_import(

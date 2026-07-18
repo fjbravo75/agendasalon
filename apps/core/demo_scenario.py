@@ -29,6 +29,14 @@ CANONICAL_PROFESSIONAL_THEMES = {
 CANONICAL_PLATFORM_SETTINGS = {
     "admin_theme": "light",
     "login_image_preset": "agendasalon",
+    "notification_email": "",
+    "notification_email_normalized": "",
+    "notification_email_verified_at": None,
+    "notifications_enabled": True,
+    "notify_continuity": True,
+    "notify_demo_refresh": True,
+    "notify_signup_requests": True,
+    "notify_email_failures": True,
 }
 
 STATUS_CONFIRMED = "confirmada"

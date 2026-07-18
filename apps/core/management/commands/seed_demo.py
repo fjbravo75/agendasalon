@@ -5,6 +5,7 @@ from collections import Counter
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
@@ -279,6 +280,7 @@ class DemoSeeder:
             email="admin@agendasalon.local",
             is_staff=True,
             is_superuser=True,
+            password=settings.AGENDA_DEMO_SUPERADMIN_PASSWORD,
         )
         platform_settings = _update_first_or_create(
             PlatformSettings,
@@ -309,14 +311,23 @@ class DemoSeeder:
             ),
         }
 
-    def _upsert_user(self, *, phone, full_name, email, is_staff, is_superuser):
+    def _upsert_user(
+        self,
+        *,
+        phone,
+        full_name,
+        email,
+        is_staff,
+        is_superuser,
+        password=DEMO_PASSWORD,
+    ):
         User = get_user_model()
         normalized_phone = normalize_phone(phone)
         user = User.objects.filter(normalized_phone=normalized_phone).first()
         if user is None:
             user = User(normalized_phone=normalized_phone, phone=phone)
-        if not user.check_password(DEMO_PASSWORD):
-            user.set_password(DEMO_PASSWORD)
+        if not user.check_password(password):
+            user.set_password(password)
         user.full_name = full_name
         user.email = email
         user.email_verified_at = self.legal_anchor
@@ -343,6 +354,15 @@ class DemoSeeder:
                     "public_description": definition["public_description"],
                     "public_phone": definition["public_phone"],
                     "public_email": definition["public_email"],
+                    "notification_email": "",
+                    "notification_email_normalized": "",
+                    "notification_email_verified_at": None,
+                    "notifications_enabled": True,
+                    "notify_new_appointments": True,
+                    "notify_cancellations": True,
+                    "notify_client_access": True,
+                    "notify_holiday_reviews": True,
+                    "notify_email_failures": True,
                     "address": definition["address"],
                     "city": definition["city"],
                     "province": definition["province"],
@@ -1254,10 +1274,10 @@ class DemoSeeder:
             errors.append("faltan los ajustes canónicos de plataforma")
         else:
             expect(
-                "apariencia de plataforma",
+                "ajustes canónicos de plataforma",
                 {
-                    "admin_theme": platform_settings.admin_theme,
-                    "login_image_preset": platform_settings.login_image_preset,
+                    field: getattr(platform_settings, field)
+                    for field in CANONICAL_PLATFORM_SETTINGS
                 },
                 CANONICAL_PLATFORM_SETTINGS,
             )

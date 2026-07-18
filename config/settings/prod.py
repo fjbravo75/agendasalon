@@ -82,10 +82,15 @@ try:
             str(AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT),  # noqa: F405
         )
     )
+    AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS = int(
+        os.environ.get(
+            "AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS",
+            str(AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS),  # noqa: F405
+        )
+    )
 except ValueError as exc:
     raise ImproperlyConfigured(
-        "AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT and "
-        "AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT must be integers."
+        "Operational email limits and the recommended demo refresh age must be integers."
     ) from exc
 if (
     AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT < 1
@@ -94,6 +99,10 @@ if (
     raise ImproperlyConfigured(
         "Operational email limits must be positive and the daily limit must be "
         "greater than or equal to the hourly limit."
+    )
+if AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS < 1:
+    raise ImproperlyConfigured(
+        "AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS must be greater than zero."
     )
 
 _required_legal_settings = {
@@ -106,6 +115,17 @@ _required_legal_settings = {
 }
 
 if AGENDA_PLATFORM_LEGAL_DEMO:
+    AGENDA_DEMO_SUPERADMIN_PASSWORD = _required_environment_value(
+        "AGENDA_DEMO_SUPERADMIN_PASSWORD"
+    )
+    if AGENDA_DEMO_SUPERADMIN_PASSWORD == "DemoAgendaSalon2026!":
+        raise ImproperlyConfigured(
+            "AGENDA_DEMO_SUPERADMIN_PASSWORD must differ from the public local demo password."
+        )
+    if len(AGENDA_DEMO_SUPERADMIN_PASSWORD) < 16:
+        raise ImproperlyConfigured(
+            "AGENDA_DEMO_SUPERADMIN_PASSWORD must contain at least 16 characters."
+        )
     for variable in ("AGENDA_PLATFORM_TAX_ID", "AGENDA_PLATFORM_LEGAL_ADDRESS"):
         if os.environ.get(variable, "").strip():
             raise ImproperlyConfigured(
@@ -114,6 +134,7 @@ if AGENDA_PLATFORM_LEGAL_DEMO:
     _required_legal_settings["AGENDA_PLATFORM_TAX_ID"] = ""
     _required_legal_settings["AGENDA_PLATFORM_LEGAL_ADDRESS"] = ""
 else:
+    AGENDA_DEMO_SUPERADMIN_PASSWORD = ""
     for variable in ("AGENDA_PLATFORM_TAX_ID", "AGENDA_PLATFORM_LEGAL_ADDRESS"):
         _required_legal_settings[variable] = _required_environment_value(variable)
 

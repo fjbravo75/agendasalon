@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Revisar regeneración - AgendaSalon{% endblock %}
+{% block body_class %}continuity-page{% endblock %}
+
+{% block content %}
+  <section class="continuity-shell">
+    <header class="continuity-hero">
+      <div>
+        <span>Acción protegida</span>
+        <h1>Revisar regeneración</h1>
+        <p>Comprueba el alcance antes de solicitar que la demostración vuelva a su estado original, actualizado al calendario de hoy.</p>
+      </div>
+      <a class="button button--secondary" href="{% url 'dashboards:superadmin_continuity' %}">Cancelar y volver</a>
+    </header>
+
+    {% if demo_refresh.active_request %}
+      <div class="alert" role="status">
+        Ya hay una regeneración {{ demo_refresh.active_request.get_status_display|lower }}. Vuelve a Continuidad para consultar el resultado.
+      </div>
+    {% endif %}
+
+    <section class="continuity-refresh-review" aria-labelledby="refresh-review-title">
+      <header>
+        <span>Antes de continuar</span>
+        <h2 id="refresh-review-title">Esto devolverá la demostración a su punto de partida</h2>
+        <p>La agenda se reconstruirá con fecha base <strong>{{ demo_refresh.base_date|date:"d/m/Y" }}</strong>. Las citas y movimientos volverán a situarse de forma coherente alrededor de esa fecha.</p>
+      </header>
+
+      <div class="continuity-refresh-review__columns">
+        <article>
+          <h3>Se eliminará o reconstruirá</h3>
+          <ul>
+            <li>Los negocios distintos de Peluquería Mari y Barbería Norte.</li>
+            <li>Las {{ demo_refresh.counts.clients }} fichas de cliente y las {{ demo_refresh.counts.appointments }} citas actuales se reconstruirán con el escenario canónico; cualquier cambio se perderá.</li>
+            <li>Las cuentas añadidas, solicitudes de alta, sesiones abiertas, direcciones y preferencias de avisos, correos pendientes y archivos mutables.</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Se conservará</h3>
+          <ul>
+            <li>La aplicación, su configuración técnica y los secretos de correo protegidos fuera de la base de datos.</li>
+            <li>La documentación legal publicada y la información oficial sincronizada con el BOE.</li>
+            <li>Las copias verificadas y los recibos técnicos de regeneraciones anteriores.</li>
+          </ul>
+        </article>
+      </div>
+
+      <dl class="continuity-refresh-review__counts">
+        <div><dt>Negocios actuales</dt><dd>{{ demo_refresh.counts.businesses }}</dd></div>
+        <div><dt>Negocios adicionales</dt><dd>{{ demo_refresh.counts.additional_businesses }}</dd></div>
+        <div><dt>Cuentas adicionales</dt><dd>{{ demo_refresh.counts.additional_users }}</dd></div>
+        <div><dt>Sesiones que se cerrarán</dt><dd>{{ demo_refresh.counts.active_sessions }}</dd></div>
+        <div><dt>Solicitudes de alta</dt><dd>{{ demo_refresh.counts.signup_requests }}</dd></div>
+        <div><dt>Correos pendientes o en proceso</dt><dd>{{ demo_refresh.counts.outbound_pending }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="continuity-refresh-confirmation" aria-labelledby="refresh-confirmation-title">
+      <header>
+        <span>Confirmación personal</span>
+        <h2 id="refresh-confirmation-title">Autorizar la regeneración</h2>
+        <p>Al solicitarla, la aplicación puede dejar de responder durante unos minutos y cerrará las sesiones actuales. El resultado solo se dará por correcto cuando termine todas sus comprobaciones.</p>
+      </header>
+
+      {% if demo_refresh.active_request %}
+        <div class="continuity-refresh-confirmation__active">
+          <strong>La solicitud ya está registrada.</strong>
+          <p>No vuelvas a introducir tu contraseña. Cuando termine, Continuidad mostrará el resultado y su recibo técnico.</p>
+          <a class="button button--secondary" href="{% url 'dashboards:superadmin_continuity' %}">Volver a Continuidad</a>
+        </div>
+      {% else %}
+      <form method="post" novalidate data-submit-busy data-submit-busy-label="Solicitando…">
+        {% csrf_token %}
+        {% if form.errors %}
+          <div class="alert" role="alert" tabindex="-1" data-error-summary>
+            <strong>Revisa los datos antes de continuar.</strong>
+            {{ form.non_field_errors }}
+          </div>
+        {% endif %}
+
+        <div class="field">
+          {{ form.current_password.label_tag }}
+          {{ form.current_password }}
+          <small id="demo-refresh-password-help">Vuelve a escribir la contraseña de esta cuenta para autorizar una acción destructiva.</small>
+          {{ form.current_password.errors }}
+        </div>
+
+        <div class="field">
+          {{ form.confirmation_phrase.label_tag }}
+          {{ form.confirmation_phrase }}
+          <small id="demo-refresh-phrase-help">Escribe exactamente <strong>REGENERAR DEMO</strong>, respetando mayúsculas y espacios.</small>
+          {{ form.confirmation_phrase.errors }}
+        </div>
+
+        <div class="field field--checkbox continuity-refresh-confirmation__check">
+          {{ form.destructive_scope_confirmed }}
+          {{ form.destructive_scope_confirmed.label_tag }}
+          {{ form.destructive_scope_confirmed.errors }}
+        </div>
+
+        <div class="continuity-refresh-confirmation__actions">
+          <button class="button button--danger" type="submit">Regenerar ahora</button>
+          <a class="button button--secondary" href="{% url 'dashboards:superadmin_continuity' %}">Cancelar</a>
+        </div>
+      </form>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}
