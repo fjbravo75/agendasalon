@@ -262,6 +262,49 @@ Las migraciones y el SHA actuales de producción se comprueban siempre en el
 preflight del despliegue correspondiente; esta referencia histórica no sustituye
 esa comprobación.
 
+### Release 1 del contrato v0.24: publicación inerte de avisos operativos
+
+La primera release de supervisión añade configuración, trazabilidad y centros de
+avisos, pero se publica sin activarlos. Antes de desplegar deben constar
+explícitamente en `/etc/agendasalon/agendasalon.env`:
+
+```text
+AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED=0
+AGENDA_MANUAL_DEMO_REFRESH_ENABLED=0
+AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT=100
+AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT=500
+```
+
+`AGENDA_TRANSACTIONAL_EMAIL_ENABLED` y los temporizadores se conservan en el
+estado previo verificado. Esta release no autoriza a rearmar el correo, no cambia
+la regeneración nocturna y no deshabilita las 04:05. El indicador manual queda
+reservado para la segunda release y no tiene ejecutor ni acción visible todavía.
+
+El plan de migración permitido para esta release contiene únicamente:
+
+- `businesses.0013_business_notification_email_and_more`;
+- `notifications.0005_outboundemail_payload_alter_outboundemail_kind`.
+
+La primera añade a `Business` y `PlatformSettings` los correos operativos, su
+verificación y preferencias, además del libro de actividad de plataforma. La
+segunda incorpora el tipo de correo operativo y un `payload` estructurado sin
+tokens ni cuerpos. Ambas son aditivas; los negocios existentes conservan sus
+datos y quedan sin destinatario operativo configurado.
+
+La aceptación de esta publicación se limita a:
+
+- SHA desplegado y plan de migraciones vacío;
+- `check --deploy`, salud, HTTPS, cabeceras y estáticos;
+- recuentos y huellas previos y posteriores sin variación inesperada;
+- confirmación por GET de que `Avisos` no aparece y sus rutas responden 404 con
+  el indicador desactivado;
+- outbox, sesiones, negocios y datos demo sin residuos de prueba.
+
+No se configura un correo real, no se pulsa ningún POST y no se envía una prueba
+en la base canónica. Esos recorridos se validan en PostgreSQL desechable. La
+activación del canal y la sustitución del temporizador solo pueden decidirse tras
+publicar y aceptar por separado la segunda release.
+
 ### Caducidad de altas públicas pendientes
 
 Las altas públicas que todavía no han verificado el correo caducan lógicamente

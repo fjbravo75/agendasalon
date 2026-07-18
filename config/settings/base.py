@@ -110,6 +110,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.businesses.context_processors.professional_appearance",
+                "apps.core.context_processors.feature_flags",
                 "apps.legal.context_processors.legal_context",
             ],
         },
@@ -195,6 +196,10 @@ AGENDA_PLATFORM_WEBSITE = os.environ.get(
     "http://127.0.0.1:8000",
 )
 AGENDA_TRANSACTIONAL_EMAIL_ENABLED = False
+AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED = False
+AGENDA_MANUAL_DEMO_REFRESH_ENABLED = False
+AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT = 100
+AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT = 500
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 EMAIL_TIMEOUT = 20
 AGENDA_OUTBOUND_EMAIL_LEASE_SECONDS = 120

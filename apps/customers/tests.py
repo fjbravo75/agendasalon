@@ -425,7 +425,7 @@ class ClientAccessViewTests(TestCase):
         self.assertContains(response, "Crea tu cuenta")
         self.assertContains(response, "en Peluquería Mari")
         self.assertContains(response, "Crear cuenta cliente")
-        self.assertContains(response, "Verificar mi correo")
+        self.assertContains(response, "Enviar enlace de verificación")
         self.assertContains(response, "Entra para reservar")
         self.assertContains(response, "client-auth-register-page")
         self.assertContains(response, "client-auth-page--salon")
@@ -797,6 +797,7 @@ class ClientAccessSecurityP0Tests(TestCase):
         self.assertNotContains(delivery_page, "Demostración académica.")
 
     def test_registration_copy_distinguishes_demo_from_real_delivery(self):
+        self._enable_current_legal_compliance()
         registration_url = reverse(
             "customers:client_register",
             args=[self.business.slug],
@@ -806,6 +807,11 @@ class ClientAccessSecurityP0Tests(TestCase):
             demo_page = self.client.get(registration_url)
         with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
             delivery_page = self.client.get(registration_url)
+        with override_settings(
+            AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True,
+            AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL=True,
+        ):
+            suppressed_page = self.client.get(registration_url)
 
         self.assertContains(demo_page, "Registro de prueba")
         self.assertContains(demo_page, "Registro cliente de prueba en Peluquería Mari")
@@ -814,13 +820,18 @@ class ClientAccessSecurityP0Tests(TestCase):
         self.assertContains(demo_page, "Registrar solicitud (sin envío)")
         self.assertContains(demo_page, "Entra con una cuenta demo")
         self.assertNotContains(demo_page, "Te enviaremos un enlace")
-        self.assertNotContains(demo_page, "Verificar mi correo")
-        self.assertNotContains(demo_page, "Antes de activar la cuenta")
+        self.assertNotContains(demo_page, "Enviar enlace de verificación")
+        self.assertNotContains(demo_page, "En el enlace de verificación")
         self.assertContains(delivery_page, "Crea tu cuenta")
         self.assertContains(delivery_page, "Crear cuenta cliente en Peluquería Mari")
         self.assertContains(delivery_page, "Te enviaremos un enlace")
-        self.assertContains(delivery_page, "Verificar mi correo")
+        self.assertContains(delivery_page, "Enviar enlace de verificación")
+        self.assertContains(delivery_page, "En el enlace de verificación")
         self.assertNotContains(delivery_page, "Registro de prueba")
+        self.assertNotContains(delivery_page, "Esta demo no enviará el enlace")
+        self.assertNotContains(delivery_page, "Registrar solicitud (sin envío)")
+        self.assertContains(suppressed_page, "Registrar solicitud (sin envío)")
+        self.assertNotContains(suppressed_page, "Enviar enlace de verificación")
 
     def test_reserved_registration_email_error_matches_the_delivery_mode(self):
         registration_url = reverse(

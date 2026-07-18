@@ -128,6 +128,7 @@ La aplicación separa cuatro superficies:
 | Evidencia legal exacta | Recibo firmado y temporal con finalidad, audiencia, documento, versión, huella y contexto; proyección vigente más libros de eventos de solo adición y escritura transaccional | `apps/legal/presentations.py`, modelos, migraciones y pruebas | Verificado en despliegue P1 |
 | Administración técnica | Agenda, calendario, festivos, evidencias legales y correo se muestran en Django Admin como solo lectura, sin altas, ediciones, borrados ni acciones masivas; las solicitudes de derechos solo admiten seguimiento de estado y nota, sin alta ni borrado | módulos `admin.py` y pruebas de permisos | Verificado en despliegue P1 |
 | Outbox concurrente | Reclamación mediante `lease` temporal, recuperación de trabajos caducados, latido continuo durante SMTP, cancelación coordinada y cierre exclusivo por el propietario vigente; se documenta el residual SMTP de entrega al menos una vez | `apps/notifications` y pruebas PostgreSQL | Verificado en despliegue P1; residual SMTP conservado |
+| Avisos operativos configurables | Destinos separados para plataforma y negocio, verificación firmada y de un solo uso, preferencias, límites por identidad/IP/destinatario y máximos globales; las trazas excluyen correo de destino, tokens, cuerpos y contexto funcional sensible, pero conservan `actor_user` y `actor_label` para auditoría; los formularios guardan por campos para evitar sobrescrituras entre apariencia y avisos | `apps/notifications`, `PlatformActivityEvent`, formularios y pruebas SQLite/PostgreSQL | Aplicado y verificado localmente; publicación y activación pendientes |
 | Sincronización BOE | Exclusión mutua por año antes de la consulta externa; después de la descarga, `SHARE` sobre el registro de negocios, cooperación `ROW EXCLUSIVE` de las mutaciones, agendas en orden estable, reconciliación atómica, fotografía de impacto y altas concurrentes incluidas | `apps/holidays`, mutex de calendario y pruebas PostgreSQL/BOE | Verificado en despliegue P1 |
 | Revisión de citas en festivo | Bandeja privada calculada desde el estado vivo, agregado superadministrador sin datos personales y confirmación manual idempotente que no mueve, cancela ni envía mensajes | `apps/holidays`, `apps/booking`, vistas y pruebas SQLite/PostgreSQL | Verificado en despliegue P2 |
 | Subida de imágenes | JPG, PNG o WebP; 5 MB y 16 millones de píxeles; orientación, reducción a 2400 px y recodificación WebP sin EXIF | `apps/businesses/images.py`, pruebas de ajustes | Aplicado y verificado |
@@ -350,6 +351,13 @@ exige además `AGENDA_DEMO_REFRESH_ENABLED`, identidad exacta de PostgreSQL,
 plataforma y medios, y un marcador de quiescencia válido. Estos indicadores no
 convierten el comando en seguro por sí solos: las comprobaciones de tablas,
 migraciones, conexiones, BOE y rutas canónicas deben superarse conjuntamente.
+
+Los avisos operativos tienen una barrera independiente:
+`AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED=0` oculta la navegación y hace que sus
+rutas respondan 404. Sus cupos globales son obligatoriamente positivos y el
+diario no puede ser inferior al horario. La primera publicación mantiene también
+`AGENDA_MANUAL_DEMO_REFRESH_ENABLED=0`: ese indicador queda reservado para el
+segundo bloque y no concede por sí solo capacidad destructiva.
 
 PostgreSQL es obligatorio en producción. La URL de conexión se obtiene del
 entorno y no se pasa a la herramienta de copias mediante argumentos visibles en

@@ -51,7 +51,7 @@
               {% if business.legal_compliance_enabled %}
                 <div class="legal-consent">
                   <p>
-                    {% if transactional_email_enabled %}Al verificar el correo te pediremos confirmar que has recibido la{% else %}En el funcionamiento completo, la activación incluye la confirmación de la{% endif %}
+                    {% if transactional_email_enabled %}En el enlace de verificación te pediremos confirmar que has leído la{% else %}En el funcionamiento completo, la activación incluye la confirmación de la{% endif %}
                     <a href="{% url 'legal:business_privacy' business.slug %}" target="_blank" rel="noopener">información sobre el tratamiento de tus datos<span class="legal-new-tab-note"> (se abre en otra pestaña)</span></a>
                     para gestionar la cuenta y las reservas. No incluye consentimiento para publicidad.
                   </p>

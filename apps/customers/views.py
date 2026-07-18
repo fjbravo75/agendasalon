@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
@@ -23,6 +22,7 @@ from apps.businesses.services import (
     get_business_visual_theme,
     get_primary_business_for_user,
 )
+from apps.core.features import transactional_email_delivery_enabled
 from apps.customers.forms import (
     CUSTOMER_PRIVACY_UNAVAILABLE_QUICK_MESSAGE,
     ClientEmailVerificationForm,
@@ -478,7 +478,7 @@ def professional_client_edit(request, client_id):
             with transaction.atomic():
                 business_client, access_to_verify = edit_form.save()
                 if access_to_verify is not None:
-                    if not settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED:
+                    if not transactional_email_delivery_enabled():
                         raise ValidationError(
                             "El correo de una cuenta online no puede cambiarse en esta "
                             "demostración porque no se entregan enlaces de verificación."
@@ -507,7 +507,7 @@ def professional_client_edit(request, client_id):
         {
             **_professional_client_context(business, business_client, request.user),
             "edit_form": edit_form,
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
         },
     )
 
@@ -1120,7 +1120,7 @@ def client_invitation_activate(request, slug):
             "business": business,
             "business_client": invitation.business_client,
             "activation_form": activation_form,
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
             "client_auth_theme": get_business_visual_theme(business),
             "client_auth_image_url": get_business_public_image_url(business),
         },
@@ -1244,7 +1244,7 @@ def client_register(request, slug):
             "client_auth_theme": auth_theme,
             "client_auth_image_url": get_business_public_image_url(business),
             "has_pending_booking": has_pending_booking,
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
         },
         status=response_status,
     )
@@ -1295,7 +1295,7 @@ def client_email_pending(request, slug):
             request,
             (
                 CLIENT_GENERIC_EMAIL_MESSAGE
-                if settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED
+                if transactional_email_delivery_enabled()
                 else CLIENT_DEMO_EMAIL_MESSAGE
             ),
         )
@@ -1307,7 +1307,7 @@ def client_email_pending(request, slug):
             "business": business,
             "pending_email": pending["email"],
             "account_only": not business.accepts_public_bookings(),
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
             "client_auth_theme": get_business_visual_theme(business),
             "client_auth_image_url": get_business_public_image_url(business),
         },
@@ -1579,11 +1579,11 @@ def client_password_reset_request(request, slug):
             "submitted": submitted,
             "generic_message": (
                 CLIENT_GENERIC_EMAIL_MESSAGE
-                if settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED
+                if transactional_email_delivery_enabled()
                 else CLIENT_DEMO_EMAIL_MESSAGE
             ),
             "account_only": not business.accepts_public_bookings(),
-            "transactional_email_enabled": settings.AGENDA_TRANSACTIONAL_EMAIL_ENABLED,
+            "transactional_email_enabled": transactional_email_delivery_enabled(),
             "client_auth_theme": get_business_visual_theme(business),
             "client_auth_image_url": get_business_public_image_url(business),
         },

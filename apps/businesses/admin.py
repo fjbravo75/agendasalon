@@ -7,6 +7,7 @@ from .models import (
     BusinessPublicImage,
     BusinessSignupRequest,
     PlatformLoginImage,
+    PlatformActivityEvent,
     PlatformSettings,
 )
 
@@ -132,10 +133,35 @@ class BusinessActivityEventAdmin(admin.ModelAdmin):
 @admin.register(PlatformSettings)
 class PlatformSettingsAdmin(admin.ModelAdmin):
     list_display = ("__str__", "admin_theme", "login_image_preset", "updated_by", "updated_at")
+    fields = ("admin_theme", "login_image_preset", "updated_by", "updated_at")
     readonly_fields = ("updated_by", "updated_at")
 
     def has_add_permission(self, request):
         return not PlatformSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PlatformActivityEvent)
+class PlatformActivityEventAdmin(admin.ModelAdmin):
+    list_display = ("event_type", "actor_label", "created_at")
+    list_filter = ("event_type",)
+    search_fields = ("summary", "actor_user__full_name")
+    readonly_fields = (
+        "actor_user",
+        "actor_label",
+        "event_type",
+        "summary",
+        "changes",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return False
