@@ -5,9 +5,10 @@ demo académica quedó publicada el 14 de julio de 2026 en
 `https://agendasalon.brvsoftwarestudio.com`; los comandos siguen requiriendo una
 ejecución deliberada y no se activan por leer este documento.
 
-Estado vigente: GitHub `main` y producción están alineados en
-`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La ejecución de CI
-`29625418697` finalizó correctamente en sus cuatro trabajos. P0, P1 y P2 se
+Estado vigente: la versión funcional desplegada en producción corresponde a
+`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La ejecución de CI de esa versión,
+`29625418697`, finalizó correctamente en sus cuatro trabajos. `main` puede
+contener commits documentales posteriores sin cambios ejecutables. P0, P1 y P2 se
 conservan como hitos históricos trazables; sus recuentos no describen el
 escenario actual.
 

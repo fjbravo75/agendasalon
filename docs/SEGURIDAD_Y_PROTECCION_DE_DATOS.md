@@ -20,9 +20,10 @@ Fecha de la evidencia local más reciente: **18 de julio de 2026**.
 La evidencia de publicación no se infiere de la fecha de este documento: debe
 comprobarse por SHA exacto, resultado de CI y registro operativo del despliegue.
 
-> **Estado vigente verificado en despliegue.** GitHub `main` y producción están
-> alineados en `714a2a22a154b102f31140bc935c4e987c0a5d7e`. La CI
-> `29625418697` terminó correctamente en sus cuatro trabajos. La regeneración
+> **Estado vigente verificado en despliegue.** La versión funcional desplegada
+> corresponde a `714a2a22a154b102f31140bc935c4e987c0a5d7e`. La CI
+> `29625418697` terminó correctamente en sus cuatro trabajos. `main` puede
+> incorporar commits documentales posteriores sin cambiar ese código. La regeneración
 > manual aceptada tiene identificador
 > `682f8572-de61-4140-b1f5-41a2118b233a`, fecha base `2026-07-18` y huella
 > `72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`.
@@ -463,7 +464,7 @@ firmas antes y después de la operación.
 
 | Comprobación | Resultado |
 | --- | --- |
-| SHA común a `main` y producción | `714a2a22a154b102f31140bc935c4e987c0a5d7e` |
+| SHA de la versión funcional desplegada | `714a2a22a154b102f31140bc935c4e987c0a5d7e` |
 | CI | Ejecución `29625418697`, cuatro trabajos correctos |
 | Estado canónico | 2 negocios, 3 cuentas internas, 28 servicios, 36 clientes, 11 accesos, 4 relaciones y 90 citas |
 | Aceptación manual | Una ejecución correcta el 18-07-2026, con fecha base `2026-07-18` |

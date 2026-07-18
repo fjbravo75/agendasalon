@@ -80,9 +80,10 @@ Funciona con `DEBUG=False`, PostgreSQL, Nginx, Gunicorn por socket interno y HTT
 Let's Encrypt. El entorno muestra de forma explícita que no existe actividad
 comercial y utiliza `agendasalon@brvsoftwarestudio.com` como contacto real.
 
-El estado vigente de `main` y producción es
-`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La ejecución de CI
-`29625418697` completó correctamente sus cuatro trabajos. El escenario canónico
+La versión funcional desplegada en producción corresponde al commit
+`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La ejecución de CI de esa versión,
+`29625418697`, completó correctamente sus cuatro trabajos. `main` puede incluir
+commits documentales posteriores que no alteran el código desplegado. El escenario canónico
 contiene 2 negocios, 3 cuentas internas, 28 servicios, 36 fichas de cliente, 11
 accesos cliente, 4 relaciones de representación y 90 citas. De estas últimas,
 37 están atendidas, 6 no presentadas, 9 canceladas y 38 confirmadas; 30 proceden
@@ -513,9 +514,10 @@ npm.cmd run check
 .\.venv\Scripts\ruff.exe check .
 ```
 
-La versión vigente superó los cuatro trabajos de CI en la ejecución
-`29625418697` antes de quedar alineada en `main` y producción con el SHA
-`714a2a22a154b102f31140bc935c4e987c0a5d7e`. La aceptación manual de la
+La versión funcional desplegada superó los cuatro trabajos de CI en la ejecución
+`29625418697` antes de publicarse y desplegarse con el SHA
+`714a2a22a154b102f31140bc935c4e987c0a5d7e`. Los commits documentales posteriores
+en `main` no modifican esa versión ejecutable. La aceptación manual de la
 regeneración produjo la fecha base, el identificador y la huella exactos
 indicados en «Estado actual». El disparo automático del temporizador todavía no
 forma parte de esta evidencia.

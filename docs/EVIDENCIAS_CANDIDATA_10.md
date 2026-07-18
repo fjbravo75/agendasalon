@@ -24,9 +24,9 @@ Este índice separa hechos reproducibles, validaciones pendientes de entorno y t
   aceptación final.
 - Copias locales autenticadas, retención 7/4/6, control de frescura y
   temporizadores operativos verificados.
-- `main` y producción alineados en
+- Versión funcional desplegada en producción:
   `714a2a22a154b102f31140bc935c4e987c0a5d7e`; CI `29625418697` correcta en
-  sus cuatro trabajos.
+  sus cuatro trabajos. `main` puede incorporar commits documentales posteriores.
 - Una aceptación manual de la regeneración completada con fecha base
   `2026-07-18`, ejecución `682f8572-de61-4140-b1f5-41a2118b233a` y huella
   `72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`.
