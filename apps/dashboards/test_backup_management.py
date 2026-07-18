@@ -63,6 +63,37 @@ class BackupManagementCommandTests(TestCase):
         self.assertNotIn("secret", execution.failure_code)
         self.assertNotIn("db.example.test", execution.failure_code)
 
+    @patch("apps.dashboards.management.commands.backup_agendasalon.queue_operational_notice_on_commit")
+    @patch(
+        "apps.dashboards.management.commands.backup_agendasalon.create_backup",
+        side_effect=BackupError("fallo repetido"),
+    )
+    def test_consecutive_failures_do_not_repeat_the_same_alert(self, create, queue_notice):
+        BackupExecution.objects.create(status=BackupExecution.Status.FAILED)
+
+        with self.assertRaises(CommandError):
+            call_command("backup_agendasalon", backup_root=Path("unused"))
+
+        queue_notice.assert_not_called()
+
+    @patch("apps.dashboards.management.commands.backup_agendasalon.queue_operational_notice_on_commit")
+    @patch("apps.dashboards.management.commands.backup_agendasalon.verify_backup")
+    @patch("apps.dashboards.management.commands.backup_agendasalon.create_backup")
+    def test_first_success_after_failure_reports_recovery(self, create, verify, queue_notice):
+        BackupExecution.objects.create(status=BackupExecution.Status.FAILED)
+        with TemporaryDirectory() as temporary:
+            backup_dir = Path(temporary) / "backup"
+            backup_dir.mkdir()
+            for filename in ("database.dump", "media.tar.gz", "manifest.json"):
+                (backup_dir / filename).write_bytes(b"verified")
+            create.return_value = backup_dir
+
+            call_command("backup_agendasalon", backup_root=Path(temporary))
+
+        queue_notice.assert_called_once()
+        self.assertEqual(queue_notice.call_args.kwargs["code"], "continuity_succeeded")
+        verify.assert_called_once()
+
     def test_requires_operational_secrets_before_creating_a_registry_row(self):
         with patch.dict("os.environ", {"DJANGO_DATABASE_URL": "", "AGENDA_BACKUP_HMAC_KEY": ""}):
             with self.assertRaises(CommandError):

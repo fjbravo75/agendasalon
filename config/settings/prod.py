@@ -59,9 +59,42 @@ AGENDA_BACKUP_SCHEDULE_CONFIGURED = _environment_flag(
 AGENDA_TRANSACTIONAL_EMAIL_ENABLED = _environment_flag(
     "AGENDA_TRANSACTIONAL_EMAIL_ENABLED"
 )
+AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED = _environment_flag(
+    "AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED"
+)
+AGENDA_MANUAL_DEMO_REFRESH_ENABLED = _environment_flag(
+    "AGENDA_MANUAL_DEMO_REFRESH_ENABLED"
+)
 AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL = _environment_flag(
     "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL"
 )
+
+try:
+    AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT = int(
+        os.environ.get(
+            "AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT",
+            str(AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT),  # noqa: F405
+        )
+    )
+    AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT = int(
+        os.environ.get(
+            "AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT",
+            str(AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT),  # noqa: F405
+        )
+    )
+except ValueError as exc:
+    raise ImproperlyConfigured(
+        "AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT and "
+        "AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT must be integers."
+    ) from exc
+if (
+    AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT < 1
+    or AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT < AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT
+):
+    raise ImproperlyConfigured(
+        "Operational email limits must be positive and the daily limit must be "
+        "greater than or equal to the hourly limit."
+    )
 
 _required_legal_settings = {
     variable: _required_environment_value(variable)
@@ -97,6 +130,11 @@ AGENDA_PLATFORM_WEBSITE = _required_legal_settings["AGENDA_PLATFORM_WEBSITE"]
 if AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL and not AGENDA_PLATFORM_LEGAL_DEMO:
     raise ImproperlyConfigured(
         "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL can only be enabled in academic demo mode."
+    )
+
+if AGENDA_MANUAL_DEMO_REFRESH_ENABLED and not AGENDA_PLATFORM_LEGAL_DEMO:
+    raise ImproperlyConfigured(
+        "AGENDA_MANUAL_DEMO_REFRESH_ENABLED can only be enabled in academic demo mode."
     )
 
 if AGENDA_TRANSACTIONAL_EMAIL_ENABLED:

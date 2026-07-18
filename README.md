@@ -361,6 +361,25 @@ locales y reservados. En la interfaz, `sent` se presenta como `Aceptado por el
 servicio de correo`: la aceptación SMTP no se confunde con entrega o lectura en
 la bandeja del destinatario.
 
+El código incorpora además la primera release del contrato de supervisión
+v0.24: una sección `Avisos` para el superadministrador y un bloque independiente
+`Avisos del negocio` dentro de los ajustes profesionales. Cada ámbito conserva
+su propio correo verificado, interruptor general y preferencias; los cambios se
+registran sin guardar el correo de destino, tokens ni cuerpos en la actividad.
+Las pruebas de canal se limitan por usuario, IP y destinatario y se presentan
+como `Correo de prueba en cola`, sin prometer entrega ni lectura.
+
+Esta release es deliberadamente inerte al publicarse. En producción,
+`AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED=0` mantiene ocultas y bloqueadas sus
+rutas hasta completar la aceptación controlada. Los límites globales se fijan
+con `AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT` y
+`AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT`; cuando se alcanzan, se pausa la creación
+de nuevos avisos operativos y queda un hecho técnico sin exponer identidades.
+Los hechos de negocio y los correos ya en cola no se pierden. El indicador
+`AGENDA_MANUAL_DEMO_REFRESH_ENABLED` queda reservado para la segunda release:
+por sí solo no crea una ruta, no ejecuta la regeneración y no sustituye el
+temporizador vigente de las 04:05.
+
 AgendaSalon incorpora una capa de privacidad operativa, no solo informativa.
 Los documentos legales se publican por versión y huella; cada negocio completa
 la identidad del responsable y acepta el encargo de tratamiento antes de poder

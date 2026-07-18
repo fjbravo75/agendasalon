@@ -6,11 +6,11 @@
   <section class="settings-shell" aria-labelledby="settings-title">
     <header class="professional-dashboard__hero settings-hero">
       <div class="professional-dashboard__copy">
-        <span>Personalización del negocio</span>
+        <span>Ajustes del negocio</span>
         <h1 class="page-title page-title--compact" id="settings-title">Ajustes de {{ business.commercial_name }}</h1>
         <p>
-          Adapta la apariencia del panel profesional y la imagen que ven tus
-          clientes al reservar o entrar en su cuenta.
+          Configura cómo trabaja el equipo, qué avisos recibe y la imagen que
+          ven tus clientes al reservar o entrar en su cuenta.
         </p>
       </div>
       <div class="professional-dashboard__actions">
@@ -18,8 +18,17 @@
       </div>
     </header>
 
+    {% if agenda_operational_notifications_enabled %}
+      <form id="business-notifications-form" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="form_kind" value="notifications">
+      </form>
+      {% if not agenda_operational_notification_delivery_enabled %}<div class="alert alert--info" role="status"><strong>Entrega por correo pausada.</strong> Puedes guardar el canal y sus preferencias, pero no saldrán correos —incluidas las verificaciones— hasta que el servicio externo vuelva a estar disponible.</div>{% endif %}
+    {% endif %}
+
     <form class="settings-form" method="post" enctype="multipart/form-data">
       {% csrf_token %}
+      <input type="hidden" name="form_kind" value="appearance">
       {{ settings_form.non_field_errors }}
 
       <div class="settings-grid">
@@ -51,6 +60,38 @@
           </div>
           {{ settings_form.professional_theme.errors }}
         </section>
+
+        {% if agenda_operational_notifications_enabled %}<section class="settings-panel" aria-labelledby="business-notifications-title">
+          <div class="ops-section-head ops-section-head--compact">
+            <div><span>Actividad del salón</span><h2 id="business-notifications-title">Avisos del negocio</h2></div>
+            <span class="settings-state{% if not agenda_operational_notification_delivery_enabled or business.notification_email and not business.notification_email_verified_at %} settings-state--danger{% endif %}">
+              {% if not agenda_operational_notification_delivery_enabled %}Entrega pausada{% elif not business.notification_email %}Sin configurar{% elif not business.notification_email_verified_at %}Pendiente de verificar{% elif not business.notifications_enabled %}Pausado{% else %}Activo{% endif %}
+            </span>
+          </div>
+          <p class="settings-panel__intro">Recibirás nuevas reservas, incidencias de agenda y avisos que requieran revisión. Este correo no se muestra a los clientes.</p>
+          {% if notification_form.errors %}<div class="alert" role="alert" tabindex="-1" data-error-summary><strong>Revisa los datos antes de guardar.</strong>{{ notification_form.non_field_errors }}</div>{% endif %}
+          <div class="field">
+            {{ notification_form.notification_email.label_tag }}
+            {{ notification_form.notification_email }}
+            <small id="notification-email-help">Puede coincidir con tu correo de acceso o ser una dirección propia del negocio.</small>
+            {{ notification_form.notification_email.errors }}
+          </div>
+          <fieldset class="notification-preferences notification-preferences--fieldset business-notification-preferences">
+            <legend class="visually-hidden">Preferencias de avisos del negocio</legend>
+            <label class="notification-preference notification-preference--master">{{ notification_form.notifications_enabled }}<span><strong>{{ notification_form.notifications_enabled.label }}</strong><small>Pausa estos avisos operativos sin borrar la dirección ni las preferencias.</small></span></label>
+            <label class="notification-preference">{{ notification_form.notify_new_appointments }}<span><strong>{{ notification_form.notify_new_appointments.label }}</strong><small>Reservas online confirmadas desde la web.</small></span></label>
+            <label class="notification-preference">{{ notification_form.notify_cancellations }}<span><strong>{{ notification_form.notify_cancellations.label }}</strong><small>Citas que dejan de estar confirmadas.</small></span></label>
+            <label class="notification-preference">{{ notification_form.notify_client_access }}<span><strong>{{ notification_form.notify_client_access.label }}</strong><small>Activaciones y altas de cuentas cliente.</small></span></label>
+            <label class="notification-preference">{{ notification_form.notify_holiday_reviews }}<span><strong>{{ notification_form.notify_holiday_reviews.label }}</strong><small>Citas que requieren revisión por un festivo oficial.</small></span></label>
+            <label class="notification-preference">{{ notification_form.notify_email_failures }}<span><strong>{{ notification_form.notify_email_failures.label }}</strong><small>Mensajes que han agotado sus intentos.</small></span></label>
+          </fieldset>
+          <p class="settings-panel__intro">Este bloque se guarda por separado de la apariencia del negocio.</p>
+          <div class="settings-form__actions">
+            {% if business.notification_email and not business.notification_email_verified_at and agenda_operational_notification_delivery_enabled %}<button class="button button--secondary" type="submit" form="business-notifications-form" name="intent" value="resend">Reenviar enlace de verificación</button>{% endif %}
+            {% if business.notification_email_verified_at and business.notifications_enabled and agenda_operational_notification_delivery_enabled %}<button class="button button--secondary" type="submit" form="business-notifications-form" formaction="{% url 'notifications:business_email_test' %}">Enviar correo de prueba</button>{% endif %}
+            <button class="button" type="submit" form="business-notifications-form">Guardar avisos</button>
+          </div>
+        </section>{% endif %}
 
         <section class="settings-panel" aria-labelledby="public-image-title">
           <div class="ops-section-head ops-section-head--compact">

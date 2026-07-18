@@ -1,0 +1,1 @@
+{% extends "emails/base.html" %}{% block email_content %}<h1>{{ notice.title }}</h1><p>{{ notice.detail }}</p>{% if action_url %}<p><a class="button" href="{{ action_url }}">{{ action_label }}</a></p>{% endif %}<p class="small">Este correo es un aviso operativo. Puedes cambiar estas preferencias desde AgendaSalon.</p>{% endblock %}

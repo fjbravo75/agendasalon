@@ -1,0 +1,7 @@
+{{ notice.title }}
+
+{{ notice.detail }}
+{% if action_url %}
+{{ action_label }}: {{ action_url }}
+{% endif %}
+Este correo es un aviso operativo. Puedes cambiar estas preferencias desde AgendaSalon.

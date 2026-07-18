@@ -10,6 +10,7 @@ from threading import Event, Thread
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import signing
 from django.core.exceptions import ValidationError
@@ -24,8 +25,17 @@ from django.utils.http import urlsafe_base64_encode
 
 from apps.booking.models import Appointment
 from apps.accounts.tokens import professional_email_verification_token_generator
-from apps.businesses.models import Business
+from apps.businesses.models import Business, PlatformActivityEvent, PlatformSettings
 from apps.customers.models import BusinessClient, BusinessClientAccess
+from apps.core.security_throttle import (
+    ThrottleLimit,
+    reserve_throttle_attempts,
+    throttle_key_digest,
+)
+from apps.core.features import (
+    operational_notification_delivery_enabled,
+    operational_notifications_enabled,
+)
 from apps.customers.services import client_password_fingerprint
 from apps.notifications.models import OutboundEmail
 
@@ -34,8 +44,78 @@ CLIENT_EMAIL_TOKEN_SALT = "agendasalon.client-email-verification.v1"
 CLIENT_EMAIL_TOKEN_MAX_AGE = 48 * 60 * 60
 CLIENT_PASSWORD_RESET_TOKEN_SALT = "agendasalon.client-password-reset.v1"
 CLIENT_PASSWORD_RESET_TOKEN_MAX_AGE = 60 * 60
+OPERATIONAL_EMAIL_TOKEN_SALT = "agendasalon.operational-email.v1"
+OPERATIONAL_EMAIL_TOKEN_MAX_AGE = 48 * 60 * 60
 MAX_EMAIL_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
+
+
+_OPERATIONAL_NOTICE_COPY = {
+    "verification": (
+        "Confirma el correo de avisos",
+        "Confirma esta dirección antes de que AgendaSalon envíe avisos operativos.",
+    ),
+    "test": (
+        "Correo de prueba de AgendaSalon",
+        "El canal de avisos está configurado y puede recibir mensajes operativos.",
+    ),
+    "signup_request": (
+        "Nueva solicitud de alta",
+        "Hay una nueva solicitud de negocio pendiente de revisión.",
+    ),
+    "business_created": (
+        "Nuevo negocio preparado",
+        "El negocio y el acceso de su primer profesional ya están preparados.",
+    ),
+    "professional_activated": (
+        "Cuenta profesional activada",
+        "Una cuenta profesional ha completado su activación.",
+    ),
+    "continuity_succeeded": (
+        "Continuidad recuperada",
+        "La nueva copia ha terminado y todas sus comprobaciones son correctas.",
+    ),
+    "continuity_failed": (
+        "La copia necesita revisión",
+        "La última copia no ha terminado correctamente. Revisa Continuidad.",
+    ),
+    "demo_refresh_requested": (
+        "Regeneración solicitada",
+        "Se ha registrado una solicitud para reconstruir la demostración.",
+    ),
+    "demo_refresh_completed": (
+        "Regeneración completada",
+        "La demostración ha recuperado sus datos originales, actualizados a hoy.",
+    ),
+    "demo_refresh_failed": (
+        "La regeneración necesita revisión",
+        "La reconstrucción no ha podido comprobarse correctamente. Revisa Continuidad.",
+    ),
+    "email_failure": (
+        "Un correo necesita revisión",
+        "Un mensaje ha agotado sus intentos. La operación principal permanece guardada.",
+    ),
+    "new_appointment": (
+        "Nueva reserva online",
+        "Hay una nueva cita confirmada. Revisa la agenda para consultar sus datos.",
+    ),
+    "cancellation": (
+        "Cita cancelada",
+        "Una cita ha dejado de estar confirmada. Revisa la agenda para consultar el cambio.",
+    ),
+    "client_access": (
+        "Cuenta cliente activada",
+        "Una persona ha completado el acceso online a su cuenta de cliente.",
+    ),
+    "holiday_review": (
+        "Hay citas que revisar por festivo",
+        "La actualización de festivos afecta a citas futuras de este negocio.",
+    ),
+    "holiday_impact": (
+        "La actualización de festivos afecta a citas",
+        "Hay citas futuras que necesitan revisión después de actualizar el calendario oficial.",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -247,6 +327,339 @@ def queue_appointment_emails(appointment):
             )
         )
     return tuple(queued)
+
+
+def operational_email_token(*, scope, target):
+    return signing.dumps(
+        {
+            "scope": scope,
+            "target_id": target.pk,
+            "email_digest": throttle_key_digest(target.notification_email_normalized),
+            "nonce": str(target.notification_email_verification_nonce),
+        },
+        salt=OPERATIONAL_EMAIL_TOKEN_SALT,
+        compress=True,
+    )
+
+
+def operational_email_target_from_token(token, *, scope):
+    if scope not in {"platform", "business"}:
+        return None
+    try:
+        payload = signing.loads(
+            token,
+            salt=OPERATIONAL_EMAIL_TOKEN_SALT,
+            max_age=OPERATIONAL_EMAIL_TOKEN_MAX_AGE,
+        )
+    except signing.BadSignature:
+        return None
+    if not isinstance(payload, dict) or payload.get("scope") != scope:
+        return None
+    model = PlatformSettings if scope == "platform" else Business
+    target = model.objects.filter(pk=payload.get("target_id")).first()
+    if target is None:
+        return None
+    if (
+        not hmac.compare_digest(
+            throttle_key_digest(target.notification_email_normalized),
+            str(payload.get("email_digest") or ""),
+        )
+        or str(target.notification_email_verification_nonce) != payload.get("nonce")
+        or target.notification_email_verified_at is not None
+    ):
+        return None
+    return target
+
+
+def verify_operational_email(token, *, scope):
+    with transaction.atomic():
+        model = PlatformSettings if scope == "platform" else Business
+        candidate = operational_email_target_from_token(token, scope=scope)
+        if candidate is None:
+            return None
+        target = model.objects.select_for_update().get(pk=candidate.pk)
+        if operational_email_target_from_token(token, scope=scope) is None:
+            return None
+        if target.notification_email_verified_at is None:
+            target.notification_email_verified_at = timezone.now()
+            target.save(update_fields=["notification_email_verified_at", "updated_at"])
+        return target
+
+
+def _operational_preference_enabled(target, *, scope, code):
+    preferences = {
+        ("platform", "continuity_succeeded"): "notify_continuity",
+        ("platform", "continuity_failed"): "notify_continuity",
+        ("platform", "demo_refresh_requested"): "notify_demo_refresh",
+        ("platform", "demo_refresh_completed"): "notify_demo_refresh",
+        ("platform", "demo_refresh_failed"): "notify_demo_refresh",
+        ("platform", "signup_request"): "notify_signup_requests",
+        ("platform", "business_created"): "notify_signup_requests",
+        ("platform", "professional_activated"): "notify_signup_requests",
+        ("platform", "holiday_impact"): None,
+        ("platform", "email_failure"): "notify_email_failures",
+        ("business", "new_appointment"): "notify_new_appointments",
+        ("business", "cancellation"): "notify_cancellations",
+        ("business", "client_access"): "notify_client_access",
+        ("business", "holiday_review"): "notify_holiday_reviews",
+        ("business", "email_failure"): "notify_email_failures",
+        ("platform", "test"): None,
+        ("business", "test"): None,
+        ("platform", "verification"): None,
+        ("business", "verification"): None,
+    }
+    key = (scope, code)
+    if key not in preferences:
+        return False
+    preference = preferences[key]
+    return preference is None or bool(getattr(target, preference, False))
+
+
+def _operational_capacity_available():
+    reservation = reserve_throttle_attempts(
+        limits=(
+            ThrottleLimit(
+                scope="operational_email_global_hour",
+                key="global",
+                limit=int(settings.AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT),
+                window_seconds=60 * 60,
+            ),
+            ThrottleLimit(
+                scope="operational_email_global_day",
+                key="global",
+                limit=int(settings.AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT),
+                window_seconds=24 * 60 * 60,
+            ),
+        )
+    )
+    if not reservation.allowed:
+        logger.warning("Pausada la creación de avisos operativos por límite global.")
+        try:
+            recent_limit_event = PlatformActivityEvent.objects.filter(
+                event_type=PlatformActivityEvent.EventType.NOTIFICATION_CAPACITY_REACHED,
+                created_at__gte=timezone.now() - timedelta(hours=1),
+            ).exists()
+            if not recent_limit_event:
+                PlatformActivityEvent.objects.create(
+                    event_type=(
+                        PlatformActivityEvent.EventType.NOTIFICATION_CAPACITY_REACHED
+                    ),
+                    summary=(
+                        "Se alcanzó el límite de seguridad de los avisos por correo. "
+                        "La actividad principal permanece guardada."
+                    ),
+                )
+        except Exception:
+            logger.exception("No se pudo registrar el límite interno de avisos.")
+    return reservation.allowed
+
+
+def _business_can_receive_operational_notices(business):
+    return bool(
+        business
+        and business.is_active
+        and business.memberships.filter(
+            is_active=True,
+            user__is_active=True,
+        ).exists()
+    )
+
+
+def _operational_notice_copy(payload):
+    return _OPERATIONAL_NOTICE_COPY.get(
+        payload.get("code"),
+        (
+            "Aviso de AgendaSalon",
+            "Hay una situación operativa que necesita revisión en AgendaSalon.",
+        ),
+    )
+
+
+def queue_operational_notice(
+    *,
+    scope,
+    code,
+    deduplication_key,
+    business=None,
+    action_path="",
+    context=None,
+    allow_resend=False,
+    require_verified=True,
+    require_enabled=True,
+):
+    if not operational_notification_delivery_enabled():
+        return None
+    if scope not in {"platform", "business"}:
+        raise ValueError("El ámbito del aviso operativo no es válido.")
+    if scope == "platform":
+        target = PlatformSettings.objects.filter(pk=PlatformSettings.SINGLETON_PK).first()
+        if target is None:
+            return None
+        recipient_user = target.updated_by
+        if recipient_user is None:
+            recipient_user = get_user_model().objects.filter(is_superuser=True).first()
+    else:
+        target = business
+        recipient_user = None
+    if (
+        target is None
+        or (scope == "business" and not _business_can_receive_operational_notices(target))
+        or (require_enabled and not target.notifications_enabled)
+        or not target.notification_email_normalized
+        or (require_verified and target.notification_email_verified_at is None)
+        or not _operational_preference_enabled(target, scope=scope, code=code)
+    ):
+        return None
+    key = f"operational:{scope}:{deduplication_key}"
+    if not allow_resend:
+        existing = OutboundEmail.objects.filter(deduplication_key=key).first()
+        if existing is not None:
+            return existing
+    if not _operational_capacity_available():
+        return None
+    return _upsert_email(
+        key=key,
+        defaults={
+            "kind": OutboundEmail.Kind.OPERATIONAL_NOTICE,
+            "business": business if scope == "business" else None,
+            "recipient_user": recipient_user,
+            "recipient_email": target.notification_email,
+            "payload": {
+                "scope": scope,
+                "code": code,
+                "action_path": action_path,
+                "context": context or {},
+            },
+            "scheduled_for": timezone.now(),
+        },
+        allow_resend=allow_resend,
+    )
+
+
+def queue_operational_email_verification(*, scope, target, business=None):
+    return queue_operational_notice(
+        scope=scope,
+        code="verification",
+        deduplication_key=(
+            f"verification:{target.pk}:{target.notification_email_verification_nonce}"
+        ),
+        business=business,
+        allow_resend=True,
+        require_verified=False,
+        require_enabled=False,
+    )
+
+
+def queue_operational_email_verification_safely(*, scope, target, business=None):
+    """Intenta la verificación sin convertir un fallo de correo en fallo funcional."""
+
+    try:
+        email = queue_operational_email_verification(
+            scope=scope,
+            target=target,
+            business=business,
+        )
+        if email is None:
+            return None
+        return queue_and_dispatch(email)
+    except Exception:
+        logger.exception("No se pudo preparar la verificación del correo de avisos.")
+        return None
+
+
+def queue_operational_test(*, scope, target, business=None, action_path):
+    return queue_operational_notice(
+        scope=scope,
+        code="test",
+        deduplication_key=f"test:{target.pk}:{uuid.uuid4()}",
+        business=business,
+        action_path=action_path,
+    )
+
+
+def queue_operational_notice_on_commit(**notice):
+    """Encola después del commit sin convertir un fallo de aviso en fallo funcional."""
+
+    def enqueue_and_dispatch():
+        try:
+            email = queue_operational_notice(**notice)
+            if email is not None:
+                queue_and_dispatch(email)
+        except Exception:
+            logger.exception("No se pudo preparar un aviso operativo tras confirmar el hecho.")
+
+    transaction.on_commit(enqueue_and_dispatch)
+
+
+def mark_operational_email_verified_from_account(user):
+    """Reutiliza una verificación personal solo dentro del mismo ámbito."""
+
+    if not user.email_normalized or user.email_verified_at is None:
+        return ()
+    verified = []
+    with transaction.atomic():
+        from apps.businesses.activity import record_business_activity
+        from apps.businesses.models import BusinessActivityEvent, PlatformActivityEvent
+
+        if user.is_superuser:
+            platform = (
+                PlatformSettings.objects.select_for_update()
+                .filter(
+                    pk=PlatformSettings.SINGLETON_PK,
+                    notification_email_normalized=user.email_normalized,
+                    notification_email_verified_at__isnull=True,
+                )
+                .first()
+            )
+            if platform is not None:
+                platform.notification_email_verified_at = user.email_verified_at
+                platform.save(update_fields=["notification_email_verified_at", "updated_at"])
+                PlatformActivityEvent.objects.create(
+                    actor_user=user,
+                    event_type=PlatformActivityEvent.EventType.NOTIFICATION_EMAIL_VERIFIED,
+                    summary="Se reutilizó la verificación del correo personal de la cuenta.",
+                )
+                verified.append(("platform", platform.pk))
+        else:
+            businesses = Business.objects.select_for_update().filter(
+                memberships__user=user,
+                memberships__is_active=True,
+                notification_email_normalized=user.email_normalized,
+                notification_email_verified_at__isnull=True,
+            )
+            for business in businesses:
+                business.notification_email_verified_at = user.email_verified_at
+                business.save(update_fields=["notification_email_verified_at", "updated_at"])
+                record_business_activity(
+                    business=business,
+                    category=BusinessActivityEvent.Category.CONFIGURATION,
+                    event_type=BusinessActivityEvent.EventType.NOTIFICATION_SETTINGS_UPDATED,
+                    origin=BusinessActivityEvent.Origin.SYSTEM,
+                    summary="El correo de avisos reutilizó la verificación de la cuenta.",
+                    actor=user,
+                    entity=business,
+                    entity_type="business",
+                    changes={"channel_verified": True, "verification_reused": True},
+                )
+                verified.append(("business", business.pk))
+    return tuple(verified)
+
+
+def mark_operational_email_verified_from_account_on_commit(user):
+    """Aísla la verificación principal de cualquier fallo del canal operativo."""
+
+    user_id = user.pk
+
+    def reuse_verified_email():
+        try:
+            current_user = get_user_model().objects.get(pk=user_id)
+            mark_operational_email_verified_from_account(current_user)
+        except Exception:
+            logger.exception(
+                "No se pudo reutilizar el correo verificado en el canal operativo."
+            )
+
+    transaction.on_commit(reuse_verified_email)
 
 
 def _apply_locked_appointment_email_cancellation(emails, *, now):
@@ -467,6 +880,18 @@ def verified_client_from_token(
             legal_context_snapshot=privacy_legal_context,
             action_fingerprint_source=privacy_action_fingerprint_source,
         )
+    queue_operational_notice_on_commit(
+        scope="business",
+        code="client_access",
+        deduplication_key=(
+            f"client-access:{access.pk}:{throttle_key_digest(access.email_normalized)}"
+        ),
+        business=locked_business,
+        action_path=reverse(
+            "customers:professional_client_detail",
+            args=[locked_client.pk],
+        ),
+    )
     return access
 
 
@@ -564,7 +989,36 @@ def reset_client_password_from_token(token, *, business, password):
 
 def _delivery_context(email):
     context = {"email": email, "business": email.business}
-    if email.kind == OutboundEmail.Kind.PROFESSIONAL_ACTIVATION:
+    if email.kind == OutboundEmail.Kind.OPERATIONAL_NOTICE:
+        title, detail = _operational_notice_copy(email.payload)
+        action_path = email.payload.get("action_path") or ""
+        if email.payload.get("code") == "verification":
+            scope = email.payload.get("scope")
+            target = (
+                PlatformSettings.objects.filter(pk=PlatformSettings.SINGLETON_PK).first()
+                if scope == "platform"
+                else email.business
+            )
+            if target is not None:
+                route_name = (
+                    "notifications:platform_email_verify"
+                    if scope == "platform"
+                    else "notifications:business_email_verify"
+                )
+                action_path = reverse(
+                    route_name,
+                    args=[operational_email_token(scope=scope, target=target)],
+                )
+        context.update(
+            notice={"title": title, "detail": detail},
+            action_url=_absolute_url(action_path) if action_path else "",
+            action_label=(
+                "Confirmar correo"
+                if email.payload.get("code") == "verification"
+                else "Revisar en AgendaSalon"
+            ),
+        )
+    elif email.kind == OutboundEmail.Kind.PROFESSIONAL_ACTIVATION:
         context.update(
             user=email.recipient_user,
             action_url=_professional_token_url(
@@ -605,6 +1059,36 @@ def _delivery_context(email):
 
 
 def _is_still_valid(email):
+    if email.kind == OutboundEmail.Kind.OPERATIONAL_NOTICE:
+        if not operational_notifications_enabled():
+            return False
+        scope = email.payload.get("scope")
+        if scope not in {"platform", "business"}:
+            return False
+        target = (
+            PlatformSettings.objects.filter(pk=PlatformSettings.SINGLETON_PK).first()
+            if scope == "platform"
+            else email.business
+        )
+        if target is None or target.notification_email_normalized != email.recipient_email.lower():
+            return False
+        if scope == "business" and not _business_can_receive_operational_notices(target):
+            return False
+        code = email.payload.get("code")
+        if code == "verification":
+            expected_key = (
+                f"operational:{scope}:verification:{target.pk}:"
+                f"{target.notification_email_verification_nonce}"
+            )
+            return bool(
+                target.notification_email_verified_at is None
+                and email.deduplication_key == expected_key
+            )
+        return bool(
+            target.notifications_enabled
+            and target.notification_email_verified_at is not None
+            and _operational_preference_enabled(target, scope=scope, code=code)
+        )
     if email.kind == OutboundEmail.Kind.PROFESSIONAL_ACTIVATION:
         user = email.recipient_user
         return bool(user and not user.is_active and user.email_normalized == email.recipient_email.lower())
@@ -941,13 +1425,43 @@ def _dispatch_claim(claim):
     return _finish_claim_as_accepted(claim)
 
 
+def _queue_failure_alerts(email):
+    if email.status != OutboundEmail.Status.FAILED:
+        return
+    if (
+        email.kind == OutboundEmail.Kind.OPERATIONAL_NOTICE
+        and email.payload.get("code") == "email_failure"
+    ):
+        return
+    try:
+        queue_operational_notice(
+            scope="platform",
+            code="email_failure",
+            deduplication_key=f"email-failure:{email.pk}:platform",
+            action_path=reverse("notifications:superadmin_notifications"),
+        )
+        if email.business_id:
+            queue_operational_notice(
+                scope="business",
+                code="email_failure",
+                deduplication_key=f"email-failure:{email.pk}:business",
+                business=email.business,
+                action_path=reverse("business_settings:professional_settings"),
+            )
+    except Exception:
+        logger.exception("No se pudo registrar el aviso de un correo fallido.")
+
+
 def dispatch_outbound_email(email_id):
     if _outbound_email_block_reason():
         return _current_email(email_id)
     claim, terminal_email_id = _claim_outbound_email(email_id=email_id)
     if claim is None:
-        return _current_email(terminal_email_id or email_id)
-    return _dispatch_claim(claim)
+        email = _current_email(terminal_email_id or email_id)
+    else:
+        email = _dispatch_claim(claim)
+    _queue_failure_alerts(email)
+    return email
 
 
 def dispatch_due_emails(*, limit=100):
@@ -959,9 +1473,13 @@ def dispatch_due_emails(*, limit=100):
         if claim is None and terminal_email_id is None:
             break
         if claim is None:
-            delivered.append(_current_email(terminal_email_id))
+            email = _current_email(terminal_email_id)
+            _queue_failure_alerts(email)
+            delivered.append(email)
             continue
-        delivered.append(_dispatch_claim(claim))
+        email = _dispatch_claim(claim)
+        _queue_failure_alerts(email)
+        delivered.append(email)
     return delivered
 
 

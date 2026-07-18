@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Confirmar correo de avisos - AgendaSalon{% endblock %}
+{% block content %}
+  <section class="settings-shell account-security-shell" aria-labelledby="operational-email-title">
+    <header class="professional-dashboard__hero account-security-hero">
+      <div class="professional-dashboard__copy"><span>Correo de avisos</span><h1 class="page-title page-title--compact" id="operational-email-title">Confirma esta dirección</h1><p>AgendaSalon enviará aquí los avisos que hayas activado.</p></div>
+    </header>
+    <form class="settings-panel account-security-form" method="post">
+      {% csrf_token %}
+      <p class="settings-panel__intro">Dirección pendiente: <strong>{{ target.notification_email }}</strong></p>
+      <div class="account-security-actions"><button class="button" type="submit">Confirmar correo</button></div>
+    </form>
+  </section>
+{% endblock %}

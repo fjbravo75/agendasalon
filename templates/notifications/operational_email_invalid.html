@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Enlace no válido - AgendaSalon{% endblock %}
+{% block content %}
+  <section class="settings-shell account-security-shell" aria-labelledby="invalid-email-title">
+    <header class="professional-dashboard__hero account-security-hero">
+      <div class="professional-dashboard__copy">
+        <span>Correo de avisos</span>
+        <h1 class="page-title page-title--compact" id="invalid-email-title">{% if rate_limited %}Espera antes de intentarlo de nuevo.{% else %}Este enlace ya no es válido.{% endif %}</h1>
+        <p>{% if rate_limited %}Hemos limitado temporalmente las confirmaciones para proteger el canal de avisos.{% elif scope == "platform" %}Vuelve a Avisos y, si la dirección sigue pendiente, pulsa «Reenviar enlace de verificación».{% else %}Vuelve a Ajustes y, si la dirección sigue pendiente, pulsa «Reenviar enlace de verificación».{% endif %}</p>
+      </div>
+      <div class="professional-dashboard__actions"><a class="button button--secondary" href="{% url destination %}">Volver a {% if scope == 'platform' %}Avisos{% else %}Ajustes{% endif %}</a></div>
+    </header>
+  </section>
+{% endblock %}

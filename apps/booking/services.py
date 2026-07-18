@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.booking.calendar_locking import lock_business_calendar
@@ -223,7 +224,23 @@ def confirm_appointment(
             "starts_at": appointment.starts_at.isoformat(),
         },
     )
-    from apps.notifications.services import dispatch_outbound_email, queue_appointment_emails
+    from apps.notifications.services import (
+        dispatch_outbound_email,
+        queue_appointment_emails,
+        queue_operational_notice_on_commit,
+    )
+
+    if is_public_booking:
+        queue_operational_notice_on_commit(
+            scope="business",
+            code="new_appointment",
+            deduplication_key=f"new-appointment:{appointment.pk}",
+            business=business,
+            action_path=reverse(
+                "booking:professional_appointment_detail",
+                args=[appointment.pk],
+            ),
+        )
 
     queued_email_ids = [email.pk for email in queue_appointment_emails(appointment)]
     transaction.on_commit(
@@ -301,7 +318,10 @@ def cancel_appointment(appointment: Appointment, *, cancelled_by, reason: str) -
             "updated_at",
         ]
     )
-    from apps.notifications.services import cancel_appointment_emails
+    from apps.notifications.services import (
+        cancel_appointment_emails,
+        queue_operational_notice_on_commit,
+    )
 
     cancel_appointment_emails(appointment)
     record_business_activity(
@@ -314,6 +334,16 @@ def cancel_appointment(appointment: Appointment, *, cancelled_by, reason: str) -
         entity=appointment,
         entity_type="appointment",
         changes={"status": appointment.status},
+    )
+    queue_operational_notice_on_commit(
+        scope="business",
+        code="cancellation",
+        deduplication_key=f"appointment-cancelled:{appointment.pk}",
+        business=appointment.business,
+        action_path=reverse(
+            "booking:professional_appointment_detail",
+            args=[appointment.pk],
+        ),
     )
     return appointment
 
