@@ -204,6 +204,16 @@ quiesce_application
         )
         self.assertNotIn("/run/agendasalon/demo-refresh.quiescent", self.script)
 
+    def test_clean_media_root_never_requests_setgid_in_the_hardened_unit(self):
+        quarantine = self.script[
+            self.script.index("quarantine_media() {") :
+            self.script.index("write_durable_state() {")
+        ]
+        self.assertIn('readonly MEDIA_RUNTIME_MODE="0750"', self.script)
+        self.assertIn('-m "${MEDIA_RUNTIME_MODE}"', quarantine)
+        self.assertNotIn('-m "${MEDIA_MODE}"', quarantine)
+        self.assertIn("${MEDIA_UID}:${MEDIA_GID}:${MEDIA_RUNTIME_MODE#0}", quarantine)
+
     def test_durable_state_and_media_quarantine_have_a_narrow_contract(self):
         for marker_key in (
             "run_id",

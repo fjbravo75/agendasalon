@@ -13,6 +13,7 @@ readonly PYTHON="/var/www/agendasalon/.venv/bin/python"
 readonly MANAGE_PY="${APP_ROOT}/manage.py"
 readonly BACKUP_ROOT="/var/backups/agendasalon-demo-canonical"
 readonly MEDIA_ROOT_CANONICAL="/var/www/agendasalon/shared/media"
+readonly MEDIA_RUNTIME_MODE="0750"
 readonly STATE_DIR_CANONICAL="/var/lib/agendasalon"
 readonly STATE_FILE_CANONICAL="${STATE_DIR_CANONICAL}/demo-refresh.state"
 readonly LOCK_FILE="/run/lock/agendasalon-demo-refresh.lock"
@@ -479,7 +480,15 @@ quarantine_media() {
   mv -T -- "${MEDIA_ROOT_CANONICAL}" "${MEDIA_QUARANTINE}"
   MEDIA_MOVED=1
   sync -f "${MEDIA_PARENT}"
-  install -d -o "${MEDIA_UID}" -g "${MEDIA_GID}" -m "${MEDIA_MODE}" "${MEDIA_ROOT_CANONICAL}"
+  # El directorio histórico puede llevar setgid (2750), pero la unidad está
+  # endurecida con RestrictSUIDSGID=true. El runtime no necesita ese bit: el
+  # proceso de la aplicación ya usa www-data como grupo efectivo. El rollback
+  # conserva intactos los metadatos del directorio original movido.
+  install -d -o "${MEDIA_UID}" -g "${MEDIA_GID}" -m "${MEDIA_RUNTIME_MODE}" \
+    "${MEDIA_ROOT_CANONICAL}"
+  [[ "$(stat -c '%u:%g:%a' -- "${MEDIA_ROOT_CANONICAL}")" == \
+    "${MEDIA_UID}:${MEDIA_GID}:${MEDIA_RUNTIME_MODE#0}" ]] ||
+    fail "el directorio de medios nuevo no conserva propietario, grupo y modo seguros"
   [[ -z "$(find "${MEDIA_ROOT_CANONICAL}" -mindepth 1 -print -quit)" ]] ||
     fail "el directorio de medios nuevo no está vacío"
   sync -f "${MEDIA_ROOT_CANONICAL}"
