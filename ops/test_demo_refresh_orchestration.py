@@ -51,6 +51,47 @@ class DemoRefreshScriptContractTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_quiescence_exit_status_matches_the_writer_state_when_bash_is_available(
+        self,
+    ):
+        if os.name == "nt":
+            self.skipTest("la prueba conductual de Bash se ejecuta en CI")
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash no está disponible en este sistema")
+
+        library, marker, _entrypoint = self.script.rpartition('\nmain "$@"')
+        self.assertEqual(marker, '\nmain "$@"')
+
+        def run_with_is_active_status(status: int):
+            harness = (
+                library
+                + f"""
+systemctl() {{
+  if [[ "$1" == "stop" ]]; then return 0; fi
+  if [[ "$1" == "is-active" && "$2" == "--quiet" ]]; then return {status}; fi
+  return 97
+}}
+wait_unit_inactive() {{ return 0; }}
+wait_socket_absent() {{ return 0; }}
+quiesce_application
+"""
+            )
+            return subprocess.run(
+                [bash],
+                input=harness,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        inactive = run_with_is_active_status(3)
+        self.assertEqual(inactive.returncode, 0, inactive.stderr or inactive.stdout)
+
+        active = run_with_is_active_status(0)
+        self.assertNotEqual(active.returncode, 0, active.stderr or active.stdout)
+        self.assertIn("una unidad escritora continuó activa", active.stdout)
+
     def test_fails_closed_and_takes_a_non_blocking_process_lock(self):
         self.assertIn("set -Eeuo pipefail", self.script)
         self.assertIn("umask 0077", self.script)
@@ -66,6 +107,19 @@ class DemoRefreshScriptContractTests(unittest.TestCase):
         self.assertLess(main.index("trap on_exit EXIT"), main.index("quiesce_application"))
         quiesce = self.script[self.script.index("quiesce_application() {") :]
         self.assertIn('systemctl stop "${TIMER_UNITS[@]}"', quiesce)
+
+    def test_quiescence_returns_success_when_every_writer_is_inactive(self):
+        quiesce = self.script[
+            self.script.index("quiesce_application() {") :
+            self.script.index("latest_canonical_backup() {")
+        ]
+        self.assertIn('if systemctl is-active --quiet "$unit"; then', quiesce)
+        self.assertIn('fail "una unidad escritora continuó activa"', quiesce)
+        self.assertNotIn(
+            'systemctl is-active --quiet "$unit" && fail',
+            quiesce,
+        )
+        self.assertTrue(quiesce.rstrip().endswith("return 0\n}"), quiesce)
 
     def test_preflight_reads_but_does_not_write_the_read_only_backup_mount(self):
         preflight = self.script[

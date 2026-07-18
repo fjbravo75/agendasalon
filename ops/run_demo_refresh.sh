@@ -346,8 +346,12 @@ quiesce_application() {
   wait_socket_absent
 
   for unit in "${TIMER_UNITS[@]}" "${DISABLED_TIMER_UNITS[@]}" "${ONESHOT_UNITS[@]}" "${GUNICORN_UNIT}"; do
-    systemctl is-active --quiet "$unit" && fail "una unidad escritora continuó activa"
+    if systemctl is-active --quiet "$unit"; then
+      fail "una unidad escritora continuó activa"
+      return 1
+    fi
   done
+  return 0
 }
 
 latest_canonical_backup() {
