@@ -662,6 +662,22 @@ class DemoRefreshDispatchContractTests(unittest.TestCase):
         self.assertIn("claim_status == 75", self.script)
         self.assertIn("la cola no se ha tocado", self.script)
 
+    def test_dispatcher_prepares_a_group_readable_root_owned_lock_for_guarded_workers(self):
+        preparation = self.script[
+            self.script.index("prepare_process_lock() {") :
+            self.script.index("run_django_unlocked() {")
+        ]
+        self.assertIn('[[ -f "${LOCK_FILE}" && ! -L "${LOCK_FILE}" ]]', preparation)
+        self.assertIn('chown root:"${APP_GROUP}" "${LOCK_FILE}"', preparation)
+        self.assertIn('chmod 0640 "${LOCK_FILE}"', preparation)
+        self.assertIn('"root:${APP_GROUP}"', preparation)
+        main = self.script[self.script.index("main() {") :]
+        self.assertIn("prepare_process_lock", main)
+        self.assertLess(
+            main.index("prepare_process_lock"),
+            main.index('claim="$(run_django nonblocking'),
+        )
+
     def test_dispatcher_reconciles_receipts_only_with_a_clean_runtime(self):
         recovery = self.script[
             self.script.index("runtime_is_recoverable() {") :
