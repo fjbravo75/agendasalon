@@ -128,20 +128,28 @@ Con las cuentas cliente:
 Óscar puede repetir el mismo recorrido desde
 `/clientes/barberia-norte/entrar/` y `/reservar/barberia-norte/`.
 
-## Regeneración diaria de la demo pública
+## Regeneración manual de la demo pública
 
-La regeneración borra los cambios mutables realizados durante una evaluación y
-reconstruye este escenario ficticio. También retira negocios, cuentas, citas,
-sesiones, solicitudes y medios añadidos fuera del contrato canónico. Conserva
-la documentación legal publicada, la foto oficial íntegra del BOE, el historial
-de copias y los recibos técnicos de regeneración.
+La regeneración es una acción manual y protegida del superadministrador. Borra
+los cambios mutables realizados durante una evaluación y reconstruye este
+escenario ficticio. También retira negocios, cuentas, citas, sesiones,
+solicitudes y medios añadidos fuera del contrato canónico. Conserva la
+documentación legal publicada, la foto oficial íntegra del BOE, el historial de
+copias y los recibos técnicos de regeneración.
 
-El 18 de julio de 2026 se aceptó una ejecución manual con fecha base
-`2026-07-18`, identificador `682f8572-de61-4140-b1f5-41a2118b233a` y huella
-`72d5cef99921795738b707ff02009364110fb1bbdc59d16c4ef7131cc9eb93c0`. El
-temporizador quedó habilitado y activo a las 04:06, con primera ejecución
-prevista el 19 de julio a las `04:05 Europe/Madrid`; todavía no se afirma que
-exista una ejecución automática observada.
+La aceptación final del 18 de julio de 2026 utilizó la fecha base
+`2026-07-18`, la solicitud `f3a7d392-b728-4206-908c-36ae2320d951` y la huella
+semántica
+`f53e8ba21674fce64ed4944f90a1d359e717207e8bf4270529506b740a4fcdd8`. El
+postflight comprobó 3 cuentas internas, 2 negocios, 28 servicios —25 activos—,
+36 fichas de cliente, 90 citas y 8 festivos nacionales oficiales de 2026. La
+outbox, las sesiones, los límites temporales de seguridad y los residuos de
+evaluación quedaron a cero.
+
+El despachador de solicitudes manuales permanece habilitado y activo. La unidad
+histórica que programaba una regeneración diaria a las `04:05 Europe/Madrid` se
+conserva para trazabilidad y una eventual reversión deliberada, pero está
+deshabilitada e inactiva: la demo no se borra por horario.
 
 ## Límites conscientes
 

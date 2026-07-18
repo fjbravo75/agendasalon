@@ -17,7 +17,7 @@ AgendaSalon es una aplicación web multiempresa para organizar citas en salones 
 
 La solución concentra en una misma plataforma la agenda profesional, la reserva online, la gestión de clientes, los servicios, los horarios, las líneas de trabajo y la supervisión de los negocios asociados. El producto aplica un enfoque **Django-first**: Django gobierna la autenticación, los permisos, las reglas de negocio y la persistencia, mientras que React se utiliza de manera contenida en dos vistas con alta densidad de interacción: la agenda profesional y el dashboard del superadministrador.
 
-El resultado implementado incluye aislamiento por negocio, acceso profesional por teléfono, cuentas de cliente separadas por salón, motor de disponibilidad, reservas manuales y online, revalidación de huecos, trazabilidad operativa, personalización visual, modo oscuro y medidas específicas de seguridad. La demostración académica está desplegada en una URL pública con HTTPS, PostgreSQL, Gunicorn, Nginx, correo transaccional y copias locales verificadas. P2 quedó publicada y aceptada el 17 de julio de 2026 mediante la PR `#10`, la ejecución de CI `29589984747` y el SHA funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`. El destino externo cifrado de las copias permanece identificado como riesgo residual y no se presenta como resuelto.
+El resultado implementado incluye aislamiento por negocio, acceso profesional por teléfono, cuentas de cliente separadas por salón, motor de disponibilidad, reservas manuales y online, revalidación de huecos, trazabilidad operativa, personalización visual, modo oscuro y medidas específicas de seguridad. La demostración académica está desplegada en una URL pública con HTTPS, PostgreSQL, Gunicorn, Nginx, correo transaccional y copias locales verificadas. El estado funcional vigente corresponde al SHA `545c5618fe915e91b022db70b2c77a75ab2d13ec`, con la CI de `main` correcta, avisos operativos activos y regeneración manual protegida aceptada. P2 se conserva como antecedente publicado mediante la PR `#10`, la ejecución de CI `29589984747` y el SHA funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`. El destino externo cifrado de las copias permanece identificado como riesgo residual y no se presenta como resuelto.
 
 ## 1. Introducción
 
@@ -170,6 +170,12 @@ El profesional puede gestionar servicios, duración, precio, color, horarios, ci
 ### 6.6 Supervisar la plataforma
 
 El superadministrador consulta negocios operativos, configuración pendiente, reserva online, accesos y actividad registrada. Puede crear, editar, pausar o reactivar un negocio, pero no crea reservas en su nombre ni entra libremente en el panel profesional.
+
+También dispone de avisos operativos configurables y de una acción protegida
+para reconstruir manualmente la demo canónica. La solicitud exige contraseña,
+frase exacta y confirmación explícita; el proceso privilegiado se ejecuta fuera
+de la petición web y deja un recibo técnico. Los profesionales configuran por
+separado el canal de avisos de su negocio.
 
 ### 6.7 Solicitar el alta de un nuevo negocio
 
@@ -347,7 +353,7 @@ Las imágenes públicas admiten JPG, PNG o WebP, con máximo de 5 MB y 16 millon
 
 ### 12.6 Secretos, HTTPS y copias
 
-Producción exige secreto, hosts, orígenes CSRF y PostgreSQL mediante variables de entorno. La configuración activa redirección HTTPS, cookies seguras y HSTS. Las copias incluyen base de datos y medios, manifiesto SHA-256 y verificación de restauración. En el despliegue público se han activado la copia diaria, la retención 7/4/6 y el control de una antigüedad máxima de 36 horas. El destino externo cifrado y la restauración desde él siguen pendientes.
+Producción exige secreto, hosts, orígenes CSRF y PostgreSQL mediante variables de entorno. La configuración activa redirección HTTPS, cookies seguras y HSTS. Las copias incluyen base de datos y medios, manifiesto SHA-256 y verificación de restauración. La política 7/4/6 y el control de antigüedad están implementados, pero el temporizador periódico de copias quedó deshabilitado e inactivo al cerrar la aceptación; no se presenta como una protección automática vigente. El destino externo cifrado y la restauración desde él siguen pendientes.
 
 ## 13. Pruebas y calidad
 
@@ -372,10 +378,19 @@ La auditoría móvil se realizó con un viewport de 390 × 844 píxeles. No se d
 
 La demostración académica está publicada desde el 14 de julio de 2026 en
 `https://agendasalon.brvsoftwarestudio.com`. Usa PostgreSQL, Gunicorn por socket,
-Nginx, HTTPS de Let's Encrypt, correo transaccional mediante Brevo y tareas
-systemd para outbox y copias. El bloque P2 desplegado y aceptado corresponde al
-SHA funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`, integrado mediante la
-PR `#10` después de superar la ejecución de CI `29589984747`.
+Nginx, HTTPS de Let's Encrypt y correo transaccional mediante Brevo. El estado
+funcional vigente corresponde al SHA
+`545c5618fe915e91b022db70b2c77a75ab2d13ec`, con la CI de `main` correcta.
+Brevo aceptó una vez el enlace de verificación y una vez el correo de prueba de
+la plataforma y de Barbería Norte. La regeneración manual final, solicitud
+`f3a7d392-b728-4206-908c-36ae2320d951`, dejó el escenario canónico sin outbox,
+sesiones, throttles ni residuos; el despachador manual quedó activo y el horario
+diario de las 04:05 quedó deshabilitado.
+
+Una primera solicitud falló antes del commit al detectar una conexión externa
+durante la quiescencia. PostgreSQL revirtió la transacción y el sistema quedó
+cerrado de forma segura. La recuperación se realizó bajo bloqueo y autorización
+efímera antes de repetir la aceptación; no quedaron datos parciales.
 
 ### 14.2 Infraestructura verificada
 
@@ -394,7 +409,8 @@ PR `#10` después de superar la ejecución de CI `29589984747`.
 3. `manage.py check --deploy` contra la configuración real.
 4. Migraciones y `collectstatic` en el servidor.
 5. Prueba de humo de accesos, reserva y paneles.
-6. Copia local autenticada, retención 7/4/6 y vigilancia de frescura activas.
+6. Copia local autenticada y capacidad de retención 7/4/6 verificadas; su
+   temporizador periódico está actualmente deshabilitado.
 7. Proveedor, arquitectura y fecha documentados.
 
 Permanece como riesgo de continuidad la copia externa cifrada y el ensayo de
@@ -415,6 +431,7 @@ Durante el desarrollo se han utilizado herramientas de inteligencia artificial c
 - Mantener la demo pública y repetir la prueba de humo tras cada despliegue.
 - Ampliar las mediciones de concurrencia y rendimiento con carga representativa.
 - Medir en uso real la cola de correo ya conectada a Brevo.
+- Decidir y documentar si se reactiva la programación automática de copias.
 - Definir política operativa de retención y borrado de imágenes de la galería.
 - Incorporar monitorización y alertas de disponibilidad.
 - Medir tiempos de reserva y reducción de interrupciones con usuarios reales.
