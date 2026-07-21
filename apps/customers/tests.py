@@ -3357,7 +3357,7 @@ class ProfessionalClientViewTests(TestCase):
                 login_url,
                 {
                     "identifier": access.email,
-                    "password": "CONFIGURE_DEMO_SUPERADMIN_PASSWORD",
+                    "password": "CONFIGURE_DEMO_MARI_PASSWORD",
                 },
             ).status_code,
             302,
@@ -3422,7 +3422,7 @@ class ProfessionalClientViewTests(TestCase):
                 login_url,
                 {
                     "identifier": access.email,
-                    "password": "CONFIGURE_DEMO_SUPERADMIN_PASSWORD",
+                    "password": "CONFIGURE_DEMO_MARI_PASSWORD",
                 },
             ).status_code,
             302,
