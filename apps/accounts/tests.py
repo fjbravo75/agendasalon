@@ -19,7 +19,7 @@ class DemoAccountMigrationTests(TestCase):
             normalized_phone="+34910000999",
             full_name="Demo migrada",
             email="mari@agendasalon.local",
-            password="DemoAgendaSalon2026!",
+            password="ContraseñaDemoMigrada2026!",
             email_verification_required=True,
         )
         migration = importlib.import_module(

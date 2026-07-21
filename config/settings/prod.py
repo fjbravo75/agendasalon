@@ -118,10 +118,6 @@ if AGENDA_PLATFORM_LEGAL_DEMO:
     AGENDA_DEMO_SUPERADMIN_PASSWORD = _required_environment_value(
         "AGENDA_DEMO_SUPERADMIN_PASSWORD"
     )
-    if AGENDA_DEMO_SUPERADMIN_PASSWORD == "DemoAgendaSalon2026!":
-        raise ImproperlyConfigured(
-            "AGENDA_DEMO_SUPERADMIN_PASSWORD must differ from the public local demo password."
-        )
     if len(AGENDA_DEMO_SUPERADMIN_PASSWORD) < 16:
         raise ImproperlyConfigured(
             "AGENDA_DEMO_SUPERADMIN_PASSWORD must contain at least 16 characters."

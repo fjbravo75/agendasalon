@@ -29,7 +29,13 @@ from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 
-from apps.core.demo_scenario import ACCESSES, DEMO_ADVISORY_LOCK_ID, DEMO_PASSWORD
+from apps.core.demo_scenario import (
+    ACCESSES,
+    BUSINESS_MARI,
+    BUSINESS_NORTE,
+    DEMO_ADVISORY_LOCK_ID,
+    DEMO_PASSWORDS,
+)
 from apps.core.models import DEMO_REFRESH_RUN_ID_PATTERN
 from apps.holidays.services import (
     BOE_ADVISORY_LOCK_NAMESPACE,
@@ -1021,6 +1027,11 @@ def demo_semantic_fingerprint() -> str:
 
     User = get_user_model()
     users = tuple(User.objects.order_by("normalized_phone"))
+    expected_user_passwords = {
+        "+34910000001": settings.AGENDA_DEMO_SUPERADMIN_PASSWORD,
+        "+34600111001": DEMO_PASSWORDS[BUSINESS_MARI],
+        "+34600222001": DEMO_PASSWORDS[BUSINESS_NORTE],
+    }
     accesses_by_email = {
         access.email_normalized: access
         for access in BusinessClientAccess.objects.select_related(
@@ -1041,7 +1052,14 @@ def demo_semantic_fingerprint() -> str:
             "password_change_required",
         ),
         "user_demo_passwords": [
-            (user.normalized_phone, check_password(DEMO_PASSWORD, user.password)) for user in users
+            (
+                user.normalized_phone,
+                bool(
+                    (expected_password := expected_user_passwords.get(user.normalized_phone))
+                    and check_password(expected_password, user.password)
+                ),
+            )
+            for user in users
         ],
         "businesses": _semantic_rows(
             Business.objects,

@@ -16,7 +16,10 @@ from typing import Iterable
 
 BUSINESS_MARI = "mari"
 BUSINESS_NORTE = "norte"
-DEMO_PASSWORD = "DemoAgendaSalon2026!"
+DEMO_PASSWORDS = {
+    BUSINESS_MARI: "AgendaSalonDemo2",
+    BUSINESS_NORTE: "AgendaSalonDemo3",
+}
 DEMO_ADVISORY_LOCK_ID = 4_147_326_341_001
 
 # Valores persistidos por los ``TextChoices`` de Django. Se mantienen en este
@@ -86,7 +89,7 @@ class AccessSpec:
     business: str
     client_key: str
     email: str
-    password: str = DEMO_PASSWORD
+    password: str
     is_active: bool = True
     email_verified: bool = True
 
@@ -693,17 +696,17 @@ NORTE_CLIENTS = (
 CLIENTS = MARI_CLIENTS + NORTE_CLIENTS
 
 ACCESSES = (
-    AccessSpec(BUSINESS_MARI, "maria", "maria.lopez@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_MARI, "lucia", "lucia.gomez@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_MARI, "daniel", "daniel.vega@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_MARI, "elena", "elena.sanchez@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_MARI, "sofia", "sofia.hernandez@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_MARI, "isabel", "isabel.torres@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_MARI, "marta", "marta.alonso@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_NORTE, "javier", "javier.martin@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_NORTE, "alvaro", "alvaro.santos@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_NORTE, "carlos", "carlos.dominguez@demo.agendasalon.local"),
-    AccessSpec(BUSINESS_NORTE, "oscar", "oscar.cabrera@demo.agendasalon.local"),
+    AccessSpec(BUSINESS_MARI, "maria", "maria.lopez@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_MARI]),
+    AccessSpec(BUSINESS_MARI, "lucia", "lucia.gomez@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_MARI]),
+    AccessSpec(BUSINESS_MARI, "daniel", "daniel.vega@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_MARI]),
+    AccessSpec(BUSINESS_MARI, "elena", "elena.sanchez@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_MARI]),
+    AccessSpec(BUSINESS_MARI, "sofia", "sofia.hernandez@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_MARI]),
+    AccessSpec(BUSINESS_MARI, "isabel", "isabel.torres@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_MARI]),
+    AccessSpec(BUSINESS_MARI, "marta", "marta.alonso@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_MARI]),
+    AccessSpec(BUSINESS_NORTE, "javier", "javier.martin@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_NORTE]),
+    AccessSpec(BUSINESS_NORTE, "alvaro", "alvaro.santos@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_NORTE]),
+    AccessSpec(BUSINESS_NORTE, "carlos", "carlos.dominguez@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_NORTE]),
+    AccessSpec(BUSINESS_NORTE, "oscar", "oscar.cabrera@demo.agendasalon.local", DEMO_PASSWORDS[BUSINESS_NORTE]),
 )
 
 RELATIONSHIPS = (

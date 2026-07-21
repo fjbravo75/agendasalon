@@ -36,7 +36,7 @@ from apps.core.demo_scenario import (
     CANONICAL_PROFESSIONAL_THEMES,
     CLIENTS,
     DEMO_ADVISORY_LOCK_ID,
-    DEMO_PASSWORD,
+    DEMO_PASSWORDS,
     RELATIONSHIPS,
     SERVICES,
     STATUS_CANCELLED,
@@ -301,6 +301,7 @@ class DemoSeeder:
                 email="mari@agendasalon.local",
                 is_staff=False,
                 is_superuser=False,
+                password=DEMO_PASSWORDS[BUSINESS_MARI],
             ),
             BUSINESS_NORTE: self._upsert_user(
                 phone="+34600222001",
@@ -308,6 +309,7 @@ class DemoSeeder:
                 email="equipo@barberianorte.local",
                 is_staff=False,
                 is_superuser=False,
+                password=DEMO_PASSWORDS[BUSINESS_NORTE],
             ),
         }
 
@@ -319,7 +321,7 @@ class DemoSeeder:
         email,
         is_staff,
         is_superuser,
-        password=DEMO_PASSWORD,
+        password,
     ):
         User = get_user_model()
         normalized_phone = normalize_phone(phone)

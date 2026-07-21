@@ -70,7 +70,7 @@ class ProductionEntrypointTests(SimpleTestCase):
             "AGENDA_TRANSACTIONAL_EMAIL_ENABLED": "0",
             "AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED": "0",
             "AGENDA_MANUAL_DEMO_REFRESH_ENABLED": "0",
-            "AGENDA_DEMO_SUPERADMIN_PASSWORD": "Private-evaluator-only-2026!",
+            "AGENDA_DEMO_SUPERADMIN_PASSWORD": "AgendaSalonDemo1",
             "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL": "0",
         }
         environment.update(overrides)
@@ -130,7 +130,7 @@ assert prod.AGENDA_PLATFORM_LEGAL_ADDRESS == ""
             result.stderr,
         )
 
-    def test_academic_demo_requires_a_private_superadmin_password(self):
+    def test_academic_demo_requires_a_superadmin_password(self):
         result = self._run_import(
             "config.settings.prod",
             **self._base_environment(AGENDA_DEMO_SUPERADMIN_PASSWORD=""),
@@ -142,16 +142,16 @@ assert prod.AGENDA_PLATFORM_LEGAL_ADDRESS == ""
             result.stderr,
         )
 
-    def test_academic_demo_rejects_the_public_local_superadmin_password(self):
+    def test_academic_demo_rejects_a_short_superadmin_password(self):
         result = self._run_import(
             "config.settings.prod",
             **self._base_environment(
-                AGENDA_DEMO_SUPERADMIN_PASSWORD="DemoAgendaSalon2026!"
+                AGENDA_DEMO_SUPERADMIN_PASSWORD="AgendaSalon1"
             ),
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("must differ from the public local demo password", result.stderr)
+        self.assertIn("must contain at least 16 characters", result.stderr)
 
     def test_commercial_mode_still_requires_real_fiscal_data(self):
         result = self._run_import(

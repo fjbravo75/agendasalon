@@ -3357,7 +3357,7 @@ class ProfessionalClientViewTests(TestCase):
                 login_url,
                 {
                     "identifier": access.email,
-                    "password": "DemoAgendaSalon2026!",
+                    "password": "AgendaSalonDemo2",
                 },
             ).status_code,
             302,
@@ -3422,7 +3422,7 @@ class ProfessionalClientViewTests(TestCase):
                 login_url,
                 {
                     "identifier": access.email,
-                    "password": "DemoAgendaSalon2026!",
+                    "password": "AgendaSalonDemo2",
                 },
             ).status_code,
             302,

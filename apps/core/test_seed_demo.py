@@ -27,7 +27,12 @@ from apps.businesses.models import (
     PlatformLoginImage,
     PlatformSettings,
 )
-from apps.core.demo_scenario import BUSINESS_MARI, BUSINESS_NORTE, CLIENTS
+from apps.core.demo_scenario import (
+    BUSINESS_MARI,
+    BUSINESS_NORTE,
+    CLIENTS,
+    DEMO_PASSWORDS,
+)
 from apps.core.management.commands.seed_demo import DemoSeeder
 from apps.customers.models import (
     BusinessClient,
@@ -52,7 +57,6 @@ from apps.notifications.models import InternalNotification
 
 
 MADRID = ZoneInfo("Europe/Madrid")
-DEMO_PASSWORD = "DemoAgendaSalon2026!"
 DEMO_BUSINESS_SLUGS = ("peluqueria-mari", "barberia-norte")
 
 
@@ -503,8 +507,13 @@ class SeedDemoCommandTests(TestCase):
         self.assertTrue(
             superadmin.check_password(settings.AGENDA_DEMO_SUPERADMIN_PASSWORD)
         )
-        for user in restored_users.exclude(normalized_phone="+34910000001"):
-            self.assertTrue(user.check_password(DEMO_PASSWORD))
+        expected_professional_passwords = {
+            "+34600111001": DEMO_PASSWORDS[BUSINESS_MARI],
+            "+34600222001": DEMO_PASSWORDS[BUSINESS_NORTE],
+        }
+        for phone, password in expected_professional_passwords.items():
+            user = restored_users.get(normalized_phone=phone)
+            self.assertTrue(user.check_password(password))
             self.assertFalse(user.check_password("Contraseña modificada durante la prueba 2026"))
             self.assertFalse(user.password_change_required)
         self.assertFalse(
@@ -513,7 +522,7 @@ class SeedDemoCommandTests(TestCase):
         self.assertFalse(superadmin.password_change_required)
 
         changed_access.refresh_from_db()
-        self.assertTrue(changed_access.check_password(DEMO_PASSWORD))
+        self.assertTrue(changed_access.check_password(DEMO_PASSWORDS[BUSINESS_MARI]))
         self.assertFalse(changed_access.is_pending_public_registration)
         self.assertIsNone(changed_access.public_registration_expires_at)
 

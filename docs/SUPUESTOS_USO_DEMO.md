@@ -4,8 +4,14 @@ Este documento explica los personajes ficticios de la semilla académica y qué
 capacidad real de AgendaSalon demuestra cada uno. Los nombres, teléfonos y
 relaciones no corresponden a personas reales.
 
-La contraseña común de las cuentas indicadas en el `README.md` es
-`DemoAgendaSalon2026!`.
+Las credenciales se agrupan por ámbito para facilitar la evaluación:
+
+- superadministración: `AgendaSalonDemo1`;
+- Peluquería Mari, tanto profesional como clientes: `AgendaSalonDemo2`;
+- Barbería Norte, tanto profesional como clientes: `AgendaSalonDemo3`.
+
+Son credenciales públicas y temporales del entorno académico. No corresponden
+a cuentas personales ni deben reutilizarse fuera de esta demostración.
 
 ## Radiografía del escenario canónico
 
