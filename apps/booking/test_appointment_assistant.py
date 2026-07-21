@@ -1275,7 +1275,7 @@ class AppointmentAssistantTests(TestCase):
                 "csrfmiddlewaretoken": csrf_token,
                 "next": confirmation_url,
                 "phone": "600111201",
-                "password": "DemoAgendaSalon2026!",
+                "password": "AgendaSalonDemo2",
             },
             HTTP_ORIGIN="https://testserver",
             secure=True,
@@ -2171,7 +2171,7 @@ class AppointmentAssistantTests(TestCase):
                 "action": "login",
                 "next": next_url or reverse("public_booking", args=[self.business.slug]),
                 "phone": "600111201",
-                "password": "DemoAgendaSalon2026!",
+                "password": "AgendaSalonDemo2",
             },
         )
         self.assertEqual(response.status_code, 302)

@@ -78,21 +78,27 @@ La versión académica está disponible en
 [agendasalon.brvsoftwarestudio.com](https://agendasalon.brvsoftwarestudio.com).
 No representa una actividad comercial ni utiliza datos de personas reales.
 
-La contraseña de las cuentas demostrativas es `DemoAgendaSalon2026!`.
+Durante el periodo de evaluación pueden utilizarse estas credenciales públicas
+y temporales:
 
-| Perfil | Teléfono |
-| --- | --- |
-| Profesional de Peluquería Mari | `+34600111001` |
-| Profesional de Barbería Norte | `+34600222001` |
-| María López, reserva para su hijo Lucas | `600111201` |
-| Lucía Gómez, cliente con cuenta propia | `600111202` |
-| Daniel Vega, reserva para Rosa | `600111204` |
-| Cliente de Barbería Norte | `600222201` |
+| Perfil | Acceso | Teléfono | Contraseña |
+| --- | --- | --- | --- |
+| Superadministración funcional del SaaS | [`/entrar/`](https://agendasalon.brvsoftwarestudio.com/entrar/) | `+34910000001` | `AgendaSalonDemo1` |
+| Profesional de Peluquería Mari | [`/entrar/`](https://agendasalon.brvsoftwarestudio.com/entrar/) | `+34600111001` | `AgendaSalonDemo2` |
+| María López, reserva para su hijo Lucas | [Acceso cliente](https://agendasalon.brvsoftwarestudio.com/clientes/peluqueria-mari/entrar/) | `600111201` | `AgendaSalonDemo2` |
+| Lucía Gómez, cliente con cuenta propia | [Acceso cliente](https://agendasalon.brvsoftwarestudio.com/clientes/peluqueria-mari/entrar/) | `600111202` | `AgendaSalonDemo2` |
+| Daniel Vega, reserva para Rosa | [Acceso cliente](https://agendasalon.brvsoftwarestudio.com/clientes/peluqueria-mari/entrar/) | `600111204` | `AgendaSalonDemo2` |
+| Profesional de Barbería Norte | [`/entrar/`](https://agendasalon.brvsoftwarestudio.com/entrar/) | `+34600222001` | `AgendaSalonDemo3` |
+| Javier Martín, cliente de Barbería Norte | [Acceso cliente](https://agendasalon.brvsoftwarestudio.com/clientes/barberia-norte/entrar/) | `600222201` | `AgendaSalonDemo3` |
 
-La cuenta de superadministración utiliza credenciales privadas que no se
-publican en el repositorio. Los personajes, relaciones y recorridos preparados
-para la evaluación se explican en
-[`docs/SUPUESTOS_USO_DEMO.md`](docs/SUPUESTOS_USO_DEMO.md).
+Estas cuentas pertenecen únicamente al escenario académico ficticio. Permiten
+crear, modificar y eliminar datos demostrativos, por lo que el entorno puede
+regenerarse para recuperar su estado canónico. No se facilita acceso a Django
+Admin ni a la infraestructura del servidor. Al finalizar la evaluación, las
+contraseñas se rotarán o las cuentas públicas quedarán desactivadas.
+
+Los personajes, relaciones y recorridos preparados para la evaluación se
+explican en [`docs/SUPUESTOS_USO_DEMO.md`](docs/SUPUESTOS_USO_DEMO.md).
 
 ## Puesta en marcha local
 

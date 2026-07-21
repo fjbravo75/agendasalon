@@ -336,11 +336,13 @@ AGENDA_MANUAL_DEMO_REFRESH_ENABLED=0
 AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED=0
 ```
 
-Además debe definirse `AGENDA_DEMO_SUPERADMIN_PASSWORD` en el gestor de secretos
-del servidor. La contraseña de producción debe ser distinta de la credencial
-demo local y se entrega a los evaluadores por un canal privado. No puede
-escribirse en Git, en la memoria versionada, en una unidad systemd ni en una
-línea de comandos. La migración aditiva de esta release es
+Además debe definirse `AGENDA_DEMO_SUPERADMIN_PASSWORD` en el archivo de entorno
+protegido del servidor. Durante la evaluación académica contiene la credencial
+pública y temporal documentada en el README. Esta decisión solo afecta a la
+cuenta funcional del SaaS: no concede acceso a Django Admin, al sistema operativo
+ni a la infraestructura. La credencial debe rotarse o desactivarse al cerrar el
+periodo de evaluación y no debe escribirse en una unidad systemd ni en una línea
+de comandos. La migración aditiva de esta release es
 `core.0003_demorefreshrequest`.
 
 `AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED` debe coincidir
