@@ -385,6 +385,19 @@
   font-weight: 750;
 }
 
+.superadmin-continuity__facts dd strong,
+.superadmin-continuity__facts dd small {
+  display: block;
+}
+
+.superadmin-continuity__facts dd small {
+  margin-top: 4px;
+  color: var(--sa-muted);
+  font-size: 0.69rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 .superadmin-dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.72fr) minmax(320px, 0.72fr);

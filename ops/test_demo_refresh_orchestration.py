@@ -26,6 +26,9 @@ GUNICORN_DROP_IN = (
     / "10-demo-refresh-safety.conf"
 )
 BACKUP_SERVICE = ROOT / "ops" / "systemd" / "backup-agendasalon.service"
+CANONICAL_BACKUP_SERVICE = (
+    ROOT / "ops" / "systemd" / "backup-agendasalon-canonical.service"
+)
 BACKUP_CHECK_SERVICE = ROOT / "ops" / "systemd" / "check-agendasalon-backup.service"
 GUARDED_SERVICES = (
     "gunicorn-agendasalon.service",
@@ -33,6 +36,7 @@ GUARDED_SERVICES = (
     "agendasalon-registration-purge.service",
     "agendasalon-session-cleanup.service",
     "backup-agendasalon.service",
+    "backup-agendasalon-canonical.service",
     "check-agendasalon-backup.service",
 )
 
@@ -187,13 +191,12 @@ quiesce_application
         self.assertIn('GUNICORN_UNIT="gunicorn-agendasalon.service"', self.script)
         self.assertIn('wait_unit_inactive "$unit"', self.script)
 
-    def test_only_a_verified_canonical_fallback_exists_before_the_reset(self):
+    def test_verified_fallback_is_selected_before_the_reset(self):
         main = self.script[self.script.index("main() {") :]
         self.assertLess(
             main.index("select_and_verify_canonical_fallback"),
             main.index("write_durable_state"),
         )
-        self.assertNotIn("create_and_verify_clean_backup", main)
         self.assertIn(
             'BACKUP_ROOT="/var/backups/agendasalon-demo-canonical"',
             self.script,
@@ -202,11 +205,20 @@ quiesce_application
         self.assertIn('pg_restore --list "${backup_dir}/database.dump"', self.script)
         self.assertIn('sync -f "${backup_dir}"', self.script)
 
-    def test_new_backup_is_created_only_after_commit_and_clean_media(self):
+    def test_canonical_backups_are_created_before_reset_and_after_clean_commit(self):
+        main = self.script[self.script.index("main() {") :]
         reconcile = self.script[
             self.script.index("reconcile_database_and_media() {") :
             self.script.index("ensure_writers_stopped() {")
         ]
+        self.assertLess(
+            main.index("quiesce_application"),
+            main.index("create_and_verify_pre_refresh_backup"),
+        )
+        self.assertLess(
+            main.index("create_and_verify_pre_refresh_backup"),
+            main.index("quarantine_media"),
+        )
         self.assertLess(
             reconcile.index("commit_media_after_refresh"),
             reconcile.index("create_and_verify_clean_backup"),
@@ -215,9 +227,11 @@ quiesce_application
             reconcile.index("create_and_verify_clean_backup"),
             reconcile.index("remove_durable_state"),
         )
-        self.assertIn("systemctl start backup-agendasalon.service", self.script)
+        self.assertIn(
+            'systemctl start "${CANONICAL_BACKUP_SERVICE}"',
+            self.script,
+        )
         self.assertIn("started_epoch", self.script)
-        self.assertNotIn("copia rutinaria previa", self.script)
 
     def test_durable_state_precedes_media_move_and_django(self):
         main = self.script[self.script.index("main() {") :]
@@ -326,24 +340,22 @@ quiesce_application
         self.assertIn('WAS_ACTIVE["$unit"]', self.script)
         self.assertIn('WAS_ENABLED["$unit"]', self.script)
 
-    def test_email_is_captured_but_historical_backup_stays_disabled(self):
+    def test_email_and_daily_backup_timers_are_captured_and_rearmed(self):
         self.assertIn('EMAIL_TIMER_UNIT="agendasalon-email.timer"', self.script)
         self.assertIn('BACKUP_TIMER_UNIT="backup-agendasalon.timer"', self.script)
-        disabled = self.script[
-            self.script.index("readonly -a DISABLED_TIMER_UNITS=(") :
-            self.script.index("readonly -a REQUIRED_TIMER_UNITS=(")
+        required = self.script[
+            self.script.index("readonly -a REQUIRED_TIMER_UNITS=(") :
+            self.script.index("readonly -a TIMER_UNITS=(")
         ]
         managed = self.script[
             self.script.index("readonly -a TIMER_UNITS=(") :
             self.script.index("readonly -a ONESHOT_UNITS=(")
         ]
-        self.assertIn('"${BACKUP_TIMER_UNIT}"', disabled)
-        self.assertNotIn('"${EMAIL_TIMER_UNIT}"', disabled)
+        self.assertIn('"${BACKUP_TIMER_UNIT}"', required)
         self.assertIn('"${EMAIL_TIMER_UNIT}"', managed)
         self.assertIn('"${DAILY_REFRESH_TIMER_UNIT}"', managed)
         self.assertIn('"${MANUAL_DISPATCH_TIMER_UNIT}"', managed)
-        self.assertIn('for disabled_timer in "${DISABLED_TIMER_UNITS[@]}"', self.script)
-        self.assertIn("un temporizador incompatible debe permanecer deshabilitado", self.script)
+        self.assertNotIn("DISABLED_TIMER_UNITS", self.script)
 
     def test_manual_timer_and_feature_flag_must_be_operationally_coherent(self):
         preflight = self.script[
@@ -595,20 +607,27 @@ class DemoRefreshSystemdContractTests(unittest.TestCase):
             self.assertTrue(drop_in.is_file(), service_name)
             content = drop_in.read_text(encoding="utf-8")
             self.assertIn("ExecStartPre=/usr/local/libexec/agendasalon-demo-start-guard", content)
-            if service_name == "backup-agendasalon.service":
+            if service_name == "backup-agendasalon-canonical.service":
                 self.assertIn("--canonical-backup", content)
+            if service_name == "backup-agendasalon.service":
+                self.assertNotIn("--canonical-backup", content)
             if service_name == "gunicorn-agendasalon.service":
                 self.assertIn("--runtime-rearm", content)
 
-    def test_backup_and_health_units_use_only_the_canonical_demo_root(self):
+    def test_routine_backup_and_health_use_the_retained_local_root(self):
         backup = BACKUP_SERVICE.read_text(encoding="utf-8")
         health = BACKUP_CHECK_SERVICE.read_text(encoding="utf-8")
         for content in (backup, health):
-            self.assertIn("/var/backups/agendasalon-demo-canonical", content)
-        self.assertIn("--daily 1 --weekly 1 --monthly 1 --apply", backup)
+            self.assertIn("/var/backups/agendasalon", content)
+            self.assertNotIn("/var/backups/agendasalon-demo-canonical", content)
+        self.assertIn("--daily 7 --weekly 4 --monthly 6 --apply", backup)
         self.assertIn("TimeoutStartSec=15min", backup)
-        self.assertNotIn("--backup-root /var/backups/agendasalon ", backup)
-        self.assertNotIn("--backup-root /var/backups/agendasalon ", health)
+
+    def test_reset_uses_a_separate_single_generation_canonical_backup(self):
+        canonical = CANONICAL_BACKUP_SERVICE.read_text(encoding="utf-8")
+        self.assertIn("/var/backups/agendasalon-demo-canonical", canonical)
+        self.assertIn("--daily 1 --weekly 1 --monthly 1 --apply", canonical)
+        self.assertIn("TimeoutStartSec=15min", canonical)
 
 
 class DemoRefreshDispatchContractTests(unittest.TestCase):
@@ -708,7 +727,11 @@ class DemoRefreshDispatchContractTests(unittest.TestCase):
             self.assertIn(unit, self.script)
         self.assertIn("AGENDA_DEMO_EXPECTED_RUNTIME_TRANSACTIONAL_EMAIL_ENABLED", timer_contract)
         self.assertIn("AGENDA_MANUAL_DEMO_REFRESH_ENABLED", timer_contract)
-        self.assertIn('timer_has_exact_state "${BACKUP_TIMER_UNIT}" 0', timer_contract)
+        required = self.script[
+            self.script.index("readonly -a REQUIRED_TIMER_UNITS=(") :
+            self.script.index("readonly -a GUARDED_ONESHOT_UNITS=(")
+        ]
+        self.assertIn('"${BACKUP_TIMER_UNIT}"', required)
         self.assertIn('[[ "${daily_active}" == "${daily_enabled}" ]]', timer_contract)
         recovery = self.script[
             self.script.index("runtime_is_recoverable() {") :
@@ -734,8 +757,7 @@ systemctl() {
   local action="$1" unit="$3"
   case "${action}" in
     is-active|is-enabled)
-      [[ "${unit}" != "backup-agendasalon.timer" && \
-         "${unit}" != "agendasalon-demo-refresh.timer" && \
+      [[ "${unit}" != "agendasalon-demo-refresh.timer" && \
          "${unit}" != "${MISSING_TIMER:-}" ]]
       ;;
     is-failed)

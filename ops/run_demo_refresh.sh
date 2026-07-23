@@ -26,11 +26,11 @@ readonly BACKUP_TIMER_UNIT="backup-agendasalon.timer"
 readonly EMAIL_TIMER_UNIT="agendasalon-email.timer"
 readonly DAILY_REFRESH_TIMER_UNIT="agendasalon-demo-refresh.timer"
 readonly MANUAL_DISPATCH_TIMER_UNIT="agendasalon-demo-refresh-dispatch.timer"
-readonly -a DISABLED_TIMER_UNITS=(
-  "${BACKUP_TIMER_UNIT}"
-)
+readonly ROUTINE_BACKUP_SERVICE="backup-agendasalon.service"
+readonly CANONICAL_BACKUP_SERVICE="backup-agendasalon-canonical.service"
 
 readonly -a REQUIRED_TIMER_UNITS=(
+  "${BACKUP_TIMER_UNIT}"
   "agendasalon-registration-purge.timer"
   "agendasalon-session-cleanup.timer"
   "check-agendasalon-backup.timer"
@@ -45,19 +45,20 @@ readonly -a ONESHOT_UNITS=(
   "agendasalon-email.service"
   "agendasalon-registration-purge.service"
   "agendasalon-session-cleanup.service"
-  "backup-agendasalon.service"
+  "${ROUTINE_BACKUP_SERVICE}"
+  "${CANONICAL_BACKUP_SERVICE}"
   "check-agendasalon-backup.service"
 )
 readonly -a TIMER_TRIGGERED_ONESHOT_UNITS=(
   "agendasalon-email.service"
   "agendasalon-registration-purge.service"
   "agendasalon-session-cleanup.service"
+  "${ROUTINE_BACKUP_SERVICE}"
   "check-agendasalon-backup.service"
 )
 readonly -a MANAGED_UNITS=(
   "${GUNICORN_UNIT}"
   "${TIMER_UNITS[@]}"
-  "${DISABLED_TIMER_UNITS[@]}"
   "${ONESHOT_UNITS[@]}"
 )
 
@@ -356,13 +357,6 @@ preflight() {
   elif (( manual_refresh_ready == 1 )); then
     fail "el despachador manual está activo con la función deshabilitada"
   fi
-  local disabled_timer
-  for disabled_timer in "${DISABLED_TIMER_UNITS[@]}"; do
-    if systemctl is-active --quiet "${disabled_timer}" ||
-      systemctl is-enabled --quiet "${disabled_timer}"; then
-      fail "un temporizador incompatible debe permanecer deshabilitado en la demo regenerable"
-    fi
-  done
   for unit in "${ONESHOT_UNITS[@]}"; do
     if systemctl is-failed --quiet "${unit}"; then
       fail "una unidad auxiliar arrastra un fallo previo sin revisar"
@@ -393,7 +387,7 @@ capture_operational_state() {
 
 quiesce_application() {
   log "iniciando ventana fría controlada"
-  systemctl stop "${TIMER_UNITS[@]}" "${DISABLED_TIMER_UNITS[@]}"
+  systemctl stop "${TIMER_UNITS[@]}"
 
   local unit
   for unit in "${ONESHOT_UNITS[@]}"; do
@@ -409,7 +403,7 @@ quiesce_application() {
   wait_unit_inactive "${GUNICORN_UNIT}"
   wait_socket_absent
 
-  for unit in "${TIMER_UNITS[@]}" "${DISABLED_TIMER_UNITS[@]}" "${ONESHOT_UNITS[@]}" "${GUNICORN_UNIT}"; do
+  for unit in "${TIMER_UNITS[@]}" "${ONESHOT_UNITS[@]}" "${GUNICORN_UNIT}"; do
     if systemctl is-active --quiet "$unit"; then
       fail "una unidad escritora continuó activa"
       return 1
@@ -500,22 +494,34 @@ revoke_runtime_rearm_authorization() {
   fi
 }
 
-create_and_verify_clean_backup() {
+create_and_verify_canonical_backup() {
+  local message="$1"
   local started_epoch candidate backup_status=0 revoke_status=0
   started_epoch="$(date '+%s')"
-  log "creando la nueva copia canónica con la demo ya limpia"
+  log "${message}"
   authorize_canonical_backup || return 1
-  systemctl reset-failed backup-agendasalon.service >/dev/null 2>&1 || true
-  systemctl start backup-agendasalon.service || backup_status=$?
+  systemctl reset-failed "${CANONICAL_BACKUP_SERVICE}" >/dev/null 2>&1 || true
+  systemctl start "${CANONICAL_BACKUP_SERVICE}" || backup_status=$?
   revoke_canonical_backup_authorization || revoke_status=$?
   (( backup_status == 0 && revoke_status == 0 )) || return 1
-  [[ "$(unit_property backup-agendasalon.service Result)" == "success" ]] || return 1
-  [[ "$(unit_property backup-agendasalon.service ExecMainStatus)" == "0" ]] || return 1
+  [[ "$(unit_property "${CANONICAL_BACKUP_SERVICE}" Result)" == "success" ]] || return 1
+  [[ "$(unit_property "${CANONICAL_BACKUP_SERVICE}" ExecMainStatus)" == "0" ]] || return 1
 
   candidate="$(latest_canonical_backup)" || return 1
   (( $(stat -c '%Y' -- "${candidate}") >= started_epoch - 5 )) || return 1
   verify_canonical_backup "${candidate}" || return 1
   LATEST_BACKUP="${candidate}"
+}
+
+create_and_verify_pre_refresh_backup() {
+  create_and_verify_canonical_backup \
+    "creando una copia canónica verificada antes de regenerar la demo"
+  log "copia canónica previa autenticada y sincronizada"
+}
+
+create_and_verify_clean_backup() {
+  create_and_verify_canonical_backup \
+    "creando la nueva copia canónica con la demo ya limpia"
   log "nueva copia canónica limpia autenticada y sincronizada"
 }
 
@@ -782,14 +788,14 @@ reconcile_database_and_media() {
 
 ensure_writers_stopped() {
   local failed=0 unit
-  systemctl stop "${TIMER_UNITS[@]}" "${DISABLED_TIMER_UNITS[@]}" || failed=1
+  systemctl stop "${TIMER_UNITS[@]}" || failed=1
   systemctl stop "${ONESHOT_UNITS[@]}" || failed=1
   systemctl stop "${GUNICORN_UNIT}" || failed=1
   for unit in "${ONESHOT_UNITS[@]}" "${GUNICORN_UNIT}"; do
     wait_unit_inactive "${unit}" || failed=1
   done
   wait_socket_absent || failed=1
-  for unit in "${TIMER_UNITS[@]}" "${DISABLED_TIMER_UNITS[@]}" "${ONESHOT_UNITS[@]}" "${GUNICORN_UNIT}"; do
+  for unit in "${TIMER_UNITS[@]}" "${ONESHOT_UNITS[@]}" "${GUNICORN_UNIT}"; do
     if systemctl is-active --quiet "${unit}"; then
       failed=1
     fi
@@ -882,11 +888,6 @@ restore_operational_timers_after_unlock() {
     fi
     if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" != "${WAS_ENABLED[$unit]:-}" ]]; then
       log "ERROR: cambio inesperadamente el estado de habilitacion de un temporizador"
-      failed=1
-    fi
-  done
-  for unit in "${DISABLED_TIMER_UNITS[@]}"; do
-    if systemctl is-active --quiet "${unit}" || systemctl is-enabled --quiet "${unit}"; then
       failed=1
     fi
   done
@@ -1053,6 +1054,7 @@ main() {
 
   write_durable_state
   quiesce_application
+  create_and_verify_pre_refresh_backup
   quarantine_media
   run_refresh
 
