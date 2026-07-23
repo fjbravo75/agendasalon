@@ -286,16 +286,35 @@
           {% endif %}
 
           <div class="availability-grid">
-            <section class="availability-month">
-              <header class="section-card-head">
+            <section class="availability-month" id="month-map" aria-labelledby="month-map-title">
+              <header class="section-card-head section-card-head--calendar">
                 <div>
                   <span>Mapa del mes</span>
-                  <h2>{{ selected_date|date:"F Y" }}</h2>
+                  <h2 id="month-map-title">{{ calendar_month|date:"F Y" }}</h2>
                 </div>
-                <p>Los días marcados incluyen al menos un hueco completo.</p>
+                <nav class="month-navigation" aria-label="Cambiar el mes del mapa">
+                  {% if calendar_previous_url %}
+                    <a href="{{ calendar_previous_url }}#month-map" aria-label="Mes anterior">
+                      <span aria-hidden="true">←</span>
+                    </a>
+                  {% else %}
+                    <span class="is-disabled" aria-hidden="true">←</span>
+                  {% endif %}
+                  {% if calendar_next_url %}
+                    <a href="{{ calendar_next_url }}#month-map" aria-label="Mes siguiente">
+                      <span aria-hidden="true">→</span>
+                    </a>
+                  {% else %}
+                    <span class="is-disabled" aria-hidden="true">→</span>
+                  {% endif %}
+                </nav>
               </header>
+              <p class="month-map-help">
+                Pulsa un día en verde para actualizar la cita. La hora indica el
+                primer hueco completo.
+              </p>
 
-              <div class="month-calendar" aria-label="Calendario de {{ selected_date|date:'F Y' }}">
+              <div class="month-calendar" aria-label="Calendario de {{ calendar_month|date:'F Y' }}">
                 <div class="month-weekdays" aria-hidden="true">
                   <span><abbr title="Lunes">Lun</abbr></span>
                   <span><abbr title="Martes">Mar</abbr></span>
@@ -309,16 +328,27 @@
                   {% for _ in month_leading_blanks %}
                     <span class="month-day month-day--empty month-day--leading" aria-hidden="true"></span>
                   {% endfor %}
-                  {% for day in month_days %}
-                    <div
-                      class="month-day{% if day.date == selected_date %} is-selected{% endif %}{% if day.status == 'available' %} is-available{% elif day.status == 'closed' %} is-closed{% elif day.status == 'past' %} is-past{% endif %}"
-                      aria-label="{{ day.date|date:'l j F' }}{% if day.first_slot %}. Primer hueco a las {{ day.first_slot.starts_at|date:'H:i' }}{% else %}. Sin hueco completo{% endif %}"
-                    >
-                      <span>{{ day.date|date:"j" }}</span>
-                      {% if day.first_slot %}
-                        <strong>{{ day.first_slot.starts_at|date:"H:i" }}</strong>
+                  {% for card in month_days %}
+                    {% with day=card.day %}
+                      {% if card.select_url %}
+                        <a
+                          class="month-day is-actionable{% if day.date == selected_date %} is-selected{% endif %} is-available"
+                          href="{{ card.select_url }}#month-map"
+                          aria-label="Elegir {{ day.date|date:'l j F' }}. Primer hueco a las {{ day.first_slot.starts_at|date:'H:i' }}"
+                          {% if day.date == selected_date %}aria-current="date"{% endif %}
+                        >
+                          <span>{{ day.date|date:"j" }}</span>
+                          <strong>{{ day.first_slot.starts_at|date:"H:i" }}</strong>
+                        </a>
+                      {% else %}
+                        <div
+                          class="month-day{% if day.date == selected_date %} is-selected{% endif %}{% if day.status == 'closed' %} is-closed{% elif day.status == 'past' %} is-past{% endif %}"
+                          aria-label="{{ day.date|date:'l j F' }}. Sin hueco completo"
+                        >
+                          <span>{{ day.date|date:"j" }}</span>
+                        </div>
                       {% endif %}
-                    </div>
+                    {% endwith %}
                   {% endfor %}
                   {% for _ in month_trailing_blanks %}
                     <span class="month-day month-day--empty month-day--trailing" aria-hidden="true"></span>

@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 import hmac
 from urllib.parse import urlencode
@@ -377,6 +377,10 @@ def appointment_assistant(request):
     if has_search and form.is_valid():
         target_date = form.cleaned_data["target_date"]
         duration_minutes = form.cleaned_data["final_duration_minutes"]
+        calendar_month = _appointment_assistant_calendar_month(
+            search_data,
+            target_date,
+        )
         day_availability = get_day_availability(
             business=business,
             target_date=target_date,
@@ -384,13 +388,29 @@ def appointment_assistant(request):
         )
         month_availability = get_month_availability(
             business=business,
-            year=target_date.year,
-            month=target_date.month,
+            year=calendar_month.year,
+            month=calendar_month.month,
             duration_minutes=duration_minutes,
         )
-        month_leading_days = target_date.replace(day=1).weekday()
+        month_leading_days = calendar_month.weekday()
         month_trailing_days = (
             -(month_leading_days + len(month_availability.days)) % 7
+        )
+        previous_calendar_month = _shift_calendar_month(calendar_month, -1)
+        next_calendar_month = _shift_calendar_month(calendar_month, 1)
+        month_days = tuple(
+            {
+                "day": day,
+                "select_url": (
+                    _appointment_assistant_search_url(
+                        form.cleaned_data,
+                        target_date=day.date,
+                    )
+                    if day.is_available
+                    else ""
+                ),
+            }
+            for day in month_availability.days
         )
         suggestions = tuple()
         if not day_availability.has_slots:
@@ -430,7 +450,24 @@ def appointment_assistant(request):
                 ),
                 "day_availability": day_availability,
                 "day_unavailable_message": day_unavailable_message,
-                "month_days": month_availability.days,
+                "calendar_month": calendar_month,
+                "calendar_previous_url": (
+                    _appointment_assistant_search_url(
+                        form.cleaned_data,
+                        calendar_month=previous_calendar_month,
+                    )
+                    if previous_calendar_month is not None
+                    else ""
+                ),
+                "calendar_next_url": (
+                    _appointment_assistant_search_url(
+                        form.cleaned_data,
+                        calendar_month=next_calendar_month,
+                    )
+                    if next_calendar_month is not None
+                    else ""
+                ),
+                "month_days": month_days,
                 "month_leading_blanks": range(month_leading_days),
                 "month_trailing_blanks": range(month_trailing_days),
                 "suggestions": suggestions,
@@ -2259,6 +2296,71 @@ def _confirm_payload(cleaned_data):
         "adjusted_duration_minutes": cleaned_data.get("adjusted_duration_minutes") or "",
         "duration_adjustment_reason": cleaned_data.get("duration_adjustment_reason") or "",
     }
+
+
+def _appointment_assistant_calendar_month(data, target_date):
+    try:
+        year = int(data.get("calendar_year") or target_date.year)
+        month = int(data.get("calendar_month") or target_date.month)
+        return date(year, month, 1)
+    except (TypeError, ValueError):
+        return target_date.replace(day=1)
+
+
+def _shift_calendar_month(calendar_month, offset):
+    month_index = (
+        calendar_month.year * 12
+        + calendar_month.month
+        - 1
+        + offset
+    )
+    year, zero_based_month = divmod(month_index, 12)
+    if not 1 <= year <= 9999:
+        return None
+    return date(year, zero_based_month + 1, 1)
+
+
+def _appointment_assistant_search_url(
+    cleaned_data,
+    *,
+    target_date=None,
+    calendar_month=None,
+):
+    payload = _confirm_payload(cleaned_data)
+    if target_date is not None:
+        payload["target_date"] = target_date.isoformat()
+
+    params = [
+        ("business_client", payload["business_client"]),
+        ("manual_channel", payload["manual_channel"]),
+        ("target_date", payload["target_date"]),
+        ("requested_by_contact", payload["requested_by_contact"]),
+    ]
+    params.extend(("services", service_id) for service_id in payload["services"])
+    if payload["adjusted_duration_minutes"]:
+        params.append(
+            (
+                "adjusted_duration_minutes",
+                payload["adjusted_duration_minutes"],
+            )
+        )
+    if payload["duration_adjustment_reason"]:
+        params.append(
+            (
+                "duration_adjustment_reason",
+                payload["duration_adjustment_reason"],
+            )
+        )
+    if calendar_month is not None:
+        params.extend(
+            (
+                ("calendar_year", calendar_month.year),
+                ("calendar_month", calendar_month.month),
+            )
+        )
+
+    query = urlencode(params, doseq=True)
+    return f"{reverse('booking:appointment_assistant')}?{query}"
 
 
 def _appointment_assistant_url_with_client(data, business_client_id):
