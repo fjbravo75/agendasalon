@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -726,6 +726,104 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "month-day--leading", count=2)
         self.assertContains(response, "month-day--trailing", count=2)
         self.assertContains(response, 'aria-label="miércoles 1 julio')
+
+    def test_month_map_available_days_update_the_search_and_keep_its_context(self):
+        self.client.force_login(self.professional)
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
+        service_ids = self._combined_service_ids()
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {
+                "business_client": client_id,
+                "manual_channel": "whatsapp",
+                "services": service_ids,
+                "target_date": "2026-07-09",
+                "selected_work_line_id": "2",
+                "selected_starts_at": "2026-07-09T10:30:00+02:00",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        available_card = next(
+            card
+            for card in response.context["month_days"]
+            if card["day"].date > date(2026, 7, 9) and card["select_url"]
+        )
+        query = parse_qs(urlparse(available_card["select_url"]).query)
+
+        self.assertEqual(query["business_client"], [str(client_id)])
+        self.assertEqual(query["manual_channel"], ["whatsapp"])
+        self.assertEqual(query["services"], [str(service_id) for service_id in service_ids])
+        self.assertEqual(query["target_date"], [available_card["day"].date.isoformat()])
+        self.assertEqual(query["requested_by_contact"], ["self"])
+        self.assertNotIn("selected_work_line_id", query)
+        self.assertNotIn("selected_starts_at", query)
+        self.assertContains(response, "Pulsa un día en verde para actualizar la cita.")
+        self.assertContains(response, 'aria-label="Mes anterior"')
+        self.assertContains(response, 'aria-label="Mes siguiente"')
+        self.assertContains(response, 'aria-current="date"')
+
+    def test_month_map_navigation_can_browse_a_future_month_without_losing_search(self):
+        self.client.force_login(self.professional)
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
+        service_ids = self._combined_service_ids()
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {
+                "business_client": client_id,
+                "manual_channel": "telefono",
+                "services": service_ids,
+                "target_date": "2026-07-09",
+                "calendar_year": "2026",
+                "calendar_month": "8",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["calendar_month"], date(2026, 8, 1))
+        self.assertEqual(len(response.context["month_leading_blanks"]), 5)
+        self.assertEqual(len(response.context["month_trailing_blanks"]), 6)
+        self.assertContains(response, '<h2 id="month-map-title">agosto 2026</h2>')
+        self.assertContains(response, 'aria-label="Calendario de agosto 2026"')
+
+        previous_query = parse_qs(
+            urlparse(response.context["calendar_previous_url"]).query
+        )
+        next_query = parse_qs(urlparse(response.context["calendar_next_url"]).query)
+        for query in (previous_query, next_query):
+            self.assertEqual(query["business_client"], [str(client_id)])
+            self.assertEqual(query["manual_channel"], ["telefono"])
+            self.assertEqual(
+                query["services"],
+                [str(service_id) for service_id in service_ids],
+            )
+            self.assertEqual(query["target_date"], ["2026-07-09"])
+        self.assertEqual(previous_query["calendar_year"], ["2026"])
+        self.assertEqual(previous_query["calendar_month"], ["7"])
+        self.assertEqual(next_query["calendar_year"], ["2026"])
+        self.assertEqual(next_query["calendar_month"], ["9"])
+
+    def test_month_map_ignores_invalid_navigation_parameters(self):
+        self.client.force_login(self.professional)
+        client_id = self.business.clients.get(full_name="Lucía Gómez").id
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            {
+                "business_client": client_id,
+                "manual_channel": "telefono",
+                "services": self._combined_service_ids(),
+                "target_date": "2026-07-09",
+                "calendar_year": "no-valido",
+                "calendar_month": "13",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["calendar_month"], date(2026, 7, 1))
+        self.assertContains(response, '<h2 id="month-map-title">julio 2026</h2>')
 
     def test_holiday_explains_why_the_selected_day_is_closed(self):
         self.client.force_login(self.professional)
