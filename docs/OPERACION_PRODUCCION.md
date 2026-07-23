@@ -5,10 +5,12 @@ demo académica quedó publicada el 14 de julio de 2026 en
 `https://agendasalon.brvsoftwarestudio.com`; los comandos siguen requiriendo una
 ejecución deliberada y no se activan por leer este documento.
 
-Estado vigente: la versión funcional desplegada en producción corresponde a
-`545c5618fe915e91b022db70b2c77a75ab2d13ec` y la CI de `main` está correcta.
-P0, P1, P2 y la publicación inerte R1 se conservan como hitos históricos
-trazables; sus recuentos y banderas no describen el escenario actual.
+Como referencia anterior a esta corrección, la versión funcional desplegada
+correspondía a `545c5618fe915e91b022db70b2c77a75ab2d13ec`. El SHA vigente y la
+CI se comprueban siempre en el preflight y el postflight de cada despliegue; no
+se mantiene aquí un valor que quedaría obsoleto con el siguiente commit. P0,
+P1, P2 y la publicación inerte R1 se conservan como hitos históricos trazables;
+sus recuentos y banderas no describen el escenario actual.
 
 La aceptación vigente conserva 2 negocios, 3 cuentas internas, 28 servicios
 —25 activos—, 36 fichas de cliente, 11 accesos cliente, 4 relaciones de
@@ -903,12 +905,15 @@ python -m ops.backup_restore health \
 La comprobación falla ante ausencia, caducidad, fecha futura, autenticidad o
 integridad incorrectas. La automatización local `Vigilar copias de AgendaSalon`
 revisa el resultado y avisa a Fran si detecta un problema; no borra ni repara.
-En el cierre vigente, tanto la tarea periódica de copia como su programación
-están deshabilitadas e inactivas; estos comandos describen la capacidad
-instalada, no un ciclo automático activo.
-Todavía debe comprobarse periódicamente una restauración desde el futuro
-destino externo. El estado `Protegido` del panel solo aparece después de una
-ejecución externa correcta y reciente.
+En el cierre de esta corrección, la tarea periódica y su temporizador deben
+quedar habilitados y activos. El panel solo muestra la automatización como
+operativa cuando esa configuración está declarada y existe una copia local
+correcta dentro del margen de 36 horas.
+
+La restauración debe ensayarse periódicamente desde una copia ordinaria local.
+El panel identifica el destino externo como no previsto en esta demo; no
+presenta como pendiente una protección que se ha excluido expresamente del
+alcance académico.
 
 ## Restaurar en un entorno limpio
 
@@ -1029,9 +1034,10 @@ El 11 de julio de 2026 se ejecutó un ensayo local aislado con PostgreSQL 17:
 - 172 pruebas correctas sobre PostgreSQL, incluida concurrencia real de estados.
 
 El ensayo valida el procedimiento técnico. La programación local, la retención
-7/4/6 y la vigilancia de frescura quedaron activas y verificadas en el
-despliegue del 14 de julio de 2026. Falta elegir y probar el destino externo
-cifrado que conservará otra copia fuera del Droplet.
+7/4/6 y la vigilancia de frescura deben quedar activas y verificadas en el
+despliegue de esta corrección. El destino externo cifrado se excluye
+deliberadamente de la demo académica y solo volverá a evaluarse si el proyecto
+se convierte en un servicio comercial.
 
 Como comprobación posterior, el 12 de julio de 2026 se ejecutó la suite completa
 de 240 pruebas sobre PostgreSQL 17 en un contenedor aislado. Incluyó migraciones,
