@@ -47,8 +47,8 @@ QUICK_CLIENT_EXISTING_DATA_MISMATCH_MESSAGE = (
     "notas no coinciden. Abre esa ficha y revisa sus datos antes de continuar."
 )
 DEMO_EMAIL_VALIDATION_MESSAGE = (
-    "Usa una dirección de correo con formato y dominio válidos. En esta "
-    "demostración académica no se entregan mensajes externos."
+    "Usa una dirección de correo con formato y dominio válidos. El envío de "
+    "correos está desactivado en este entorno."
 )
 
 
@@ -858,8 +858,9 @@ class ProfessionalClientEditForm(forms.Form):
             return normalized_email
         if not transactional_email_delivery_enabled():
             raise forms.ValidationError(
-                "El correo de una cuenta online no puede cambiarse en esta demostración "
-                "porque no se entregan enlaces de verificación. Los demás datos sí pueden editarse."
+                "El correo de una cuenta online no puede cambiarse mientras el envío "
+                "de correos esté desactivado, porque no podríamos verificar la nueva "
+                "dirección. Los demás datos sí pueden editarse."
             )
         if not self.access.is_active or not self.instance.is_active:
             raise forms.ValidationError(

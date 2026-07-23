@@ -28,5 +28,6 @@ def professional_appearance(request):
         return {}
     return {
         "professional_business": business,
+        "professional_business_is_operational": business.is_operational_for_agenda(),
         "professional_theme": business.professional_theme,
     }

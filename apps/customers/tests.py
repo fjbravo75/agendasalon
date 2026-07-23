@@ -768,7 +768,7 @@ class ClientAccessSecurityP0Tests(TestCase):
             },
         )
 
-    def test_pending_email_copy_distinguishes_demo_from_real_delivery(self):
+    def test_pending_email_copy_distinguishes_disabled_from_enabled_delivery(self):
         registration = self.client.post(
             reverse("customers:client_register", args=[self.business.slug]),
             {
@@ -785,18 +785,18 @@ class ClientAccessSecurityP0Tests(TestCase):
         with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
             delivery_page = self.client.get(pending_url)
 
-        self.assertContains(demo_page, "Demostración académica.")
+        self.assertContains(demo_page, "Correo no disponible.")
         self.assertContains(demo_page, "Envío de correo desactivado - Peluquería Mari")
-        self.assertContains(demo_page, "No se entregará un mensaje.")
-        self.assertContains(demo_page, "Registrar otra solicitud (sin envío)")
+        self.assertContains(demo_page, "No se ha enviado ningún mensaje.")
+        self.assertNotContains(demo_page, "Solicitar otro enlace")
         self.assertContains(demo_page, 'class="alert alert--info" role="status"')
         self.assertNotContains(demo_page, "Si recibes el mensaje")
         self.assertContains(delivery_page, "Si recibes el mensaje")
         self.assertContains(delivery_page, "Revisa tu correo - Peluquería Mari")
         self.assertContains(delivery_page, "Solicitar otro enlace")
-        self.assertNotContains(delivery_page, "Demostración académica.")
+        self.assertNotContains(delivery_page, "Correo no disponible.")
 
-    def test_registration_copy_distinguishes_demo_from_real_delivery(self):
+    def test_registration_copy_distinguishes_disabled_from_enabled_delivery(self):
         self._enable_current_legal_compliance()
         registration_url = reverse(
             "customers:client_register",
@@ -813,12 +813,11 @@ class ClientAccessSecurityP0Tests(TestCase):
         ):
             suppressed_page = self.client.get(registration_url)
 
-        self.assertContains(demo_page, "Registro de prueba")
-        self.assertContains(demo_page, "Registro cliente de prueba en Peluquería Mari")
-        self.assertContains(demo_page, "no activa")
-        self.assertContains(demo_page, "cuentas nuevas ni entrega correos externos")
-        self.assertContains(demo_page, "Registrar solicitud (sin envío)")
-        self.assertContains(demo_page, "Entra con una cuenta demo")
+        self.assertContains(demo_page, "Correo temporalmente")
+        self.assertContains(demo_page, "Crear cuenta cliente en Peluquería Mari")
+        self.assertContains(demo_page, "no podremos enviarte el")
+        self.assertContains(demo_page, "Guardar solicitud")
+        self.assertContains(demo_page, "Entra para reservar")
         self.assertNotContains(demo_page, "Te enviaremos un enlace")
         self.assertNotContains(demo_page, "Enviar enlace de verificación")
         self.assertNotContains(demo_page, "En el enlace de verificación")
@@ -830,7 +829,7 @@ class ClientAccessSecurityP0Tests(TestCase):
         self.assertNotContains(delivery_page, "Registro de prueba")
         self.assertNotContains(delivery_page, "Esta demo no enviará el enlace")
         self.assertNotContains(delivery_page, "Registrar solicitud (sin envío)")
-        self.assertContains(suppressed_page, "Registrar solicitud (sin envío)")
+        self.assertContains(suppressed_page, "Guardar solicitud")
         self.assertNotContains(suppressed_page, "Enviar enlace de verificación")
 
     def test_reserved_registration_email_error_matches_the_delivery_mode(self):
@@ -852,7 +851,7 @@ class ClientAccessSecurityP0Tests(TestCase):
 
         self.assertEqual(demo_response.status_code, 200)
         self.assertContains(demo_response, "formato y dominio válidos")
-        self.assertContains(demo_response, "no se entregan mensajes externos")
+        self.assertContains(demo_response, "envío de correos está desactivado")
         self.assertNotContains(demo_response, "correo real que pueda recibir mensajes")
         self.assertEqual(delivery_response.status_code, 200)
         self.assertContains(delivery_response, "correo real que pueda recibir mensajes")
@@ -874,13 +873,13 @@ class ClientAccessSecurityP0Tests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "La solicitud se ha registrado")
-        self.assertContains(response, "no entrega correos externos")
+        self.assertContains(response, "no se ha enviado ningún enlace")
         self.assertNotContains(
             response,
             "Si los datos corresponden a una cuenta disponible",
         )
 
-    def test_password_recovery_copy_distinguishes_demo_from_real_delivery(self):
+    def test_password_recovery_copy_distinguishes_disabled_from_enabled_delivery(self):
         request_url = reverse(
             "customers:client_password_reset_request",
             args=[self.business.slug],
@@ -891,12 +890,12 @@ class ClientAccessSecurityP0Tests(TestCase):
         with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
             delivery_page = self.client.get(request_url)
 
-        self.assertContains(demo_page, "Demostración académica.")
+        self.assertContains(demo_page, "Correo no disponible.")
         self.assertContains(demo_page, "Registrar solicitud (sin envío)")
         self.assertNotContains(demo_page, "recibirás un enlace")
         self.assertContains(delivery_page, "recibirás un enlace")
         self.assertContains(delivery_page, "Enviar enlace de recuperación")
-        self.assertNotContains(delivery_page, "Demostración académica.")
+        self.assertNotContains(delivery_page, "Correo no disponible.")
 
     @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
     def test_password_recovery_post_explains_that_demo_email_is_not_delivered(self):
@@ -909,7 +908,7 @@ class ClientAccessSecurityP0Tests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "La solicitud se ha registrado")
-        self.assertContains(response, "no entrega correos externos")
+        self.assertContains(response, "no se ha enviado ningún enlace")
         self.assertNotContains(
             response,
             "Si los datos corresponden a una cuenta disponible",
@@ -1941,7 +1940,7 @@ class ClientAccessInvitationTests(TestCase):
             ).exists()
         )
 
-    def test_invitation_activation_copy_distinguishes_demo_from_real_delivery(self):
+    def test_invitation_activation_copy_distinguishes_disabled_from_enabled_delivery(self):
         response, _ = self._create_invitation()
         claim_path = urlparse(response.context["invitation_url"]).path
         customer_browser = self.client_class()
@@ -1956,13 +1955,13 @@ class ClientAccessInvitationTests(TestCase):
         with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
             delivery_page = customer_browser.get(activation_url)
 
-        self.assertContains(demo_page, "Demostración académica.")
+        self.assertContains(demo_page, "Correo no disponible.")
         self.assertContains(demo_page, "Continuar sin envío externo")
-        self.assertContains(demo_page, "no enviará el enlace de verificación")
+        self.assertContains(demo_page, "el enlace no se enviará")
         self.assertNotContains(demo_page, "Enviar correo de activación")
         self.assertContains(delivery_page, "Enviar correo de activación")
         self.assertContains(delivery_page, "Lo verificaremos antes")
-        self.assertNotContains(delivery_page, "Demostración académica.")
+        self.assertNotContains(delivery_page, "Correo no disponible.")
 
     def test_new_invitation_revokes_the_previous_pending_one(self):
         _, first = self._create_invitation()
@@ -3250,7 +3249,7 @@ class ProfessionalClientViewTests(TestCase):
         self.assertContains(response, 'value="María López"')
         self.assertContains(response, 'value="600111201"')
         self.assertContains(response, 'readonly aria-readonly="true"')
-        self.assertContains(response, "Solo lectura en esta demo")
+        self.assertContains(response, "Solo lectura mientras el correo esté desactivado")
         self.assertContains(response, "El resto de la ficha sigue siendo editable")
         self.assertNotContains(response, "Si cambias el correo, se cerrarán sus sesiones")
 
@@ -3268,7 +3267,7 @@ class ProfessionalClientViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Si cambias el correo, se cerrarán sus sesiones")
-        self.assertNotContains(response, "Solo lectura en esta demo")
+        self.assertNotContains(response, "Solo lectura mientras el correo esté desactivado")
         self.assertNotContains(response, 'readonly aria-readonly="true"')
 
     @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
@@ -3302,7 +3301,7 @@ class ProfessionalClientViewTests(TestCase):
         )
 
         self.assertEqual(blocked.status_code, 200)
-        self.assertContains(blocked, "no puede cambiarse en esta demostración")
+        self.assertContains(blocked, "no puede cambiarse mientras el envío")
         self.assertContains(blocked, "Los demás datos sí pueden editarse")
         business_client.refresh_from_db()
         access.refresh_from_db()

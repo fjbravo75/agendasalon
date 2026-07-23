@@ -268,8 +268,8 @@ def account_email(request):
         if not transactional_email_delivery_enabled():
             messages.info(
                 request,
-                "Correo guardado. En esta demostración académica no se entregan "
-                "correos externos; para recorrer la aplicación, utiliza una cuenta demo.",
+                "Correo guardado. El envío de correos está desactivado en este "
+                "entorno, así que no se ha enviado el enlace de verificación.",
             )
         elif delivery.status == delivery.Status.SENT:
             messages.success(

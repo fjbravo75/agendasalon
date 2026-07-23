@@ -9,7 +9,7 @@
       <div class="professional-dashboard__copy">
         <span>Datos del cliente</span>
         <h1 class="page-title page-title--compact">Editar {{ business_client.full_name }}</h1>
-        <p>{% if client_access and not transactional_email_enabled %}Corrige nombre, teléfono y notas sin alterar citas ni historial. El correo de la cuenta online se mantiene protegido mientras esta demo no entrega enlaces de verificación.{% else %}Corrige los datos que utiliza el equipo sin alterar citas ni historial. Si cambias el correo de una cuenta online, tendrá que verificarse de nuevo.{% endif %}</p>
+        <p>{% if client_access and not transactional_email_enabled %}Corrige nombre, teléfono y notas sin alterar citas ni historial. El correo de la cuenta online se mantiene protegido mientras el envío de correos esté desactivado.{% else %}Corrige los datos que utiliza el equipo sin alterar citas ni historial. Si cambias el correo de una cuenta online, tendrá que verificarse de nuevo.{% endif %}</p>
       </div>
       <div class="professional-dashboard__actions">
         <a class="button button--secondary" href="{% url 'customers:professional_client_detail' business_client.id %}">Volver a la ficha</a>
@@ -42,7 +42,7 @@
             <div class="field field--full">
               {{ edit_form.email.label_tag }}
               {{ edit_form.email }}
-              {% if client_access and not transactional_email_enabled %}<small id="client-email-demo-guidance">Solo lectura en esta demo: cambiarlo cerraría el acceso y no podríamos entregar el enlace para verificar la nueva dirección.</small>{% endif %}
+              {% if client_access and not transactional_email_enabled %}<small id="client-email-demo-guidance">Solo lectura mientras el correo esté desactivado: cambiarlo cerraría el acceso y no podríamos verificar la nueva dirección.</small>{% endif %}
               {{ edit_form.email.errors }}
             </div>
             <div class="field field--full">
@@ -73,7 +73,7 @@
               {% if transactional_email_enabled %}
                 <p>Si cambias el correo, se cerrarán sus sesiones y tendrá que verificar la nueva dirección y crear una contraseña antes de volver a entrar.</p>
               {% else %}
-                <p>El correo no puede cambiarse en esta demo porque no se entregan mensajes externos. El resto de la ficha sigue siendo editable.</p>
+                <p>El correo no puede cambiarse mientras el envío esté desactivado porque no podríamos verificar la nueva dirección. El resto de la ficha sigue siendo editable.</p>
               {% endif %}
               {% if not client_access.is_active or not business_client.is_active %}
                 <p>Reactiva la ficha y la cuenta online antes de cambiar el correo.</p>

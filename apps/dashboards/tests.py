@@ -52,6 +52,23 @@ class DashboardAccessTests(TestCase):
         self.assertContains(response, "Huecos recomendados")
         self.assertContains(response, "Preparado para agendar")
         self.assertContains(response, "Salón preparado")
+        self.assertContains(response, "Pon tu agenda en marcha")
+        self.assertContains(response, "Añadir servicio")
+        self.assertContains(response, "Crear línea")
+        self.assertContains(response, "Definir horario")
+        self.assertContains(
+            response,
+            reverse("booking:professional_service_list"),
+        )
+        self.assertContains(response, "Completar configuración")
+        self.assertNotContains(
+            response,
+            reverse("booking:appointment_assistant"),
+        )
+        self.assertEqual(
+            response.context["primary_setup_item"]["action_label"],
+            "Añadir servicio",
+        )
         self.assertNotContains(response, "6/3")
         self.assertNotContains(response, "Un resumen rapido")
 
@@ -116,6 +133,12 @@ class DashboardAccessTests(TestCase):
         self.assertContains(response, "Corte")
         self.assertContains(response, "Linea 1")
         self.assertContains(response, "Primeras opciones para Corte")
+        self.assertNotContains(response, "Pon tu agenda en marcha")
+        self.assertContains(
+            response,
+            reverse("booking:appointment_assistant"),
+        )
+        self.assertIsNone(response.context["primary_setup_item"])
 
     def test_professional_home_empty_day_is_actionable(self):
         user = get_user_model().objects.create_user(

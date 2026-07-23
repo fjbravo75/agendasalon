@@ -179,6 +179,17 @@ def appointment_assistant(request):
     business = get_primary_business_for_user(request.user)
     if business is None:
         return redirect("accounts:no_business")
+    has_any_appointment_setup = (
+        business.services.filter(is_active=True).exists()
+        or business.work_lines.filter(is_active=True).exists()
+        or business.availability_rules.filter(is_active=True).exists()
+    )
+    if request.method == "GET" and not has_any_appointment_setup:
+        messages.info(
+            request,
+            "Completa los servicios, las líneas de trabajo y el horario antes de crear una cita.",
+        )
+        return redirect("dashboards:professional_home")
 
     quick_client_form = ProfessionalClientQuickForm(business=business)
     quick_client_receipt = None

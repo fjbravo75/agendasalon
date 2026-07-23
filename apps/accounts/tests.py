@@ -481,21 +481,21 @@ class AccountReadinessFlowTests(TestCase):
         self.assertEqual(self.client.get(destination).status_code, 200)
 
     @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
-    def test_email_page_explains_the_academic_demo_without_promising_delivery(self):
+    def test_email_page_explains_disabled_delivery_without_promising_a_message(self):
         self.user.password_change_required = False
         self.user.save(update_fields=["password_change_required"])
         response = self.client.get(reverse("accounts:email"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Demostración académica.")
-        self.assertContains(response, "El envío de correos externos está desactivado.")
+        self.assertContains(response, "Correo no disponible.")
+        self.assertContains(response, "El envío de correos está desactivado en este entorno.")
         self.assertContains(response, "Guardar correo (sin envío)")
         self.assertContains(response, 'class="alert alert--info" role="status"')
         self.assertNotContains(response, "Recibes un enlace personal.")
         self.assertNotContains(response, "Enviar un enlace nuevo")
 
     @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False)
-    def test_email_page_post_never_says_that_the_demo_sent_a_message(self):
+    def test_email_page_post_never_says_that_a_disabled_channel_sent_a_message(self):
         self.user.password_change_required = False
         self.user.save(update_fields=["password_change_required"])
         response = self.client.post(
@@ -505,7 +505,7 @@ class AccountReadinessFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Correo guardado.")
-        self.assertContains(response, "no se entregan correos externos")
+        self.assertContains(response, "no se ha enviado el enlace de verificación")
         self.assertNotContains(response, "ha aceptado el enlace")
         self.assertNotContains(response, "pendiente de envío")
 
@@ -518,7 +518,7 @@ class AccountReadinessFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Recibes un enlace personal.")
         self.assertContains(response, "Enviar un enlace nuevo")
-        self.assertNotContains(response, "Demostración académica.")
+        self.assertNotContains(response, "Correo no disponible.")
 
     def test_reserved_email_domain_error_matches_the_delivery_mode(self):
         self.user.password_change_required = False
@@ -538,7 +538,7 @@ class AccountReadinessFlowTests(TestCase):
 
         self.assertEqual(demo_response.status_code, 200)
         self.assertContains(demo_response, "formato y dominio válidos")
-        self.assertContains(demo_response, "no se entregan mensajes externos")
+        self.assertContains(demo_response, "envío de correos está desactivado")
         self.assertNotContains(demo_response, "correo real que pueda recibir mensajes")
         self.assertEqual(delivery_response.status_code, 200)
         self.assertContains(delivery_response, "correo real que pueda recibir mensajes")

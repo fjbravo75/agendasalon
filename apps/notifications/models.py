@@ -185,6 +185,8 @@ class OutboundEmail(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "correo transaccional"
+        verbose_name_plural = "correos transaccionales"
         ordering = ["scheduled_for", "pk"]
         indexes = [
             models.Index(fields=["status", "scheduled_for"], name="email_status_schedule_idx"),
