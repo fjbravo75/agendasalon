@@ -28,8 +28,8 @@ from apps.core.phone import normalize_phone
 
 
 DEMO_EMAIL_VALIDATION_MESSAGE = (
-    "Usa una dirección de correo con formato y dominio válidos. En esta "
-    "demostración académica no se entregan mensajes externos."
+    "Usa una dirección de correo con formato y dominio válidos. El envío de "
+    "correos está desactivado en este entorno."
 )
 
 
@@ -218,7 +218,7 @@ class ProfessionalCreateForm(forms.Form):
         if not transactional_email_delivery_enabled():
             self.fields["email"].help_text = (
                 "Se guardará como dato del acceso y se propondrá como correo de avisos. "
-                "En esta demostración académica no se entregan correos externos."
+                "El envío de correos está desactivado en este entorno."
             )
         for field_name in ("phone", "email"):
             self.fields[field_name].widget.attrs["aria-describedby"] = (
@@ -345,12 +345,12 @@ class BusinessSignupRequestForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if not transactional_email_delivery_enabled():
             self.fields["email"].help_text = (
-                "Lo guardaremos como dato de contacto. En esta demostración "
-                "académica no se entregan mensajes externos."
+                "Lo guardaremos como dato de contacto. El envío de correos está "
+                "desactivado en este entorno."
             )
             self.fields["email"].error_messages["required"] = (
-                "Indica un correo válido como dato de contacto. En esta demostración "
-                "académica no se entregan mensajes externos."
+                "Indica un correo válido como dato de contacto. El envío de correos "
+                "está desactivado en este entorno."
             )
 
     def clean_phone(self):
@@ -366,8 +366,8 @@ class BusinessSignupRequestForm(forms.ModelForm):
         if not email:
             if not transactional_email_delivery_enabled():
                 raise forms.ValidationError(
-                    "Indica un correo válido como dato de contacto. En esta "
-                    "demostración académica no se entregan mensajes externos."
+                    "Indica un correo válido como dato de contacto. El envío de "
+                    "correos está desactivado en este entorno."
                 )
             raise forms.ValidationError(
                 "Indica un correo para recibir la respuesta y activar el acceso."

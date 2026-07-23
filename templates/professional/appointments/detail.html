@@ -160,7 +160,7 @@
         </section>
 
         <section class="appointment-panel">
-          <div class="ops-section-head ops-section-head--compact"><div><span>{% if transactional_email_enabled %}Avisos al cliente{% else %}Demostración académica{% endif %}</span><h2>{% if transactional_email_enabled %}Correo de la cita{% else %}Avisos externos{% endif %}</h2></div></div>
+          <div class="ops-section-head ops-section-head--compact"><div><span>Avisos al cliente</span><h2>{% if transactional_email_enabled %}Correo de la cita{% else %}Avisos externos{% endif %}</h2></div></div>
           <div class="appointment-audit-list">
             {% if transactional_email_enabled %}
               {% for email in appointment_emails %}
@@ -189,7 +189,7 @@
                 <div class="soft-note"><strong>No hay avisos por correo.</strong><p>No hay avisos registrados para esta cita. Solo se envían cuando la cuenta cliente tiene un correo verificado.</p></div>
               {% endfor %}
             {% else %}
-              <div class="soft-note" role="status"><strong>Entrega externa desactivada.</strong><p>Esta demo no envía avisos por correo. La cita y sus cambios sí quedan registrados en AgendaSalon.</p></div>
+              <div class="soft-note" role="status"><strong>Entrega externa desactivada.</strong><p>El envío de correos está desactivado en este entorno. La cita y sus cambios sí quedan registrados en AgendaSalon.</p></div>
             {% endif %}
           </div>
         </section>

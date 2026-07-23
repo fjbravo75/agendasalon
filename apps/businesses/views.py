@@ -252,7 +252,7 @@ def superadmin_business_create(request):
                     request,
                     f"{business.commercial_name} ya está creado y el acceso de "
                     f"{professional.full_name} queda preparado. El correo externo de "
-                    "activación está desactivado en esta demostración académica.",
+                    "activación está desactivado en este entorno y el enlace no se ha enviado.",
                 )
             elif delivery.status == delivery.Status.SENT:
                 messages.success(
@@ -576,7 +576,7 @@ def superadmin_professional_create(request, business_id):
             messages.info(
                 request,
                 f"El acceso de {professional.full_name} queda preparado. El correo "
-                "externo de activación está desactivado en esta demostración académica.",
+                "externo de activación está desactivado en este entorno y el enlace no se ha enviado.",
             )
         elif delivery.status == delivery.Status.SENT:
             messages.success(
@@ -615,7 +615,7 @@ def superadmin_professional_activation_resend(request, business_id, membership_i
             messages.info(
                 request,
                 f"La cuenta de {user.full_name} sigue preparada. El correo externo de "
-                "activación está desactivado en esta demostración académica.",
+                "activación está desactivado en este entorno y el enlace no se ha enviado.",
             )
         elif delivery.status == delivery.Status.SENT:
             messages.success(

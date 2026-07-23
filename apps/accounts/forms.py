@@ -9,8 +9,8 @@ from apps.core.phone import normalize_phone
 
 
 DEMO_EMAIL_VALIDATION_MESSAGE = (
-    "Usa una dirección de correo con formato y dominio válidos. En esta "
-    "demostración académica no se entregan mensajes externos."
+    "Usa una dirección de correo con formato y dominio válidos. El envío de "
+    "correos está desactivado en este entorno."
 )
 
 

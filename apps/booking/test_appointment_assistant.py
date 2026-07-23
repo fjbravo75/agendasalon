@@ -120,6 +120,24 @@ class AppointmentAssistantTests(TestCase):
         self.assertContains(response, "Notas internas (opcional)")
         self.assertEqual(response.context["form"]["business_client"].value(), None)
 
+    def test_appointment_assistant_redirects_to_setup_when_business_is_not_operational(self):
+        self.business.services.update(is_active=False)
+        self.business.work_lines.update(is_active=False)
+        self.business.availability_rules.update(is_active=False)
+        self.client.force_login(self.professional)
+
+        response = self.client.get(
+            reverse("booking:appointment_assistant"),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse("dashboards:professional_home"))
+        self.assertContains(
+            response,
+            "Completa los servicios, las líneas de trabajo y el horario antes de crear una cita.",
+        )
+        self.assertContains(response, "Pon tu agenda en marcha")
+
     def test_service_list_only_scrolls_when_more_than_five_services_are_available(self):
         services_to_pause = list(
             self.business.services.filter(is_active=True)

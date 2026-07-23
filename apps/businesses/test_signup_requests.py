@@ -38,7 +38,7 @@ class BusinessSignupRequestPublicTests(TestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Solicita el alta")
+        self.assertContains(response, "Solicita el acceso")
         self.assertContains(response, "todavía no se crea ninguna cuenta")
         self.assertEqual(response["Cache-Control"], "no-store")
         self.assertEqual(response["Referrer-Policy"], "same-origin")
@@ -269,7 +269,7 @@ class BusinessSignupRequestPublicTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Usa una dirección de correo con formato y dominio válidos")
-        self.assertContains(response, "no se entregan mensajes externos")
+        self.assertContains(response, "envío de correos está desactivado")
         self.assertNotContains(response, "correo real que pueda recibir mensajes")
         self.assertFalse(BusinessSignupRequest.objects.exists())
 
@@ -280,26 +280,26 @@ class BusinessSignupRequestPublicTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.context["form"].fields["email"].help_text,
-            "Lo guardaremos como dato de contacto. En esta demostración académica "
-            "no se entregan mensajes externos.",
+            "Lo guardaremos como dato de contacto. El envío de correos está "
+            "desactivado en este entorno.",
         )
-        self.assertContains(response, "Registra una solicitud de prueba")
-        self.assertContains(response, "la persona responsable la revise")
-        self.assertContains(response, "Registrar solicitud de prueba")
-        self.assertNotContains(response, "Contactamos por el canal que elijas")
-        self.assertNotContains(response, "necesarios para poder responderte")
+        self.assertContains(response, "Cuéntanos cómo es tu negocio")
+        self.assertContains(response, "Revisaremos la solicitud")
+        self.assertContains(response, "Enviar solicitud")
+        self.assertNotContains(response, "solicitud de prueba")
+        self.assertNotContains(response, "superadministrador")
 
     @override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True)
-    def test_signup_form_stays_academic_when_delivery_is_enabled(self):
+    def test_signup_form_uses_natural_product_copy_when_delivery_is_enabled(self):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Registra una solicitud de prueba")
-        self.assertContains(response, "El superadministrador revisa la solicitud")
-        self.assertContains(response, "Si se aprueba, crea el negocio")
-        self.assertContains(response, "Registrar solicitud de prueba")
-        self.assertNotContains(response, "Contactamos por el canal que elijas")
-        self.assertNotContains(response, "necesarios para poder responderte")
+        self.assertContains(response, "Cuéntanos cómo es tu negocio")
+        self.assertContains(response, "Revisamos la solicitud")
+        self.assertContains(response, "recibirás un enlace para activar tu acceso")
+        self.assertContains(response, "Enviar solicitud")
+        self.assertNotContains(response, "solicitud de prueba")
+        self.assertNotContains(response, "superadministrador")
 
     def test_signup_success_copy_is_natural_and_explains_the_next_step(self):
         success_url = reverse("business_signup_request_success")

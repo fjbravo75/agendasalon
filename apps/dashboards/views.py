@@ -247,6 +247,34 @@ def professional_home(request):
         salon_status_label = "Revisar"
         salon_status_text = "Falta completar algún dato antes de agendar con seguridad."
 
+    setup_items = [
+        {
+            "label": "Servicios para reservar",
+            "value": services_count,
+            "ready": services_count > 0,
+            "url": reverse("booking:professional_service_list"),
+            "action_label": "Añadir servicio",
+        },
+        {
+            "label": "Líneas activas",
+            "value": work_lines_count,
+            "ready": work_lines_count > 0,
+            "url": f"{reverse('booking:professional_schedule')}#nueva-linea",
+            "action_label": "Crear línea",
+        },
+        {
+            "label": "Horario cargado",
+            "value": availability_rules_count,
+            "ready": availability_rules_count > 0,
+            "url": f"{reverse('booking:professional_schedule')}#nuevo-horario",
+            "action_label": "Definir horario",
+        },
+    ]
+    primary_setup_item = next(
+        (item for item in setup_items if not item["ready"]),
+        None,
+    )
+
     context = {
         "business": business,
         "is_operational": is_operational,
@@ -276,11 +304,8 @@ def professional_home(request):
         "today_closures_count": today_closures.count() + (1 if day_reason == "festivo_nacional" else 0),
         "clients_count": clients_count,
         "client_accesses_count": client_accesses_count,
-        "setup_items": [
-            {"label": "Servicios para reservar", "value": services_count, "ready": services_count > 0},
-            {"label": "Líneas activas", "value": work_lines_count, "ready": work_lines_count > 0},
-            {"label": "Horario cargado", "value": availability_rules_count, "ready": availability_rules_count > 0},
-        ],
+        "setup_items": setup_items,
+        "primary_setup_item": primary_setup_item,
     }
     return render(request, "professional/home.html", context)
 

@@ -107,7 +107,7 @@ class SuperadminBusinessManagementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(
             response,
-            "En esta demostración académica no se entregan correos externos.",
+            "El envío de correos está desactivado en este entorno.",
             count=1,
         )
         self.assertNotContains(
@@ -195,7 +195,7 @@ class SuperadminBusinessManagementTests(TestCase):
         self.assertContains(response, "el acceso de Laura Demo queda preparado")
         self.assertContains(
             response,
-            "El correo externo de activación está desactivado en esta demostración académica.",
+            "El correo externo de activación está desactivado en este entorno y el enlace no se ha enviado.",
         )
         self.assertNotContains(response, "pendiente de envío")
         self.assertNotContains(response, "ha aceptado el enlace")
@@ -305,7 +305,7 @@ class SuperadminBusinessManagementTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Usa una dirección de correo con formato y dominio válidos")
-        self.assertContains(response, "no se entregan mensajes externos")
+        self.assertContains(response, "envío de correos está desactivado")
         self.assertNotContains(response, "correo real que pueda recibir mensajes")
         self.assertFalse(Business.objects.filter(slug="salon-correo-demo").exists())
 

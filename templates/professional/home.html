@@ -23,9 +23,38 @@
           <span class="ops-status ops-status--warning">Ajustes por completar</span>
         {% endif %}
         <a class="button button--secondary" href="{% url 'booking:professional_agenda' %}">Abrir agenda completa</a>
-        <a class="button" href="{% url 'booking:appointment_assistant' %}">Nueva cita</a>
+        {% if is_operational %}
+          <a class="button" href="{% url 'booking:appointment_assistant' %}">Nueva cita</a>
+        {% elif primary_setup_item %}
+          <a class="button" href="{{ primary_setup_item.url }}">Completar configuración</a>
+        {% endif %}
       </div>
     </header>
+
+    {% if not is_operational %}
+      <section class="ops-onboarding" aria-labelledby="onboarding-title">
+        <div class="ops-onboarding__copy">
+          <span>Primeros pasos</span>
+          <h2 id="onboarding-title">Pon tu agenda en marcha</h2>
+          <p>Completa estos tres ajustes en orden. Cuando estén listos, AgendaSalon podrá calcular huecos y crear citas.</p>
+        </div>
+        <ol class="ops-onboarding__steps">
+          {% for item in setup_items %}
+            <li class="{% if item.ready %}is-ready{% endif %}">
+              <span aria-hidden="true">{% if item.ready %}✓{% else %}{{ forloop.counter }}{% endif %}</span>
+              <div>
+                <strong>{{ item.label }}</strong>
+                {% if item.ready %}
+                  <small>Completado</small>
+                {% else %}
+                  <a href="{{ item.url }}">{{ item.action_label }}</a>
+                {% endif %}
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+      </section>
+    {% endif %}
 
     {% if overdue_appointments_count %}
       <section class="ops-attention" aria-labelledby="pending-appointments-title">
@@ -257,7 +286,11 @@
               <div class="ops-check {% if item.ready %}is-ready{% else %}is-missing{% endif %}">
                 <span></span>
                 <p>{{ item.label }}</p>
-                <strong>{{ item.value }}</strong>
+                {% if item.ready %}
+                  <strong>{{ item.value }}</strong>
+                {% else %}
+                  <a href="{{ item.url }}">{{ item.action_label }}</a>
+                {% endif %}
               </div>
             {% endfor %}
           </div>

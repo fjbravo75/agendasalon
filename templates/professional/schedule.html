@@ -235,7 +235,7 @@
                 </div>
               </article>
             {% empty %}
-              <div class="empty">Todavía no hay próximos festivos nacionales cargados. La plataforma debe actualizar el calendario desde BOE.</div>
+              <div class="empty">Todavía no se han cargado próximos festivos nacionales. La administración de AgendaSalon debe actualizar este calendario.</div>
             {% endfor %}
           </div>
         </section>
@@ -284,7 +284,7 @@
           </div>
         </section>
 
-        <section class="schedule-form-panel" aria-label="{% if editing_availability %}Editar tramo{% else %}Añadir tramo{% endif %}">
+        <section id="nuevo-horario" class="schedule-form-panel" aria-label="{% if editing_availability %}Editar tramo{% else %}Añadir tramo{% endif %}">
           <div class="ops-section-head ops-section-head--compact">
             <div>
               <span>{% if editing_availability %}Editar tramo{% else %}Nuevo tramo{% endif %}</span>
@@ -334,7 +334,7 @@
           </form>
         </section>
 
-        <section class="schedule-form-panel" aria-label="{% if editing_work_line %}Editar línea{% else %}Añadir línea{% endif %}">
+        <section id="nueva-linea" class="schedule-form-panel" aria-label="{% if editing_work_line %}Editar línea{% else %}Añadir línea{% endif %}">
           <div class="ops-section-head ops-section-head--compact">
             <div>
               <span>{% if editing_work_line %}Editar línea{% else %}Nueva línea{% endif %}</span>

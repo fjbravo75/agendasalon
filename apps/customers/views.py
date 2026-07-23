@@ -104,8 +104,8 @@ CLIENT_GENERIC_EMAIL_MESSAGE = (
     "Si los datos corresponden a una cuenta disponible, recibirás un correo en unos minutos."
 )
 CLIENT_DEMO_EMAIL_MESSAGE = (
-    "La solicitud se ha registrado, pero esta demostración académica no entrega "
-    "correos externos. Para recorrer la aplicación, utiliza una cuenta demo."
+    "La solicitud se ha registrado, pero el envío de correos está desactivado "
+    "en este entorno y no se ha enviado ningún enlace."
 )
 CUSTOMER_PRIVACY_UNAVAILABLE_EMAIL_MESSAGE = (
     "Ahora mismo no podemos mostrar la información de privacidad necesaria. "

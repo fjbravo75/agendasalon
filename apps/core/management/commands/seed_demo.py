@@ -638,7 +638,7 @@ class DemoSeeder:
                 None,
                 None,
                 BusinessClosure.ClosureType.LOCAL_HOLIDAY,
-                "Festivo local de demostración (no procede del BOE).",
+                "Festivo local comunicado por el negocio.",
             ),
             (
                 BUSINESS_MARI,
@@ -665,7 +665,7 @@ class DemoSeeder:
                 None,
                 None,
                 BusinessClosure.ClosureType.LOCAL_HOLIDAY,
-                "Festivo local de demostración (no procede del BOE).",
+                "Festivo local comunicado por el negocio.",
             ),
         )
         self.closures = []
