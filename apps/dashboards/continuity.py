@@ -42,9 +42,17 @@ def continuity_snapshot(*, now=None, executions=None):
         "last_destination": latest_success.get_destination_display() if latest_success else None,
         "external_destination": {
             "configured": bool(external_success),
-            "label": "Registrado y verificado" if external_success else "Pendiente de despliegue",
+            "label": (
+                "Registrado y verificado"
+                if external_success
+                else "No previsto en esta demo"
+            ),
         },
-        "schedule": _schedule_payload(),
+        "schedule": _schedule_payload(
+            now=now,
+            latest=latest,
+            latest_success=latest_success,
+        ),
         "integrity_label": (
             "SHA-256 y HMAC verificados"
             if latest_success
@@ -62,13 +70,56 @@ def continuity_snapshot(*, now=None, executions=None):
     }
 
 
-def _schedule_payload():
+def _schedule_payload(*, now, latest, latest_success):
     configured = settings.AGENDA_BACKUP_SCHEDULE_CONFIGURED
+    if not configured:
+        if latest_success:
+            return {
+                "configured": False,
+                "code": "manual",
+                "label": "Copias manuales",
+                "detail": "Hay copias válidas, pero no existe una programación automática activa.",
+            }
+        return {
+            "configured": False,
+            "code": "stopped",
+            "label": "Automatización detenida",
+            "detail": "No hay una programación automática activa ni copias correctas registradas.",
+        }
+    if latest and latest.status == BackupExecution.Status.RUNNING:
+        return {
+            "configured": True,
+            "code": "running",
+            "label": "Copia automática en curso",
+            "detail": "La tarea diaria está ejecutando una copia en este momento.",
+        }
+    if latest and latest.status == BackupExecution.Status.FAILED:
+        return {
+            "configured": True,
+            "code": "attention",
+            "label": "Automatización con incidencias",
+            "detail": "La programación está configurada, pero la última ejecución falló.",
+        }
+    if latest_success:
+        completed_at = latest_success.finished_at or latest_success.started_at
+        if now - completed_at > FRESH_BACKUP_WINDOW:
+            return {
+                "configured": True,
+                "code": "attention",
+                "label": "Automatización necesita revisión",
+                "detail": "La programación está configurada, pero no ha dejado una copia reciente.",
+            }
+        return {
+            "configured": True,
+            "code": "operational",
+            "label": "Automatización diaria operativa",
+            "detail": "La programación está activa y la última copia terminó correctamente.",
+        }
     return {
-        "configured": configured,
-        "label": (
-            "Programación diaria activa" if configured else "Pendiente de programación"
-        ),
+        "configured": True,
+        "code": "pending",
+        "label": "Pendiente de primera copia",
+        "detail": "La programación está configurada, pero todavía no hay una copia correcta.",
     }
 
 
@@ -107,15 +158,15 @@ def _status_payload(*, now, latest, latest_success):
             "code": "verified_local",
             "tone": "neutral",
             "label": "Copia local verificada",
-            "detail": "La copia es válida, pero todavía no consta en un destino externo cifrado.",
+            "detail": "La copia es válida y está conservada dentro del servidor de la demo.",
         }
     return {
         "code": "deployment_pending",
         "tone": "neutral",
         "label": "Preparado para desplegar",
         "detail": (
-            "El procedimiento está probado; la programación y el destino externo "
-            "se cerrarán durante el despliegue."
+            "El procedimiento está preparado, pero todavía no hay una copia "
+            "correcta registrada en este entorno."
         ),
     }
 

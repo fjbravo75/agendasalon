@@ -24,6 +24,7 @@ readonly DAILY_REFRESH_TIMER_UNIT="agendasalon-demo-refresh.timer"
 readonly MANUAL_DISPATCH_TIMER_UNIT="agendasalon-demo-refresh-dispatch.timer"
 readonly BACKUP_TIMER_UNIT="backup-agendasalon.timer"
 readonly -a REQUIRED_TIMER_UNITS=(
+  "${BACKUP_TIMER_UNIT}"
   "agendasalon-registration-purge.timer"
   "agendasalon-session-cleanup.timer"
   "check-agendasalon-backup.timer"
@@ -33,6 +34,7 @@ readonly -a GUARDED_ONESHOT_UNITS=(
   "agendasalon-registration-purge.service"
   "agendasalon-session-cleanup.service"
   "backup-agendasalon.service"
+  "backup-agendasalon-canonical.service"
   "check-agendasalon-backup.service"
 )
 
@@ -131,8 +133,6 @@ runtime_timers_are_safe() {
   systemctl is-active --quiet "${DAILY_REFRESH_TIMER_UNIT}" && daily_active=1
   systemctl is-enabled --quiet "${DAILY_REFRESH_TIMER_UNIT}" && daily_enabled=1
   [[ "${daily_active}" == "${daily_enabled}" ]] || return 1
-  timer_has_exact_state "${BACKUP_TIMER_UNIT}" 0 || return 1
-
   for unit in "${GUARDED_ONESHOT_UNITS[@]}"; do
     systemctl is-failed --quiet "${unit}" && return 1
   done

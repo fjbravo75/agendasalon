@@ -148,7 +148,10 @@ function ContinuitySummary({ continuity }) {
         </div>
         <div>
           <dt>Automatización</dt>
-          <dd>{continuity.schedule.label}</dd>
+          <dd>
+            <strong>{continuity.schedule.label}</strong>
+            <small>{continuity.schedule.detail}</small>
+          </dd>
         </div>
       </dl>
     </section>

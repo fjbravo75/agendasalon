@@ -403,8 +403,10 @@ aplica únicamente después de verificar todas las copias gestionadas. Un segund
 temporizador falla si no existe una copia auténtica, íntegra y con menos de 36
 horas, y una vigilancia local informa a Fran ante fallos o poco espacio. Estas
 medidas quedaron verificadas sobre el Droplet el 14 de julio de 2026. El destino
-externo cifrado continúa pendiente; por tanto, la continuidad externa todavía
-no está cerrada.
+externo cifrado se excluye deliberadamente del alcance de la demo académica. La
+continuidad local puede considerarse operativa cuando el temporizador diario y
+la copia reciente estén comprobados; la continuidad externa sigue siendo un
+requisito previo para cualquier explotación comercial.
 
 ## Protección y minimización de datos
 
@@ -610,7 +612,7 @@ funcional `ed07e8e1d47eb55620df297636cd26ee10fe25c3`.
 | HTTPS público | Cerrado para la demo | Certificado válido, redirección HTTP, cabeceras, acceso y reserva comprobados en `agendasalon.brvsoftwarestudio.com` |
 | Terminación TLS del proxy | Cerrado para la demo | Nginx sobrescribe `X-Forwarded-Proto`, Gunicorn solo escucha en socket y Django confía únicamente en el proxy local declarado |
 | Primera ejecución automática del refresco | Retirada del alcance vigente | La demo se regenera solo por solicitud manual protegida; la unidad de las 04:05 se conserva deshabilitada e inactiva |
-| Copias sin destino externo cifrado | Alta para continuidad; bloqueante para explotación comercial | Existen copias autenticadas y la política 7/4/6, pero el temporizador periódico está deshabilitado; falta decidir su reactivación, elegir el destino externo y repetir una restauración desde él |
+| Copias sin destino externo cifrado | Aceptado para la demo; bloqueante para explotación comercial | La demo conserva copias locales autenticadas dentro del droplet con programación diaria, política 7/4/6 y control de frescura; el destino externo se excluye por alcance académico y debe incorporarse antes de un uso comercial |
 | Django Admin accesible desde Internet | Alta | Restringir por red, VPN o IP y usar cuentas técnicas personales con privilegios mínimos |
 | Resolución asistida de citas afectadas por un festivo importado | Cerrada para la demo en P2 | Bandeja profesional privada, agregado superadministrador sin datos personales y confirmación manual idempotente publicados y aceptados en producción |
 | Sin segundo factor para cuentas técnicas | Alta para explotación comercial | Incorporar MFA o proteger el acceso mediante identidad del proveedor o VPN |

@@ -132,13 +132,62 @@ class SuperadminDashboardApiTests(TestCase):
         self.assertEqual(continuity["integrity_label"], "SHA-256 y HMAC verificados")
 
     @override_settings(AGENDA_BACKUP_SCHEDULE_CONFIGURED=True)
-    def test_reports_the_operator_declared_backup_schedule(self):
+    def test_configured_schedule_without_executions_is_pending_first_copy(self):
         self.client.force_login(self.superadmin)
 
         schedule = self.client.get(self.url).json()["continuity"]["schedule"]
 
         self.assertTrue(schedule["configured"])
-        self.assertEqual(schedule["label"], "Programación diaria activa")
+        self.assertEqual(schedule["code"], "pending")
+        self.assertEqual(schedule["label"], "Pendiente de primera copia")
+
+    @override_settings(AGENDA_BACKUP_SCHEDULE_CONFIGURED=True)
+    def test_configured_schedule_is_operational_only_with_a_recent_success(self):
+        BackupExecution.objects.create(
+            status=BackupExecution.Status.SUCCEEDED,
+            finished_at=timezone.now(),
+            integrity_verified=True,
+            authenticity_verified=True,
+        )
+        self.client.force_login(self.superadmin)
+
+        schedule = self.client.get(self.url).json()["continuity"]["schedule"]
+
+        self.assertEqual(schedule["code"], "operational")
+        self.assertEqual(schedule["label"], "Automatización diaria operativa")
+
+    @override_settings(AGENDA_BACKUP_SCHEDULE_CONFIGURED=True)
+    def test_stale_success_never_claims_that_automation_is_operational(self):
+        BackupExecution.objects.create(
+            status=BackupExecution.Status.SUCCEEDED,
+            finished_at=timezone.now() - timedelta(hours=40),
+            integrity_verified=True,
+            authenticity_verified=True,
+        )
+        self.client.force_login(self.superadmin)
+
+        continuity = self.client.get(self.url).json()["continuity"]
+
+        self.assertEqual(continuity["status"]["code"], "stale")
+        self.assertEqual(continuity["schedule"]["code"], "attention")
+        self.assertEqual(
+            continuity["schedule"]["label"],
+            "Automatización necesita revisión",
+        )
+
+    def test_success_without_configured_schedule_is_reported_as_manual(self):
+        BackupExecution.objects.create(
+            status=BackupExecution.Status.SUCCEEDED,
+            finished_at=timezone.now(),
+            integrity_verified=True,
+            authenticity_verified=True,
+        )
+        self.client.force_login(self.superadmin)
+
+        schedule = self.client.get(self.url).json()["continuity"]["schedule"]
+
+        self.assertEqual(schedule["code"], "manual")
+        self.assertEqual(schedule["label"], "Copias manuales")
 
     def test_pending_closure_is_a_professional_task_not_a_fake_completed_appointment(self):
         client = BusinessClient.objects.create(

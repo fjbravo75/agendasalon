@@ -142,6 +142,7 @@ authorize_only_the_canonical_backup() {
     agendasalon-email.service \
     agendasalon-registration-purge.service \
     agendasalon-session-cleanup.service \
+    backup-agendasalon.service \
     check-agendasalon-backup.service; do
     unit_state="$(systemctl is-active "${unit}" 2>/dev/null || true)"
     case "${unit_state}" in

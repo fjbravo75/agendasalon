@@ -54,7 +54,9 @@ perfil por defecto y detienen el arranque cuando falta alguna de estas variables
 
 `AGENDA_BACKUP_SCHEDULE_CONFIGURED=1` declara en el panel que el operador ha
 instalado y comprobado la programación. No activa ninguna tarea por sí solo y no
-debe usarse si el temporizador real no está habilitado.
+debe usarse si el temporizador real no está habilitado. Aunque valga `1`, la
+interfaz solo presenta la automatización como operativa cuando existe además una
+copia correcta dentro del margen de frescura de 36 horas.
 
 La configuración legal se elige de forma explícita:
 
@@ -103,13 +105,13 @@ desbordamiento horizontal. HTTP redirige a HTTPS y las cabeceras CSP, HSTS,
 `Permissions-Policy`, CORP, COOP, `nosniff` y política de referencia están
 presentes.
 
-El 14 de julio de 2026 se creó una primera copia local autenticada y verificada
-de PostgreSQL y medios y se habilitó históricamente
-`backup-agendasalon.timer`. La política 7/4/6 y la comprobación de frescura
-siguen implementadas, pero en el estado final de esta aceptación el temporizador
-de copias está deshabilitado e inactivo. No se presenta, por tanto, como una
-protección automática vigente. El destino externo cifrado continúa pendiente y
-la continuidad completa no se declara cerrada.
+Las copias ordinarias se guardan dentro del droplet en
+`/var/backups/agendasalon`. `backup-agendasalon.timer` programa una ejecución
+diaria, la unidad aplica la política 7/4/6 y
+`check-agendasalon-backup.timer` comprueba que no transcurran más de 36 horas sin
+una copia válida. El destino externo cifrado queda deliberadamente fuera del
+alcance de esta demo académica; sería obligatorio revisar esta decisión antes de
+una explotación comercial.
 
 La base de datos de producción debe ser PostgreSQL. Formato esperado:
 
@@ -138,13 +140,16 @@ contra datos reales. El proceso solo continúa si coinciden todas estas barreras
 
 La unidad root `agendasalon-demo-refresh.service` ejecuta el orquestador
 versionado `ops/run_demo_refresh.sh`. Este verifica la última copia canónica
-existente, detiene Gunicorn y los temporizadores capaces de escribir, mueve los
-medios a una cuarentena reversible y baja privilegios antes de llamar a Django.
-La limpieza y la siembra se realizan dentro de una transacción con bloqueos
-PostgreSQL. Tras confirmar el recibo y el escenario, crea y verifica una nueva
-copia canónica limpia. El correo usa un backend nulo durante todo el proceso. Si
-base de datos y medios no quedan reconciliados, la aplicación no se reabre como
-si el refresco hubiera terminado bien.
+existente, captura el estado de todos los temporizadores —incluido el de copias—,
+detiene Gunicorn y los escritores y crea una copia canónica nueva antes de tocar
+los datos. Después mueve los medios a una cuarentena reversible y baja
+privilegios antes de llamar a Django. La limpieza y la siembra se realizan dentro
+de una transacción con bloqueos PostgreSQL. Tras confirmar el recibo y el
+escenario, crea y verifica otra copia canónica con la demo ya limpia y repone
+exactamente el estado previo de Gunicorn y los temporizadores. El correo usa un
+backend nulo durante todo el proceso. Si base de datos y medios no quedan
+reconciliados, la aplicación no se reabre como si el refresco hubiera terminado
+bien.
 
 Se eliminan los datos mutables de producto y cualquier cuenta interna ajena a
 las tres identidades canónicas. Se conservan sus filas de usuario, los documentos
@@ -396,6 +401,8 @@ systemctl is-enabled agendasalon-demo-refresh-dispatch.timer  # enabled
 systemctl is-active agendasalon-demo-refresh-dispatch.timer   # active
 systemctl is-enabled agendasalon-demo-refresh.timer           # disabled
 systemctl is-active agendasalon-demo-refresh.timer            # inactive
+systemctl is-enabled backup-agendasalon.timer                  # enabled
+systemctl is-active backup-agendasalon.timer                   # active
 systemctl list-timers --all agendasalon-demo-refresh-dispatch.timer agendasalon-demo-refresh.timer
 ```
 
@@ -791,11 +798,14 @@ Para la demo del PFM se fija un objetivo inicial y revisable:
 - RPO: hasta 24 horas de datos;
 - RTO: restauración operativa en menos de 2 horas;
 - retención: 7 copias diarias, 4 semanales y 6 mensuales;
-- destino: almacenamiento cifrado distinto del servidor de aplicación;
+- destino de la demo académica: almacenamiento local cifrado dentro del droplet;
 - alcance: base de datos PostgreSQL y directorio `media`.
 
-Antes de una explotación comercial deben revisarse estos valores según volumen,
-coste y compromisos con clientes.
+La copia cifrada fuera del droplet no se implementa en este PFM porque exigiría
+una infraestructura externa de almacenamiento y custodia que no aporta valor
+proporcional a la demo. Antes de una explotación comercial sí debe incorporarse
+un segundo destino independiente y revisarse estos valores según volumen, coste
+y compromisos con clientes.
 
 Los contadores de intentos fallidos se conservan de forma seudonimizada. La
 tarea operativa diaria debe retirar los que lleven 30 días inactivos:
@@ -813,7 +823,7 @@ de PostgreSQL instaladas:
 python manage.py backup_agendasalon \
   --backup-root /var/backups/agendasalon \
   --media-root /var/www/agendasalon/shared/media \
-  --destination external_encrypted
+  --destination local
 
 python -m ops.backup_restore verify \
   --backup-dir /var/backups/agendasalon/agendasalon-AAAAMMDDTHHMMSSZ
@@ -821,11 +831,11 @@ python -m ops.backup_restore verify \
 
 El comando de Django reutiliza el motor operativo, verifica la copia antes de
 cerrar la ejecución y registra metadatos seguros para el panel
-`/superadmin/continuidad/`. `--destination external_encrypted` declara que la
-automatización ha replicado o replicará el conjunto en el almacenamiento externo
-cifrado definido por el despliegue; no realiza por sí solo esa transferencia.
-Hasta que esa integración exista debe usarse `--destination local` y el panel
-seguirá mostrando que el destino externo está pendiente.
+`/superadmin/continuidad/`. La demo usa `--destination local` y el panel explica
+de forma explícita que un destino externo no está previsto en este alcance.
+`--destination external_encrypted` solo puede usarse si la raíz pertenece
+realmente a un almacenamiento externo cifrado; no realiza por sí solo una
+transferencia.
 
 El registro conserva solo estado, tiempos, alcance, resultado de integridad,
 tamaño y un código de fallo controlado. No guarda rutas de artefactos,
@@ -841,11 +851,13 @@ Cada copia contiene:
   HMAC-SHA-256 anclada en una clave que no se almacena junto a la copia.
 
 La copia local solo se considera válida si el comando de verificación termina
-correctamente. La continuidad solo se considera protegida cuando, además, el
-conjunto se replica y se comprueba en un destino externo cifrado.
+correctamente. Para la demo, la continuidad local se considera operativa cuando
+la tarea diaria está activa y existe una copia autenticada dentro del margen de
+36 horas. Un uso comercial exigiría además replicar y comprobar el conjunto en
+un destino externo cifrado.
 
-Cuando se habilita, `backup-agendasalon.timer` ejecuta la copia al menos una vez
-cada 24 horas. Su `ExecStartPost` aplica la retención de 7 representantes diarios, 4
+`backup-agendasalon.timer` ejecuta la copia al menos una vez cada 24 horas. Su
+`ExecStartPost` aplica la retención de 7 representantes diarios, 4
 semanales y 6 mensuales. Antes de seleccionar o borrar, verifica con HMAC y
 SHA-256 todas las carpetas gestionadas; si encuentra una anomalía, falla sin
 borrar ninguna. La simulación sin borrado es:
@@ -864,6 +876,13 @@ por esa retención. Los hitos que deban sobrevivir a la selección 7/4/6 se
 guardan en `/var/backups/agendasalon-protected`, fuera del patrón gestionado,
 con directorios `root:root` `0700` y archivos `root:root` `0600`. No se eliminan
 automáticamente: cada uno requiere verificación y autorización expresa.
+
+La regeneración utiliza una unidad distinta,
+`backup-agendasalon-canonical.service`, y la raíz
+`/var/backups/agendasalon-demo-canonical`. Conserva una sola generación y solo
+puede ejecutarse dentro de la ventana fría autorizada por el orquestador. Así el
+reset no borra las copias ordinarias, no mezcla sus políticas de retención y no
+deja apagada la programación diaria.
 
 Esta separación se fijó después de una incidencia controlada durante P2. Una
 copia nueva se creó y verificó, pero `ExecStartPost` no pudo retirar un hito P1

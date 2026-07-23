@@ -1,5 +1,5 @@
 [Unit]
-Description=AgendaSalon local authenticated backup
+Description=AgendaSalon cold canonical demo backup
 After=postgresql.service
 Requires=postgresql.service
 
@@ -10,8 +10,8 @@ Group=www-data
 WorkingDirectory=/var/www/agendasalon/app
 EnvironmentFile=/etc/agendasalon/agendasalon.env
 UMask=0077
-ExecStart=/var/www/agendasalon/.venv/bin/python /var/www/agendasalon/app/manage.py backup_agendasalon --backup-root /var/backups/agendasalon --media-root /var/www/agendasalon/shared/media --destination local
-ExecStartPost=/var/www/agendasalon/.venv/bin/python -m ops.backup_restore retention --backup-root /var/backups/agendasalon --daily 7 --weekly 4 --monthly 6 --apply
+ExecStart=/var/www/agendasalon/.venv/bin/python /var/www/agendasalon/app/manage.py backup_agendasalon --backup-root /var/backups/agendasalon-demo-canonical --media-root /var/www/agendasalon/shared/media --destination local
+ExecStartPost=/var/www/agendasalon/.venv/bin/python -m ops.backup_restore retention --backup-root /var/backups/agendasalon-demo-canonical --daily 1 --weekly 1 --monthly 1 --apply
 TimeoutStartSec=15min
 NoNewPrivileges=true
 PrivateTmp=true
@@ -26,4 +26,4 @@ RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 ReadOnlyPaths=/var/www/agendasalon/app /var/www/agendasalon/shared/media
-ReadWritePaths=/var/backups/agendasalon
+ReadWritePaths=/var/backups/agendasalon-demo-canonical
