@@ -301,7 +301,7 @@ class BusinessSignupRequestPublicTests(TestCase):
         self.assertNotContains(response, "Contactamos por el canal que elijas")
         self.assertNotContains(response, "necesarios para poder responderte")
 
-    def test_signup_success_copy_stays_academic_with_or_without_delivery(self):
+    def test_signup_success_copy_is_natural_and_explains_the_next_step(self):
         success_url = reverse("business_signup_request_success")
 
         with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=False):
@@ -309,14 +309,33 @@ class BusinessSignupRequestPublicTests(TestCase):
         with override_settings(AGENDA_TRANSACTIONAL_EMAIL_ENABLED=True):
             delivery_page = self.client.get(success_url)
 
-        self.assertContains(demo_page, "Flujo académico completado")
-        self.assertContains(demo_page, "La solicitud ha quedado registrada")
-        self.assertContains(demo_page, "Todavía no se ha creado ninguna cuenta")
-        self.assertNotContains(demo_page, "contactaremos contigo")
-        self.assertContains(delivery_page, "Flujo académico completado")
-        self.assertContains(delivery_page, "La solicitud ha quedado registrada")
-        self.assertContains(delivery_page, "Todavía no se ha creado ninguna cuenta")
-        self.assertNotContains(delivery_page, "contactaremos contigo")
+        for page in (demo_page, delivery_page):
+            self.assertContains(page, "Hemos recibido tu solicitud")
+            self.assertContains(page, "¿Qué ocurre ahora?")
+            self.assertContains(
+                page,
+                "contactaremos contigo por el canal que has indicado",
+            )
+            self.assertContains(page, "para valorar el alta del negocio")
+            self.assertContains(page, "Por ahora no necesitas hacer nada más")
+            self.assertContains(page, "Tu cuenta todavía no se ha creado")
+            self.assertContains(page, reverse("home"))
+            self.assertContains(page, "Volver a AgendaSalon")
+            self.assertNotContains(page, "Flujo académico")
+            self.assertNotContains(page, "Solicitud de prueba")
+            self.assertNotContains(page, "datos de demostración")
+            self.assertNotContains(page, "superadministrador")
+            self.assertNotContains(page, "Volver al acceso profesional")
+
+        self.assertContains(
+            demo_page,
+            "Te indicaremos cómo crear tu contraseña y activar la cuenta",
+        )
+        self.assertNotContains(demo_page, "Recibirás en el correo facilitado")
+        self.assertContains(
+            delivery_page,
+            "Recibirás en el correo facilitado un enlace para crear tu contraseña y activar la cuenta",
+        )
 
     def test_repeated_identical_request_is_idempotent_for_the_professional(self):
         first_response = self.client.post(self.url, self.valid_data)

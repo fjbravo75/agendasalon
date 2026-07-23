@@ -14,20 +14,34 @@
       </div>
 
       <div class="business-signup-intro">
-        <span class="business-signup-eyebrow">Flujo académico completado</span>
-        <h1>La solicitud ha quedado registrada.</h1>
-        <p>Ya puede revisarse desde la supervisión de AgendaSalon. Todavía no se ha creado ninguna cuenta.</p>
+        <span class="business-signup-eyebrow">Solicitud recibida</span>
+        <h1>Hemos recibido tu solicitud.</h1>
+        <p>Gracias por interesarte en AgendaSalon. Revisaremos los datos que nos has enviado. Si necesitamos completar alguna información, contactaremos contigo por el canal que has indicado.</p>
       </div>
 
-      <aside class="login-panel business-signup-panel business-signup-success" aria-labelledby="signup-success-title">
+      <section class="login-panel business-signup-panel business-signup-success" aria-labelledby="signup-success-title">
         <div class="login-panel__inner">
           <span class="business-signup-success__mark" aria-hidden="true">✓</span>
-          <span>Solicitud de prueba registrada</span>
-          <h2 id="signup-success-title">El flujo continúa en administración.</h2>
-          <p>La información se conserva como datos de demostración para revisar el proceso. El superadministrador decidirá si crea el negocio y envía su activación.</p>
-          <a class="login-button" href="{% url 'accounts:login' %}">Volver al acceso profesional</a>
+          <span>Envío completado</span>
+          <h2 id="signup-success-title">¿Qué ocurre ahora?</h2>
+          <ol class="business-signup-success__steps">
+            <li>
+              <strong>Revisaremos los datos del negocio</strong>
+              <span>Comprobaremos la información recibida para valorar el alta del negocio.</span>
+            </li>
+            <li>
+              <strong>Si aprobamos la solicitud</strong>
+              {% if transactional_email_enabled %}
+                <span>Recibirás en el correo facilitado un enlace para crear tu contraseña y activar la cuenta.</span>
+              {% else %}
+                <span>Te indicaremos cómo crear tu contraseña y activar la cuenta.</span>
+              {% endif %}
+            </li>
+          </ol>
+          <p class="business-signup-success__note"><strong>Por ahora no necesitas hacer nada más.</strong> Tu cuenta todavía no se ha creado.</p>
+          <a class="login-button" href="{% url 'home' %}">Volver a AgendaSalon</a>
         </div>
-      </aside>
+      </section>
     </section>
   </div>
 {% endblock %}
