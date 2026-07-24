@@ -12,13 +12,22 @@
       </div>
       <div class="professional-dashboard__actions">
         <a class="button button--secondary" href="{% url 'businesses:superadmin_signup_request_list' %}">Volver a solicitudes</a>
-        {% if not is_converted and signup_request.status != "dismissed" %}
+        {% if not is_converted and signup_request.status != "dismissed" and not identity_conflicts.any %}
           <a class="button" href="{% url 'businesses:superadmin_business_create' %}?solicitud={{ signup_request.pk }}">Convertir en negocio</a>
         {% elif signup_request.converted_business %}
           <a class="button" href="{% url 'businesses:superadmin_business_detail' signup_request.converted_business.pk %}">Ver negocio creado</a>
         {% endif %}
       </div>
     </header>
+
+    {% if identity_conflicts.any %}
+      <div class="alert signup-identity-warning" role="alert">
+        <strong>Esta solicitud no se puede convertir ahora.</strong>
+        El correo, el teléfono o ambos ya están vinculados a otro acceso o a
+        otra solicitud abierta. No cambies esos datos por tu cuenta: contacta
+        con la persona solicitante y confirma cómo quiere continuar.
+      </div>
+    {% endif %}
 
     <div class="signup-request-detail-grid">
       <section class="saas-side-panel signup-request-detail-card">

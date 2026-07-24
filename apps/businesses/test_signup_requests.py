@@ -1,11 +1,15 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
+from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from apps.businesses.models import Business, BusinessSignupRequest
+from apps.customers.models import BusinessClient, BusinessClientAccess
 from apps.legal.models import LegalDocument
 from apps.legal.presentations import LEGAL_PRESENTATION_CHANGED_MESSAGE
 from apps.legal.services import platform_legal_context
+from apps.notifications.models import OutboundEmail
 
 
 class BusinessSignupRequestPublicTests(TestCase):
@@ -27,6 +31,28 @@ class BusinessSignupRequestPublicTests(TestCase):
         self.valid_data["legal_presentation_token"] = page.context[
             "legal_presentation_token"
         ]
+
+    def _create_existing_request(self, *, status=BusinessSignupRequest.Status.NEW, **values):
+        privacy_document = LegalDocument.objects.get(
+            kind=LegalDocument.Kind.PLATFORM_PRIVACY,
+            is_active=True,
+        )
+        defaults = {
+            "business_name": "Salón anterior",
+            "business_type": BusinessSignupRequest.BusinessType.BEAUTY_SALON,
+            "city": "Córdoba",
+            "contact_name": "Contacto anterior",
+            "phone": "622 333 444",
+            "email": "anterior@example.com",
+            "preferred_channel": BusinessSignupRequest.PreferredChannel.EMAIL,
+            "privacy_document": privacy_document,
+            "privacy_document_version": privacy_document.version,
+            "privacy_document_hash": privacy_document.content_hash,
+            "privacy_acknowledged_at": privacy_document.published_at,
+            "status": status,
+        }
+        defaults.update(values)
+        return BusinessSignupRequest.objects.create(**defaults)
 
     def test_login_offers_a_path_for_a_new_professional(self):
         response = self.client.get(reverse("accounts:login"))
@@ -75,6 +101,7 @@ class BusinessSignupRequestPublicTests(TestCase):
             is_active=True,
         )
         self.assertEqual(signup_request.normalized_phone, "+34611222333")
+        self.assertEqual(signup_request.email_normalized, "maria@example.com")
         self.assertEqual(signup_request.privacy_document, privacy_document)
         self.assertEqual(signup_request.privacy_document_version, privacy_document.version)
         self.assertEqual(signup_request.privacy_document_hash, privacy_document.content_hash)
@@ -83,6 +110,109 @@ class BusinessSignupRequestPublicTests(TestCase):
             platform_legal_context(),
         )
         self.assertIsNotNone(signup_request.privacy_acknowledged_at)
+
+    def test_existing_internal_email_blocks_the_request_without_notice(self):
+        get_user_model().objects.create_user(
+            normalized_phone="+34699000101",
+            phone="+34699000101",
+            email="MARIA@example.com",
+            password=None,
+            full_name="Profesional existente",
+        )
+
+        response = self.client.post(
+            self.url,
+            {**self.valid_data, "phone": "699 000 102"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "No podemos usar este correo para una nueva alta",
+        )
+        self.assertContains(response, 'aria-invalid="true"')
+        self.assertContains(response, 'aria-describedby="id_email-error"')
+        self.assertContains(response, reverse("accounts:login"))
+        self.assertContains(response, reverse("platform_contact"))
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+        self.assertFalse(OutboundEmail.objects.exists())
+
+    def test_existing_internal_phone_blocks_the_request(self):
+        get_user_model().objects.create_user(
+            normalized_phone="+34611222333",
+            phone="+34611222333",
+            email="otra@example.com",
+            password=None,
+            full_name="Profesional existente",
+        )
+
+        response = self.client.post(
+            self.url,
+            {**self.valid_data, "email": "maria.nueva@example.com"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "No podemos usar este teléfono para una nueva alta",
+        )
+        self.assertContains(response, 'aria-describedby="id_phone-error"')
+        self.assertFalse(BusinessSignupRequest.objects.exists())
+
+    def test_open_request_reserves_its_email_and_phone(self):
+        self._create_existing_request(
+            phone=self.valid_data["phone"],
+            email=self.valid_data["email"],
+        )
+
+        response = self.client.post(self.url, self.valid_data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "No podemos usar este correo para una nueva alta",
+        )
+        self.assertContains(
+            response,
+            "No podemos usar este teléfono para una nueva alta",
+        )
+        self.assertEqual(BusinessSignupRequest.objects.count(), 1)
+
+    def test_dismissed_request_releases_its_identity(self):
+        self._create_existing_request(
+            status=BusinessSignupRequest.Status.DISMISSED,
+            phone=self.valid_data["phone"],
+            email=self.valid_data["email"],
+        )
+
+        response = self.client.post(self.url, self.valid_data)
+
+        self.assertRedirects(response, reverse("business_signup_request_success"))
+        self.assertEqual(BusinessSignupRequest.objects.count(), 2)
+
+    def test_customer_identity_does_not_block_a_professional_request(self):
+        business = Business.objects.create(
+            commercial_name="Salón Cliente",
+            slug="salon-cliente",
+        )
+        client_record = BusinessClient.objects.create(
+            business=business,
+            full_name="María Cliente",
+            phone=self.valid_data["phone"],
+            email=self.valid_data["email"],
+        )
+        BusinessClientAccess.objects.create(
+            business=business,
+            business_client=client_record,
+            phone=self.valid_data["phone"],
+            email=self.valid_data["email"],
+            password_hash=make_password("ClienteSegura!2026"),
+        )
+
+        response = self.client.post(self.url, self.valid_data)
+
+        self.assertRedirects(response, reverse("business_signup_request_success"))
+        self.assertEqual(BusinessSignupRequest.objects.count(), 1)
 
     def test_privacy_acknowledgement_is_required(self):
         data = {**self.valid_data}
@@ -337,25 +467,45 @@ class BusinessSignupRequestPublicTests(TestCase):
             "Recibirás en el correo facilitado un enlace para crear tu contraseña y activar la cuenta",
         )
 
-    def test_repeated_identical_request_is_idempotent_for_the_professional(self):
+    def test_repeated_identical_request_is_blocked_by_the_open_identity(self):
         first_response = self.client.post(self.url, self.valid_data)
         second_response = self.client.post(self.url, self.valid_data)
 
         self.assertEqual(first_response.status_code, 302)
-        self.assertEqual(second_response.status_code, 302)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertContains(
+            second_response,
+            "No podemos usar este correo para una nueva alta",
+        )
+        self.assertContains(second_response, "contacta con AgendaSalon")
         self.assertEqual(BusinessSignupRequest.objects.count(), 1)
 
     def test_rate_limit_blocks_a_fourth_daily_submission_for_the_same_phone(self):
+        get_user_model().objects.create_user(
+            normalized_phone="+34611222333",
+            phone="+34611222333",
+            email="cuenta-existente@example.com",
+            password=None,
+            full_name="Profesional existente",
+        )
         for index in range(3):
             response = self.client.post(
                 self.url,
-                {**self.valid_data, "business_name": f"Peluquería Azahar {index}"},
+                {
+                    **self.valid_data,
+                    "business_name": f"Peluquería Azahar {index}",
+                    "email": f"maria{index}@example.com",
+                },
             )
-            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.status_code, 200)
 
         response = self.client.post(
             self.url,
-            {**self.valid_data, "business_name": "Peluquería Azahar 4"},
+            {
+                **self.valid_data,
+                "business_name": "Peluquería Azahar 4",
+                "email": "maria4@example.com",
+            },
         )
 
         self.assertEqual(response.status_code, 429)
@@ -463,6 +613,60 @@ class BusinessSignupRequestSuperadminTests(TestCase):
         self.assertEqual(self.signup_request.converted_business, business)
         self.assertEqual(self.signup_request.handled_by, self.superadmin)
         self.assertIsNotNone(self.signup_request.converted_at)
+
+    def test_request_that_now_collides_with_an_account_cannot_be_converted(self):
+        get_user_model().objects.create_user(
+            normalized_phone="+34622000111",
+            phone="+34622000111",
+            email=self.signup_request.email,
+            password=None,
+            full_name="Profesional ya registrada",
+        )
+        self.client.force_login(self.superadmin)
+
+        detail_response = self.client.get(
+            reverse(
+                "businesses:superadmin_signup_request_detail",
+                args=[self.signup_request.pk],
+            )
+        )
+        conversion_url = (
+            f"{reverse('businesses:superadmin_business_create')}"
+            f"?solicitud={self.signup_request.pk}"
+        )
+
+        self.assertContains(
+            detail_response,
+            "Esta solicitud no se puede convertir ahora",
+        )
+        self.assertContains(
+            detail_response,
+            "No cambies esos datos por tu cuenta",
+        )
+        self.assertNotContains(detail_response, conversion_url)
+
+        response = self.client.get(conversion_url, follow=True)
+
+        self.assertContains(response, "Contacta con la persona solicitante")
+        self.assertFalse(Business.objects.filter(slug="peluqueria-azahar").exists())
+
+    def test_database_rejects_two_open_requests_with_the_same_identity(self):
+        duplicate = BusinessSignupRequest(
+            business_name="Otro salón",
+            business_type=BusinessSignupRequest.BusinessType.BEAUTY_SALON,
+            city="Córdoba",
+            contact_name="Otra persona",
+            phone=self.signup_request.phone,
+            email=self.signup_request.email,
+            preferred_channel=BusinessSignupRequest.PreferredChannel.EMAIL,
+            privacy_document=self.signup_request.privacy_document,
+            privacy_document_version=self.signup_request.privacy_document_version,
+            privacy_document_hash=self.signup_request.privacy_document_hash,
+            privacy_acknowledged_at=self.signup_request.privacy_acknowledged_at,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            duplicate.save()
 
     def test_converted_request_cannot_be_converted_twice(self):
         business = Business.objects.create(

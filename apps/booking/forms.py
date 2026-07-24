@@ -13,6 +13,7 @@ from apps.booking.models import (
     WorkLine,
 )
 from apps.customers.models import BusinessClient
+from apps.customers.services import get_client_merge_candidates
 
 
 SERVICE_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -126,17 +127,37 @@ class AppointmentSearchForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.business = business
         self.slot_interval_minutes = _slot_interval_minutes(business)
-        self.fields["business_client"].queryset = BusinessClient.objects.filter(
-            business=business,
-            is_active=True,
-        ).order_by("full_name", "pk")
+        merge_candidates = get_client_merge_candidates(business=business)
+        merge_candidate_ids = {
+            client_id
+            for candidate in merge_candidates
+            for client_id in (
+                candidate.professional_client.pk,
+                candidate.online_client.pk,
+            )
+        }
+        self.has_client_merge_candidates = bool(merge_candidates)
+        self.fields["business_client"].queryset = (
+            BusinessClient.objects.select_related("access")
+            .filter(
+                business=business,
+                is_active=True,
+                merged_into__isnull=True,
+            )
+            .exclude(pk__in=merge_candidate_ids)
+            .order_by("full_name", "pk")
+        )
         self.fields["services"].queryset = Service.objects.filter(
             business=business,
             is_active=True,
         ).order_by("display_order", "name", "pk")
-        self.fields["business_client"].label_from_instance = (
-            lambda client: client.full_name
-        )
+        def client_label(client):
+            access = getattr(client, "access", None)
+            if access is not None and access.email_verified_at is not None:
+                return f"{client.full_name} · cuenta online"
+            return f"{client.full_name} · creada en el negocio"
+
+        self.fields["business_client"].label_from_instance = client_label
         self.fields["services"].label_from_instance = (
             lambda service: f"{service.name} - {service.duration_minutes} min"
         )

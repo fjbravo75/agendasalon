@@ -124,6 +124,38 @@
       </div>
     </form>
 
+    <section id="contacto-publico" class="settings-panel platform-contact-settings" aria-labelledby="platform-contact-title">
+      <div class="ops-section-head ops-section-head--compact">
+        <div>
+          <span>Ayuda visible</span>
+          <h2 id="platform-contact-title">Contacto público de AgendaSalon</h2>
+        </div>
+        <a class="appointment-inline-link" href="{% url 'platform_contact' %}">Ver página pública</a>
+      </div>
+      <p class="settings-panel__intro">
+        Estos datos aparecen en la página de contacto y ayudan a resolver
+        incidencias con el alta. Son públicos: utiliza un correo y, si lo deseas,
+        un teléfono preparados para recibir consultas.
+      </p>
+      <form class="platform-contact-form" method="post" action="{% url 'platform_settings:superadmin_platform_contact_update' %}">
+        {% csrf_token %}
+        {{ contact_form.non_field_errors }}
+        <div class="platform-contact-form__fields">
+          {% for field in contact_form %}
+            <div class="field{% if field.errors %} is-error{% endif %}">
+              {{ field.label_tag }}
+              {{ field }}
+              {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+              {{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+        <div class="settings-form__actions">
+          <button class="button" type="submit">Guardar contacto público</button>
+        </div>
+      </form>
+    </section>
+
     <section id="festivos-nacionales" class="settings-panel holiday-settings-panel" aria-labelledby="holiday-settings-title">
       <div class="ops-section-head ops-section-head--compact">
         <div>

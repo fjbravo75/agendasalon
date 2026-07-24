@@ -50,6 +50,36 @@ class BusinessModelTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             BusinessMembership.objects.create(business=self.business, user=self.user)
 
+    def test_professional_account_cannot_belong_to_a_second_business(self):
+        BusinessMembership.objects.create(business=self.business, user=self.user)
+        second_business = Business.objects.create(
+            commercial_name="Peluquería Angustias",
+            slug="peluqueria-angustias",
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BusinessMembership.objects.create(
+                business=second_business,
+                user=self.user,
+            )
+
+    def test_one_business_can_have_multiple_distinct_professional_accounts(self):
+        BusinessMembership.objects.create(business=self.business, user=self.user)
+        second_user = User.objects.create_user(
+            normalized_phone="+34600111009",
+            password="test-pass",
+            full_name="Segunda Profesional",
+            email="segunda-profesional@example.com",
+        )
+
+        second_membership = BusinessMembership.objects.create(
+            business=self.business,
+            user=second_user,
+        )
+
+        self.assertEqual(second_membership.business, self.business)
+        self.assertEqual(self.business.memberships.filter(is_active=True).count(), 2)
+
 
 class BusinessAccessServiceTests(TestCase):
     def test_primary_business_ignores_inactive_memberships(self):

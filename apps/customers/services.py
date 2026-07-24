@@ -13,7 +13,8 @@ from django.db import models
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
-from apps.businesses.models import Business
+from apps.businesses.activity import record_business_activity
+from apps.businesses.models import Business, BusinessActivityEvent, BusinessMembership
 from apps.core.phone import normalize_phone
 from apps.core.text import normalize_search_text
 from apps.customers.models import (
@@ -57,6 +58,458 @@ class PublicRegistrationPurgeResult:
             purged=self.purged + other.purged,
             skipped=self.skipped + other.skipped,
         )
+
+
+@dataclass(frozen=True)
+class ClientMergeCandidate:
+    professional_client: BusinessClient
+    online_client: BusinessClient
+    access: BusinessClientAccess
+    fingerprint: str
+
+
+@dataclass(frozen=True)
+class ClientMergeResult:
+    canonical_client: BusinessClient
+    archived_client: BusinessClient
+    appointments_moved: int
+    notifications_moved: int
+
+
+def _client_email_normalized(client):
+    return (client.email or "").strip().lower()
+
+
+def _client_merge_fingerprint(*, professional_client, online_client, access):
+    identity = "|".join(
+        (
+            str(professional_client.business_id),
+            str(professional_client.pk),
+            str(online_client.pk),
+            professional_client.full_name_normalized,
+            professional_client.phone_normalized,
+            (access.email_normalized or "").strip().lower(),
+        )
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _actor_can_manage_business(actor, business):
+    if not getattr(actor, "is_authenticated", False):
+        return False
+    if actor.is_superuser:
+        return True
+    return BusinessMembership.objects.filter(
+        business=business,
+        user=actor,
+        is_active=True,
+        business__is_active=True,
+    ).exists()
+
+
+def _client_merge_candidate_from_records(
+    *,
+    professional_client,
+    online_client,
+    access,
+    include_dismissed=False,
+):
+    if professional_client.business_id != online_client.business_id:
+        return None
+    if (
+        not professional_client.is_active
+        or professional_client.merged_into_id is not None
+        or professional_client.source != BusinessClient.Source.PROFESSIONAL
+        or not online_client.is_active
+        or online_client.merged_into_id is not None
+        or online_client.source != BusinessClient.Source.OTHER
+        or not access.is_active
+        or access.email_verified_at is None
+        or access.is_pending_public_registration
+        or access.business_client_id != online_client.pk
+    ):
+        return None
+    if BusinessClientAccess.objects.filter(
+        business_client=professional_client
+    ).exists():
+        return None
+
+    normalized_email = (access.email_normalized or "").strip().lower()
+    exact_identity = (
+        bool(professional_client.full_name_normalized)
+        and bool(professional_client.phone_normalized)
+        and bool(normalized_email)
+        and professional_client.full_name_normalized
+        == online_client.full_name_normalized
+        and professional_client.phone_normalized == online_client.phone_normalized
+        and _client_email_normalized(professional_client) == normalized_email
+        and _client_email_normalized(online_client) == normalized_email
+    )
+    if not exact_identity:
+        return None
+
+    fingerprint = _client_merge_fingerprint(
+        professional_client=professional_client,
+        online_client=online_client,
+        access=access,
+    )
+    if (
+        not include_dismissed
+        and online_client.merge_review_dismissed_fingerprint == fingerprint
+    ):
+        return None
+    return ClientMergeCandidate(
+        professional_client=professional_client,
+        online_client=online_client,
+        access=access,
+        fingerprint=fingerprint,
+    )
+
+
+def get_client_merge_candidate(
+    *,
+    business,
+    professional_client_id,
+    online_client_id,
+    include_dismissed=False,
+    lock=False,
+):
+    clients = BusinessClient.objects.select_related(
+        "business",
+        "merged_into",
+    )
+    if lock:
+        clients = clients.select_for_update()
+    records = {
+        client.pk: client
+        for client in clients.filter(
+            business=business,
+            pk__in=(professional_client_id, online_client_id),
+        )
+    }
+    professional_client = records.get(professional_client_id)
+    online_client = records.get(online_client_id)
+    if professional_client is None or online_client is None:
+        return None
+
+    accesses = BusinessClientAccess.objects.select_related("business_client")
+    if lock:
+        accesses = accesses.select_for_update()
+    access = accesses.filter(
+        business=business,
+        business_client=online_client,
+    ).first()
+    if access is None:
+        return None
+    return _client_merge_candidate_from_records(
+        professional_client=professional_client,
+        online_client=online_client,
+        access=access,
+        include_dismissed=include_dismissed,
+    )
+
+
+def get_client_merge_candidates(*, business, include_dismissed=False):
+    professional_by_identity = {}
+    professional_clients = (
+        BusinessClient.objects.filter(
+            business=business,
+            is_active=True,
+            merged_into__isnull=True,
+            source=BusinessClient.Source.PROFESSIONAL,
+            access__isnull=True,
+        )
+        .exclude(phone_normalized="")
+        .order_by("pk")
+    )
+    for client in professional_clients:
+        email_normalized = _client_email_normalized(client)
+        if not email_normalized:
+            continue
+        professional_by_identity[
+            (
+                client.full_name_normalized,
+                client.phone_normalized,
+                email_normalized,
+            )
+        ] = client
+
+    candidates = []
+    online_clients = (
+        BusinessClient.objects.select_related("access")
+        .filter(
+            business=business,
+            is_active=True,
+            merged_into__isnull=True,
+            source=BusinessClient.Source.OTHER,
+            access__is_active=True,
+            access__email_verified_at__isnull=False,
+            access__is_pending_public_registration=False,
+        )
+        .order_by("pk")
+    )
+    for online_client in online_clients:
+        access = online_client.access
+        professional_client = professional_by_identity.get(
+            (
+                online_client.full_name_normalized,
+                online_client.phone_normalized,
+                (access.email_normalized or "").strip().lower(),
+            )
+        )
+        if professional_client is None:
+            continue
+        candidate = _client_merge_candidate_from_records(
+            professional_client=professional_client,
+            online_client=online_client,
+            access=access,
+            include_dismissed=include_dismissed,
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+    return tuple(candidates)
+
+
+def _validate_client_merge_relations(*, professional_client, online_client):
+    owned_contacts = tuple(
+        BusinessClientAuthorizedContact.objects.select_for_update()
+        .filter(business_client=online_client)
+        .order_by("pk")
+    )
+    if any(
+        contact.linked_business_client_id == professional_client.pk
+        for contact in owned_contacts
+    ):
+        raise ValidationError(
+            "Estas fichas tienen una autorización relacionada que debe revisarse antes de unirlas."
+        )
+    if any(
+        contact.is_active and contact.is_primary_contact
+        for contact in owned_contacts
+    ) and BusinessClientAuthorizedContact.objects.select_for_update().filter(
+        business_client=professional_client,
+        is_active=True,
+        is_primary_contact=True,
+    ).exists():
+        raise ValidationError(
+            "Las dos fichas tienen un contacto principal. Revísalos antes de unirlas."
+        )
+
+    linked_contacts = tuple(
+        BusinessClientAuthorizedContact.objects.select_for_update()
+        .filter(linked_business_client=online_client)
+        .order_by("pk")
+    )
+    for contact in linked_contacts:
+        if contact.business_client_id == professional_client.pk:
+            raise ValidationError(
+                "Estas fichas tienen una autorización relacionada que debe revisarse antes de unirlas."
+            )
+        if BusinessClientAuthorizedContact.objects.select_for_update().filter(
+            business_client_id=contact.business_client_id,
+            linked_business_client=professional_client,
+        ).exists():
+            raise ValidationError(
+                "La persona ya figura como autorizada en una de las fichas relacionadas."
+            )
+    return owned_contacts, linked_contacts
+
+
+@transaction.atomic
+def dismiss_client_merge_candidate(
+    *,
+    business,
+    professional_client_id,
+    online_client_id,
+    actor,
+):
+    locked_business = Business.objects.select_for_update().get(pk=business.pk)
+    if not _actor_can_manage_business(actor, locked_business):
+        raise ValidationError("No tienes permiso para revisar estas fichas.")
+    candidate = get_client_merge_candidate(
+        business=locked_business,
+        professional_client_id=professional_client_id,
+        online_client_id=online_client_id,
+        include_dismissed=True,
+        lock=True,
+    )
+    if candidate is None:
+        raise ValidationError("La coincidencia ya no está disponible para revisión.")
+
+    online_client = candidate.online_client
+    online_client.merge_review_dismissed_fingerprint = candidate.fingerprint
+    online_client.merge_review_dismissed_at = timezone.now()
+    online_client.merge_review_dismissed_by = actor
+    online_client.save(
+        update_fields=[
+            "merge_review_dismissed_fingerprint",
+            "merge_review_dismissed_at",
+            "merge_review_dismissed_by",
+            "updated_at",
+        ]
+    )
+    record_business_activity(
+        business=locked_business,
+        category=BusinessActivityEvent.Category.ACCESS,
+        event_type=BusinessActivityEvent.EventType.CLIENT_MERGE_REVIEW_DISMISSED,
+        origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+        summary=f"Coincidencia revisada para {candidate.professional_client.full_name}.",
+        actor=actor,
+        entity=candidate.professional_client,
+        entity_type="business_client",
+        changes={
+            "professional_client_id": candidate.professional_client.pk,
+            "online_client_id": online_client.pk,
+        },
+    )
+    return candidate
+
+
+@transaction.atomic
+def merge_client_records(
+    *,
+    business,
+    professional_client_id,
+    online_client_id,
+    actor,
+):
+    locked_business = Business.objects.select_for_update().get(pk=business.pk)
+    if not _actor_can_manage_business(actor, locked_business):
+        raise ValidationError("No tienes permiso para unificar estas fichas.")
+    candidate = get_client_merge_candidate(
+        business=locked_business,
+        professional_client_id=professional_client_id,
+        online_client_id=online_client_id,
+        include_dismissed=True,
+        lock=True,
+    )
+    if candidate is None:
+        raise ValidationError("Las fichas ya no cumplen las condiciones para unificarse.")
+
+    professional_client = candidate.professional_client
+    online_client = candidate.online_client
+    access = candidate.access
+    owned_contacts, linked_contacts = _validate_client_merge_relations(
+        professional_client=professional_client,
+        online_client=online_client,
+    )
+
+    for contact in owned_contacts:
+        if (
+            contact.linked_business_client_id
+            and BusinessClientAuthorizedContact.objects.select_for_update().filter(
+                business_client=professional_client,
+                linked_business_client_id=contact.linked_business_client_id,
+            ).exists()
+        ):
+            raise ValidationError(
+                "Las fichas comparten una persona autorizada. Revísala antes de unirlas."
+            )
+        contact.business_client = professional_client
+        contact.full_clean()
+        contact.save(update_fields=["business_client", "updated_at"])
+
+    for contact in linked_contacts:
+        contact.linked_business_client = professional_client
+        contact.full_name = professional_client.full_name
+        contact.phone = professional_client.phone
+        contact.full_clean()
+        contact.save(
+            update_fields=[
+                "linked_business_client",
+                "full_name",
+                "phone",
+                "phone_normalized",
+                "updated_at",
+            ]
+        )
+
+    grants = tuple(
+        BusinessClientAccessGrant.objects.select_for_update()
+        .filter(business_client=online_client)
+        .order_by("pk")
+    )
+    for grant in grants:
+        existing = (
+            BusinessClientAccessGrant.objects.select_for_update()
+            .filter(
+                access=grant.access,
+                business_client=professional_client,
+            )
+            .exclude(pk=grant.pk)
+            .first()
+        )
+        if existing is not None:
+            if grant.is_active and not existing.is_active:
+                existing.is_active = True
+                existing.save(update_fields=["is_active", "updated_at"])
+            grant.delete()
+            continue
+        grant.business_client = professional_client
+        grant.full_clean()
+        grant.save(update_fields=["business_client", "updated_at"])
+
+    appointments_moved = online_client.appointments.update(
+        business_client=professional_client
+    )
+    notifications_moved = online_client.notifications.update(
+        business_client=professional_client
+    )
+
+    access.business_client = professional_client
+    access.full_clean()
+    access.save(update_fields=["business_client", "updated_at"])
+    ensure_self_booking_grant(access)
+
+    BusinessClientAccessInvitation.objects.select_for_update().filter(
+        business_client=online_client,
+        used_at__isnull=True,
+        revoked_at__isnull=True,
+    ).update(revoked_at=timezone.now())
+
+    online_client.is_active = False
+    online_client.merged_into = professional_client
+    online_client.merged_at = timezone.now()
+    online_client.merged_by = actor
+    online_client.merge_review_dismissed_fingerprint = ""
+    online_client.merge_review_dismissed_at = None
+    online_client.merge_review_dismissed_by = None
+    online_client.full_clean()
+    online_client.save(
+        update_fields=[
+            "is_active",
+            "merged_into",
+            "merged_at",
+            "merged_by",
+            "merge_review_dismissed_fingerprint",
+            "merge_review_dismissed_at",
+            "merge_review_dismissed_by",
+            "updated_at",
+        ]
+    )
+
+    record_business_activity(
+        business=locked_business,
+        category=BusinessActivityEvent.Category.ACCESS,
+        event_type=BusinessActivityEvent.EventType.CLIENT_RECORDS_MERGED,
+        origin=BusinessActivityEvent.Origin.PROFESSIONAL_PANEL,
+        summary=f"Fichas unificadas para {professional_client.full_name}.",
+        actor=actor,
+        entity=professional_client,
+        entity_type="business_client",
+        changes={
+            "canonical_client_id": professional_client.pk,
+            "archived_client_id": online_client.pk,
+            "appointments_moved": appointments_moved,
+            "notifications_moved": notifications_moved,
+        },
+    )
+    return ClientMergeResult(
+        canonical_client=professional_client,
+        archived_client=online_client,
+        appointments_moved=appointments_moved,
+        notifications_moved=notifications_moved,
+    )
 
 
 def _pending_registration_has_unsafe_usage(client, access):
@@ -312,6 +765,7 @@ def get_bookable_clients(access):
         BusinessClient.objects.filter(
             business=access.business,
             is_active=True,
+            merged_into__isnull=True,
         )
         .filter(
             models.Q(pk=access.business_client_id)
@@ -713,6 +1167,7 @@ def create_or_reuse_professional_client(
             phone_normalized=phone_normalized,
             full_name_normalized=name_normalized,
             is_active=True,
+            merged_into__isnull=True,
             source=BusinessClient.Source.PROFESSIONAL,
         )
         .order_by("pk")
@@ -754,6 +1209,7 @@ def update_professional_client(*, client, full_name, phone, email="", internal_n
             phone_normalized=phone_normalized,
             full_name_normalized=name_normalized,
             is_active=True,
+            merged_into__isnull=True,
             source=BusinessClient.Source.PROFESSIONAL,
         ).exclude(pk=client.pk)
     if duplicate_client.exists():

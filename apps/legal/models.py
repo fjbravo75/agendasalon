@@ -546,7 +546,12 @@ class CustomerPrivacyEvidence(models.Model):
         if self.client_access_id:
             if self.client_access.business_id != self.business_id:
                 raise ValidationError({"client_access": "La cuenta debe pertenecer al mismo negocio."})
-            if self.client_access.business_client_id != self.business_client_id:
+            access_matches_current_or_merged_record = (
+                self.client_access.business_client_id == self.business_client_id
+                or self.business_client.merged_into_id
+                == self.client_access.business_client_id
+            )
+            if not access_matches_current_or_merged_record:
                 raise ValidationError({"client_access": "La cuenta debe corresponder a la misma ficha."})
         if self.event_type == self.EventType.ACKNOWLEDGED and not self.client_access_id:
             raise ValidationError({"client_access": "La lectura online debe estar vinculada a una cuenta."})

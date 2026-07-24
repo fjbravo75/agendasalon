@@ -447,6 +447,7 @@ class ProfessionalClientQuickForm(forms.Form):
         self.fields["authorized_business_client"].queryset = BusinessClient.objects.filter(
             business=business,
             is_active=True,
+            merged_into__isnull=True,
         )
 
     def clean_full_name(self):
@@ -703,6 +704,7 @@ class ProfessionalClientQuickForm(forms.Form):
                 pk=selected_client.pk,
                 business=self.business,
                 is_active=True,
+                merged_into__isnull=True,
             )
             .first()
         )
@@ -991,6 +993,7 @@ class ProfessionalAuthorizedContactForm(forms.Form):
         self.fields["linked_business_client"].queryset = BusinessClient.objects.filter(
             business=business,
             is_active=True,
+            merged_into__isnull=True,
         ).exclude(pk=business_client.pk)
 
     def clean_full_name(self):

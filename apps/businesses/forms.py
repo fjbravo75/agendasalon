@@ -3,7 +3,7 @@ from pathlib import Path
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.templatetags.static import static
 from django.utils.text import slugify
 
@@ -14,12 +14,14 @@ from apps.businesses.images import (
     PublicImageProcessingError,
     sanitize_public_image,
 )
+from apps.businesses.identity import professional_identity_conflicts
 from apps.businesses.models import (
     Business,
     BusinessMembership,
     BusinessPublicImage,
     BusinessSignupRequest,
     PlatformLoginImage,
+    PlatformPublicContact,
     PlatformSettings,
 )
 from apps.core.email import normalize_and_validate_routable_email
@@ -31,6 +33,10 @@ DEMO_EMAIL_VALIDATION_MESSAGE = (
     "Usa una dirección de correo con formato y dominio válidos. El envío de "
     "correos está desactivado en este entorno."
 )
+
+
+class ProfessionalIdentityConflict(Exception):
+    """La identidad interna dejó de estar disponible durante el alta."""
 
 
 def _normalize_routable_email(value):
@@ -242,24 +248,42 @@ class ProfessionalCreateForm(forms.Form):
             raise forms.ValidationError("Ya existe una cuenta interna con este correo.")
         return email
 
+    def add_current_identity_conflicts(self):
+        conflicts = professional_identity_conflicts(
+            email=self.data.get("email", ""),
+            phone=self.data.get("phone", ""),
+            include_open_requests=False,
+        )
+        if conflicts.phone and "phone" not in self.errors:
+            self.add_error("phone", "Ya existe una cuenta interna con este teléfono.")
+        if conflicts.email and "email" not in self.errors:
+            self.add_error("email", "Ya existe una cuenta interna con este correo.")
+        return conflicts
+
     def create_professional(self, *, business):
-        user = get_user_model().objects.create_user(
-            normalized_phone=self.normalized_phone,
-            phone=self.cleaned_data["phone"],
-            password=None,
-            full_name=self.cleaned_data["full_name"],
-            email=self.cleaned_data["email"],
-            is_active=False,
-            password_change_required=False,
-            email_verification_required=True,
-        )
-        BusinessMembership.objects.create(
-            business=business,
-            user=user,
-            role=BusinessMembership.Role.PROFESSIONAL_ADMIN,
-            is_active=True,
-        )
-        return user
+        try:
+            with transaction.atomic():
+                user = get_user_model().objects.create_user(
+                    normalized_phone=self.normalized_phone,
+                    phone=self.cleaned_data["phone"],
+                    password=None,
+                    full_name=self.cleaned_data["full_name"],
+                    email=self.cleaned_data["email"],
+                    is_active=False,
+                    password_change_required=False,
+                    email_verification_required=True,
+                )
+                BusinessMembership.objects.create(
+                    business=business,
+                    user=user,
+                    role=BusinessMembership.Role.PROFESSIONAL_ADMIN,
+                    is_active=True,
+                )
+                return user
+        except IntegrityError as exc:
+            if self.add_current_identity_conflicts().any:
+                raise ProfessionalIdentityConflict from exc
+            raise
 
 
 class BusinessSignupRequestForm(forms.ModelForm):
@@ -343,6 +367,7 @@ class BusinessSignupRequestForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.identity_conflict_fields = set()
         if not transactional_email_delivery_enabled():
             self.fields["email"].help_text = (
                 "Lo guardaremos como dato de contacto. El envío de correos está "
@@ -359,6 +384,12 @@ class BusinessSignupRequestForm(forms.ModelForm):
             self.normalized_phone = normalize_phone(phone)
         except ValidationError as exc:
             raise forms.ValidationError(exc.messages) from exc
+        conflicts = professional_identity_conflicts(phone=phone)
+        if conflicts.phone:
+            self.identity_conflict_fields.add("phone")
+            raise forms.ValidationError(
+                "No podemos usar este teléfono para una nueva alta."
+            )
         return phone
 
     def clean_email(self):
@@ -371,6 +402,12 @@ class BusinessSignupRequestForm(forms.ModelForm):
                 )
             raise forms.ValidationError(
                 "Indica un correo para recibir la respuesta y activar el acceso."
+            )
+        conflicts = professional_identity_conflicts(email=email)
+        if conflicts.email:
+            self.identity_conflict_fields.add("email")
+            raise forms.ValidationError(
+                "No podemos usar este correo para una nueva alta."
             )
         return email
 
@@ -396,6 +433,29 @@ class BusinessSignupRequestForm(forms.ModelForm):
                 described_by.append(error_id)
             field.widget.attrs["aria-describedby"] = " ".join(described_by)
             field.widget.attrs["aria-invalid"] = "true"
+
+    @property
+    def has_identity_conflict(self):
+        return bool(self.identity_conflict_fields)
+
+    def add_current_identity_conflicts(self):
+        conflicts = professional_identity_conflicts(
+            email=self.data.get("email", ""),
+            phone=self.data.get("phone", ""),
+        )
+        if conflicts.phone and "phone" not in self.identity_conflict_fields:
+            self.identity_conflict_fields.add("phone")
+            self.add_error(
+                "phone",
+                "No podemos usar este teléfono para una nueva alta.",
+            )
+        if conflicts.email and "email" not in self.identity_conflict_fields:
+            self.identity_conflict_fields.add("email")
+            self.add_error(
+                "email",
+                "No podemos usar este correo para una nueva alta.",
+            )
+        return conflicts
 
 
 class BusinessSignupRequestReviewForm(forms.ModelForm):
@@ -767,3 +827,59 @@ class PlatformVisualSettingsForm(forms.ModelForm):
                     update_fields=["login_image_preset", "updated_by", "updated_at"]
                 )
         return platform_settings
+
+
+class PlatformPublicContactForm(forms.ModelForm):
+    class Meta:
+        model = PlatformPublicContact
+        fields = ("email", "phone")
+        labels = {
+            "email": "Correo público de contacto",
+            "phone": "Teléfono público de contacto (opcional)",
+        }
+        help_texts = {
+            "email": (
+                "Se mostrará públicamente para consultas sobre el acceso a AgendaSalon."
+            ),
+            "phone": (
+                "Se mostrará en la página pública de contacto solo si lo indicas."
+            ),
+        }
+        widgets = {
+            "email": forms.EmailInput(
+                attrs={
+                    "autocomplete": "email",
+                    "placeholder": "Ej. contacto@agendasalon.es",
+                }
+            ),
+            "phone": forms.TelInput(
+                attrs={
+                    "autocomplete": "tel",
+                    "inputmode": "tel",
+                    "placeholder": "Ej. 600 111 001",
+                }
+            ),
+        }
+
+    def clean_email(self):
+        return _normalize_routable_email(self.cleaned_data["email"])
+
+    def clean_phone(self):
+        phone = self.cleaned_data["phone"].strip()
+        if not phone:
+            self.normalized_phone = ""
+            return ""
+        try:
+            self.normalized_phone = normalize_phone(phone)
+        except ValidationError as exc:
+            raise forms.ValidationError(exc.messages) from exc
+        return phone
+
+    def save(self, *, updated_by, commit=True):
+        contact = super().save(commit=False)
+        contact.pk = PlatformPublicContact.SINGLETON_PK
+        contact.updated_by = updated_by
+        contact.phone_normalized = self.normalized_phone
+        if commit:
+            contact.save()
+        return contact

@@ -489,10 +489,16 @@ def customer_privacy_status(
     document=_DOCUMENT_NOT_PROVIDED,
 ):
     business = business_client.business
+    related_client_ids = (
+        business_client.merged_records.values_list("pk", flat=True)
+        if business_client.merged_into_id is None
+        else ()
+    )
+    client_ids = (business_client.pk, *related_client_ids)
     history = tuple(
         CustomerPrivacyEvidenceEvent.objects.filter(
             business=business,
-            business_client=business_client,
+            business_client_id__in=client_ids,
         ).select_related("document", "client_access", "recorded_by")[:12]
     )
     latest_evidence = history[0] if history else None
@@ -523,7 +529,7 @@ def customer_privacy_status(
     current_legal_context = business_legal_snapshot(business)
     matching_evidence = CustomerPrivacyEvidence.objects.filter(
             business=business,
-            business_client=business_client,
+            business_client_id__in=client_ids,
             document=document,
             document_hash_snapshot=document.content_hash,
         )

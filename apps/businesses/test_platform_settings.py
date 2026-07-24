@@ -16,6 +16,7 @@ from apps.businesses.models import (
     Business,
     BusinessMembership,
     PlatformLoginImage,
+    PlatformPublicContact,
     PlatformSettings,
 )
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
@@ -235,6 +236,56 @@ class PlatformSettingsTests(TestCase):
         self.assertContains(response, 'aria-current="page"')
         self.assertContains(response, "Festivos nacionales")
         self.assertContains(response, "Sincronizar con BOE")
+        self.assertContains(response, "Contacto público de AgendaSalon")
+
+    def test_superadmin_can_configure_the_public_contact_page(self):
+        self.client.force_login(self.superadmin)
+
+        response = self.client.post(
+            reverse("platform_settings:superadmin_platform_contact_update"),
+            {
+                "email": "Ayuda@AgendaSalon.es",
+                "phone": "600 990 123",
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, "Los datos públicos de contacto quedan guardados.")
+        contact = PlatformPublicContact.objects.get(
+            pk=PlatformPublicContact.SINGLETON_PK
+        )
+        self.assertEqual(contact.email, "ayuda@agendasalon.es")
+        self.assertEqual(contact.phone_normalized, "+34600990123")
+        self.assertEqual(contact.updated_by, self.superadmin)
+
+        public_response = self.client.get(reverse("platform_contact"))
+        self.assertContains(public_response, "ayuda@agendasalon.es")
+        self.assertContains(public_response, "600 990 123")
+
+    def test_professional_cannot_change_the_platform_public_contact(self):
+        self.client.force_login(self.professional)
+
+        response = self.client.post(
+            reverse("platform_settings:superadmin_platform_contact_update"),
+            {
+                "email": "no-autorizado@example.com",
+                "phone": "600990999",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(PlatformPublicContact.objects.exists())
+
+    @override_settings(
+        AGENDA_PLATFORM_CONTACT_EMAIL="contacto-demo@example.com",
+        AGENDA_PLATFORM_CONTACT_PHONE="600 990 456",
+    )
+    def test_public_contact_has_an_environment_fallback_before_configuration(self):
+        response = self.client.get(reverse("platform_contact"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "contacto-demo@example.com")
+        self.assertContains(response, "600 990 456")
 
     def test_holiday_panel_lists_catalog_and_last_run(self):
         OfficialHoliday.objects.create(

@@ -1674,6 +1674,7 @@ def _lock_public_booking_identity(business, client_access, requested_client_id):
             pk=client_access.business_client_id,
             business=business,
             is_active=True,
+            merged_into__isnull=True,
         )
         .first()
     )
@@ -1721,6 +1722,7 @@ def _lock_public_booking_identity(business, client_access, requested_client_id):
             pk=requested_client_id,
             business=business,
             is_active=True,
+            merged_into__isnull=True,
         )
         .first()
     )

@@ -140,6 +140,13 @@
           <div class="assistant-field-grid">
             <div class="field">
               <label for="{{ form.business_client.id_for_label }}">Cliente <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden"> (obligatorio)</span></label>
+              {% if form.has_client_merge_candidates %}
+                <p class="client-merge-notice">
+                  Hay fichas coincidentes pendientes de revisión y, para evitar citas separadas,
+                  no aparecen aquí hasta que las confirmes.
+                  <a href="{% url 'customers:professional_client_list' %}">Revisar clientes</a>
+                </p>
+              {% endif %}
               {{ form.business_client }}
               {% if request.method == "POST" %}{{ form.business_client.errors }}{% endif %}
             </div>

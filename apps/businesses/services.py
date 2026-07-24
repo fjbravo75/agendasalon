@@ -1,6 +1,13 @@
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.templatetags.static import static
 
-from apps.businesses.models import BusinessMembership, PlatformSettings
+from apps.businesses.models import (
+    BusinessMembership,
+    PlatformPublicContact,
+    PlatformSettings,
+)
+from apps.core.phone import normalize_phone
 
 
 def get_active_memberships_for_user(user):
@@ -69,6 +76,27 @@ def get_platform_settings():
         .filter(pk=PlatformSettings.SINGLETON_PK)
         .first()
         or PlatformSettings(pk=PlatformSettings.SINGLETON_PK)
+    )
+
+
+def get_platform_public_contact():
+    contact = PlatformPublicContact.objects.filter(
+        pk=PlatformPublicContact.SINGLETON_PK
+    ).first()
+    if contact is not None:
+        return contact
+
+    phone = getattr(settings, "AGENDA_PLATFORM_CONTACT_PHONE", "").strip()
+    try:
+        phone_normalized = normalize_phone(phone) if phone else ""
+    except ValidationError:
+        phone = ""
+        phone_normalized = ""
+    return PlatformPublicContact(
+        pk=PlatformPublicContact.SINGLETON_PK,
+        email=settings.AGENDA_PLATFORM_CONTACT_EMAIL,
+        phone=phone,
+        phone_normalized=phone_normalized,
     )
 
 

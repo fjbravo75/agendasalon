@@ -74,6 +74,12 @@ def phone_throttle_key(value):
         return str(value or "").strip().lower()
 
 
+def email_throttle_key(value):
+    """Unifica mayúsculas y espacios sin exponer el correo en persistencia."""
+
+    return str(value or "").strip().lower()
+
+
 def throttle_key_digest(value):
     return hmac.new(
         settings.SECRET_KEY.encode("utf-8"),
