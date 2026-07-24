@@ -8226,6 +8226,10 @@ a {
   box-shadow: var(--shadow-xs);
 }
 
+.platform-contact-card--email-only {
+  grid-template-columns: 1fr;
+}
+
 .platform-contact-card > div:not(.platform-contact-card__actions) {
   display: grid;
   gap: 7px;

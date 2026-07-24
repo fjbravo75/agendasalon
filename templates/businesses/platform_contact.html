@@ -14,7 +14,10 @@
       </p>
     </header>
 
-    <section class="platform-contact-card" aria-label="Datos de contacto">
+    <section
+      class="platform-contact-card{% if not platform_contact.phone %} platform-contact-card--email-only{% endif %}"
+      aria-label="Datos de contacto"
+    >
       <div>
         <span>Correo electrónico</span>
         <a href="mailto:{{ platform_contact.email }}">{{ platform_contact.email }}</a>
