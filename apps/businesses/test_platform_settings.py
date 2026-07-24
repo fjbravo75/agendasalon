@@ -286,6 +286,19 @@ class PlatformSettingsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "contacto-demo@example.com")
         self.assertContains(response, "600 990 456")
+        self.assertContains(response, "escribirnos o llamarnos")
+
+    @override_settings(
+        AGENDA_PLATFORM_CONTACT_EMAIL="contacto-demo@example.com",
+        AGENDA_PLATFORM_CONTACT_PHONE="",
+    )
+    def test_public_contact_does_not_offer_a_phone_when_none_is_available(self):
+        response = self.client.get(reverse("platform_contact"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "escribirnos.")
+        self.assertNotContains(response, "o llamarnos")
+        self.assertNotContains(response, "<span>Teléfono</span>", html=True)
 
     def test_holiday_panel_lists_catalog_and_last_run(self):
         OfficialHoliday.objects.create(
