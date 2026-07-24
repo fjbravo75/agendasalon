@@ -1,14 +1,17 @@
 from django.shortcuts import redirect, render
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.businesses.forms import BusinessSignupRequestForm
-from apps.businesses.models import BusinessSignupRequest
-from apps.businesses.services import get_platform_login_image_url
+from apps.businesses.services import (
+    get_platform_login_image_url,
+    get_platform_public_contact,
+)
 from apps.core.security_throttle import (
     ThrottleLimit,
+    email_throttle_key,
     phone_throttle_key,
     request_ip,
     reserve_throttle_attempts,
@@ -74,6 +77,12 @@ def business_signup_request(request):
                                 window_seconds=24 * 60 * 60,
                             ),
                             ThrottleLimit(
+                                scope="business_signup_email",
+                                key=email_throttle_key(request.POST.get("email")),
+                                limit=3,
+                                window_seconds=24 * 60 * 60,
+                            ),
+                            ThrottleLimit(
                                 scope="business_signup_ip",
                                 key=request_ip(request),
                                 limit=12,
@@ -85,32 +94,26 @@ def business_signup_request(request):
                         form.add_error(None, BUSINESS_SIGNUP_THROTTLE_MESSAGE)
                         response_status = 429
                     elif form.is_valid():
-                        duplicate_exists = BusinessSignupRequest.objects.filter(
-                            normalized_phone=form.normalized_phone,
-                            business_name__iexact=form.cleaned_data["business_name"],
-                            city__iexact=form.cleaned_data["city"],
-                            status__in=BusinessSignupRequest.open_statuses(),
-                        ).exists()
-                        if not duplicate_exists:
-                            signup_request = form.save(commit=False)
-                            signup_request.normalized_phone = form.normalized_phone
-                            signup_request.privacy_document = privacy_document
-                            signup_request.privacy_document_version = privacy_document.version
-                            signup_request.privacy_document_hash = privacy_document.content_hash
-                            signup_request.privacy_legal_context_snapshot = (
-                                receipt.legal_context or {}
-                            )
-                            signup_request.privacy_acknowledged_at = timezone.now()
-                            signup_request.save()
-                            queue_operational_notice_on_commit(
-                                scope="platform",
-                                code="signup_request",
-                                deduplication_key=f"signup-request:{signup_request.pk}",
-                                action_path=reverse(
-                                    "businesses:superadmin_signup_request_detail",
-                                    args=[signup_request.pk],
-                                ),
-                            )
+                        signup_request = form.save(commit=False)
+                        signup_request.normalized_phone = form.normalized_phone
+                        signup_request.email_normalized = form.cleaned_data["email"]
+                        signup_request.privacy_document = privacy_document
+                        signup_request.privacy_document_version = privacy_document.version
+                        signup_request.privacy_document_hash = privacy_document.content_hash
+                        signup_request.privacy_legal_context_snapshot = (
+                            receipt.legal_context or {}
+                        )
+                        signup_request.privacy_acknowledged_at = timezone.now()
+                        signup_request.save()
+                        queue_operational_notice_on_commit(
+                            scope="platform",
+                            code="signup_request",
+                            deduplication_key=f"signup-request:{signup_request.pk}",
+                            action_path=reverse(
+                                "businesses:superadmin_signup_request_detail",
+                                args=[signup_request.pk],
+                            ),
+                        )
                         return redirect("business_signup_request_success")
             except LegalPresentationError as exc:
                 clear_legal_confirmation_fields(
@@ -118,6 +121,9 @@ def business_signup_request(request):
                     ("privacy_acknowledged",),
                 )
                 form.add_error(None, exc)
+            except IntegrityError:
+                if not form.add_current_identity_conflicts().any:
+                    raise
 
     if request.method == "POST" and form.errors:
         form.apply_error_accessibility()
@@ -169,4 +175,13 @@ def business_signup_request_success(request):
             "internal_login_image_url": get_platform_login_image_url(),
             "transactional_email_enabled": transactional_email_delivery_enabled(),
         },
+    )
+
+
+@require_GET
+def platform_contact(request):
+    return render(
+        request,
+        "businesses/platform_contact.html",
+        {"platform_contact": get_platform_public_contact()},
     )

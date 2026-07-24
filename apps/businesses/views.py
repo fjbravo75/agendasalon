@@ -19,9 +19,12 @@ from apps.businesses.forms import (
     BusinessForm,
     BusinessSignupRequestReviewForm,
     BusinessVisualSettingsForm,
+    PlatformPublicContactForm,
     PlatformVisualSettingsForm,
     ProfessionalCreateForm,
+    ProfessionalIdentityConflict,
 )
+from apps.businesses.identity import professional_identity_conflicts
 from apps.businesses.models import (
     Business,
     BusinessActivityEvent,
@@ -33,6 +36,7 @@ from apps.businesses.services import (
     get_business_public_image_url,
     get_business_visual_theme,
     get_platform_login_image_url,
+    get_platform_public_contact,
     get_primary_business_for_user,
 )
 from apps.holidays.forms import NationalHolidaySyncForm
@@ -73,6 +77,14 @@ ACTIVITY_FILTERS = (
     (BusinessActivityEvent.Category.ACCESS, "Accesos"),
     (BusinessActivityEvent.Category.PLATFORM, "Plataforma"),
 )
+
+
+def _signup_request_identity_conflicts(signup_request):
+    return professional_identity_conflicts(
+        email=signup_request.email,
+        phone=signup_request.phone,
+        exclude_signup_request_id=signup_request.pk,
+    )
 
 
 def superadmin_required(view_func):
@@ -147,6 +159,17 @@ def superadmin_business_create(request):
                 "businesses:superadmin_signup_request_detail",
                 request_id=signup_request.pk,
             )
+        if _signup_request_identity_conflicts(signup_request).any:
+            messages.error(
+                request,
+                "La identidad de esta solicitud ya está vinculada a otro acceso o a "
+                "otra solicitud abierta. Contacta con la persona solicitante antes "
+                "de tramitar un alta distinta.",
+            )
+            return redirect(
+                "businesses:superadmin_signup_request_detail",
+                request_id=signup_request.pk,
+            )
 
     business_initial = {}
     professional_initial = {}
@@ -168,103 +191,140 @@ def superadmin_business_create(request):
         business_valid = business_form.is_valid()
         professional_valid = professional_form.is_valid()
         if business_valid and professional_valid:
-            with transaction.atomic():
-                locked_signup_request = None
-                if signup_request is not None:
-                    locked_signup_request = BusinessSignupRequest.objects.select_for_update().get(
-                        pk=signup_request.pk
+            try:
+                with transaction.atomic():
+                    locked_signup_request = None
+                    if signup_request is not None:
+                        locked_signup_request = (
+                            BusinessSignupRequest.objects.select_for_update().get(
+                                pk=signup_request.pk
+                            )
+                        )
+                        if locked_signup_request.status in {
+                            BusinessSignupRequest.Status.CONVERTED,
+                            BusinessSignupRequest.Status.DISMISSED,
+                        }:
+                            messages.error(
+                                request,
+                                "Esta solicitud ya no se puede convertir en un negocio.",
+                            )
+                            return redirect(
+                                "businesses:superadmin_signup_request_detail",
+                                request_id=locked_signup_request.pk,
+                            )
+                        if _signup_request_identity_conflicts(
+                            locked_signup_request
+                        ).any:
+                            messages.error(
+                                request,
+                                "La identidad de esta solicitud ya no está disponible. "
+                                "No se ha creado ningún negocio ni acceso.",
+                            )
+                            return redirect(
+                                "businesses:superadmin_signup_request_detail",
+                                request_id=locked_signup_request.pk,
+                            )
+                    business = business_form.save()
+                    business.legal_compliance_enabled = True
+                    business.save(
+                        update_fields=["legal_compliance_enabled", "updated_at"]
                     )
-                    if locked_signup_request.status in {
-                        BusinessSignupRequest.Status.CONVERTED,
-                        BusinessSignupRequest.Status.DISMISSED,
-                    }:
-                        messages.error(
-                            request,
-                            "Esta solicitud ya no se puede convertir en un negocio.",
-                        )
-                        return redirect(
-                            "businesses:superadmin_signup_request_detail",
-                            request_id=locked_signup_request.pk,
-                        )
-                business = business_form.save()
-                business.legal_compliance_enabled = True
-                business.save(update_fields=["legal_compliance_enabled", "updated_at"])
-                BusinessCalendarSettings.objects.create(business=business)
-                professional = professional_form.create_professional(business=business)
-                business.notification_email = professional.email
-                business.notification_email_normalized = professional.email_normalized
-                business.notification_email_verified_at = professional.email_verified_at
-                business.save(
-                    update_fields=[
-                        "notification_email",
-                        "notification_email_normalized",
-                        "notification_email_verified_at",
-                        "updated_at",
-                    ]
-                )
-                record_business_activity(
-                    business=business,
-                    category=BusinessActivityEvent.Category.PLATFORM,
-                    event_type=BusinessActivityEvent.EventType.BUSINESS_CREATED,
-                    origin=BusinessActivityEvent.Origin.PLATFORM,
-                    summary="Negocio dado de alta en AgendaSalon.",
-                    actor=request.user,
-                    entity=business,
-                    entity_type="business",
-                )
-                record_business_activity(
-                    business=business,
-                    category=BusinessActivityEvent.Category.ACCESS,
-                    event_type=BusinessActivityEvent.EventType.MEMBERSHIP_CREATED,
-                    origin=BusinessActivityEvent.Origin.PLATFORM,
-                    summary=f"Acceso profesional creado para {professional.full_name}.",
-                    actor=request.user,
-                    entity_type="business_membership",
-                )
-                if locked_signup_request is not None:
-                    locked_signup_request.status = BusinessSignupRequest.Status.CONVERTED
-                    locked_signup_request.converted_business = business
-                    locked_signup_request.converted_at = timezone.now()
-                    locked_signup_request.handled_by = request.user
-                    locked_signup_request.save(
+                    BusinessCalendarSettings.objects.create(business=business)
+                    professional = professional_form.create_professional(
+                        business=business
+                    )
+                    business.notification_email = professional.email
+                    business.notification_email_normalized = (
+                        professional.email_normalized
+                    )
+                    business.notification_email_verified_at = (
+                        professional.email_verified_at
+                    )
+                    business.save(
                         update_fields=[
-                            "status",
-                            "converted_business",
-                            "converted_at",
-                            "handled_by",
+                            "notification_email",
+                            "notification_email_normalized",
+                            "notification_email_verified_at",
                             "updated_at",
                         ]
                     )
-            delivery = queue_and_dispatch(
-                queue_professional_activation(professional, business=business)
-            )
-            queue_operational_notice_on_commit(
-                scope="platform",
-                code="business_created",
-                deduplication_key=f"business-created:{business.pk}",
-                action_path=reverse(
-                    "businesses:superadmin_business_detail",
-                    args=[business.pk],
-                ),
-            )
-            if not transactional_email_delivery_enabled():
-                messages.info(
+                    record_business_activity(
+                        business=business,
+                        category=BusinessActivityEvent.Category.PLATFORM,
+                        event_type=BusinessActivityEvent.EventType.BUSINESS_CREATED,
+                        origin=BusinessActivityEvent.Origin.PLATFORM,
+                        summary="Negocio dado de alta en AgendaSalon.",
+                        actor=request.user,
+                        entity=business,
+                        entity_type="business",
+                    )
+                    record_business_activity(
+                        business=business,
+                        category=BusinessActivityEvent.Category.ACCESS,
+                        event_type=BusinessActivityEvent.EventType.MEMBERSHIP_CREATED,
+                        origin=BusinessActivityEvent.Origin.PLATFORM,
+                        summary=(
+                            f"Acceso profesional creado para {professional.full_name}."
+                        ),
+                        actor=request.user,
+                        entity_type="business_membership",
+                    )
+                    if locked_signup_request is not None:
+                        locked_signup_request.status = (
+                            BusinessSignupRequest.Status.CONVERTED
+                        )
+                        locked_signup_request.converted_business = business
+                        locked_signup_request.converted_at = timezone.now()
+                        locked_signup_request.handled_by = request.user
+                        locked_signup_request.save(
+                            update_fields=[
+                                "status",
+                                "converted_business",
+                                "converted_at",
+                                "handled_by",
+                                "updated_at",
+                            ]
+                        )
+            except ProfessionalIdentityConflict:
+                messages.error(
                     request,
-                    f"{business.commercial_name} ya está creado y el acceso de "
-                    f"{professional.full_name} queda preparado. El correo externo de "
-                    "activación está desactivado en este entorno y el enlace no se ha enviado.",
-                )
-            elif delivery.status == delivery.Status.SENT:
-                messages.success(
-                    request,
-                    f"{business.commercial_name} queda dado de alta. El servicio de correo ha aceptado el enlace de activación para {professional.email}.",
+                    "Ese correo o teléfono acaba de quedar vinculado a otra cuenta. "
+                    "No se ha creado ningún negocio ni acceso.",
                 )
             else:
-                messages.warning(
-                    request,
-                    f"{business.commercial_name} queda dado de alta, pero el correo de activación está pendiente de envío.",
+                delivery = queue_and_dispatch(
+                    queue_professional_activation(professional, business=business)
                 )
-            return redirect("businesses:superadmin_business_detail", business_id=business.id)
+                queue_operational_notice_on_commit(
+                    scope="platform",
+                    code="business_created",
+                    deduplication_key=f"business-created:{business.pk}",
+                    action_path=reverse(
+                        "businesses:superadmin_business_detail",
+                        args=[business.pk],
+                    ),
+                )
+                if not transactional_email_delivery_enabled():
+                    messages.info(
+                        request,
+                        f"{business.commercial_name} ya está creado y el acceso de "
+                        f"{professional.full_name} queda preparado. El correo externo de "
+                        "activación está desactivado en este entorno y el enlace no se ha enviado.",
+                    )
+                elif delivery.status == delivery.Status.SENT:
+                    messages.success(
+                        request,
+                        f"{business.commercial_name} queda dado de alta. El servicio de correo ha aceptado el enlace de activación para {professional.email}.",
+                    )
+                else:
+                    messages.warning(
+                        request,
+                        f"{business.commercial_name} queda dado de alta, pero el correo de activación está pendiente de envío.",
+                    )
+                return redirect(
+                    "businesses:superadmin_business_detail",
+                    business_id=business.id,
+                )
 
     return render(
         request,
@@ -327,6 +387,11 @@ def superadmin_signup_request_detail(request, request_id):
         pk=request_id,
     )
     is_converted = signup_request.status == BusinessSignupRequest.Status.CONVERTED
+    identity_conflicts = (
+        _signup_request_identity_conflicts(signup_request)
+        if signup_request.status in BusinessSignupRequest.open_statuses()
+        else None
+    )
     form = None
     if not is_converted:
         form = BusinessSignupRequestReviewForm(request.POST or None, instance=signup_request)
@@ -347,6 +412,7 @@ def superadmin_signup_request_detail(request, request_id):
             "signup_request": signup_request,
             "review_form": form,
             "is_converted": is_converted,
+            "identity_conflicts": identity_conflicts,
         },
     )
 
@@ -541,54 +607,77 @@ def superadmin_professional_create(request, business_id):
     business = get_object_or_404(Business, pk=business_id)
     professional_form = ProfessionalCreateForm(request.POST or None)
     if request.method == "POST" and professional_form.is_valid():
-        with transaction.atomic():
-            professional = professional_form.create_professional(business=business)
-            membership = BusinessMembership.objects.get(business=business, user=professional)
-            if (
-                not business.notification_email_normalized
-                and BusinessMembership.objects.filter(business=business).count() == 1
-            ):
-                business.notification_email = professional.email
-                business.notification_email_normalized = professional.email_normalized
-                business.notification_email_verified_at = professional.email_verified_at
-                business.save(
-                    update_fields=[
-                        "notification_email",
-                        "notification_email_normalized",
-                        "notification_email_verified_at",
-                        "updated_at",
-                    ]
+        try:
+            with transaction.atomic():
+                professional = professional_form.create_professional(
+                    business=business
                 )
-            record_business_activity(
-                business=business,
-                category=BusinessActivityEvent.Category.ACCESS,
-                event_type=BusinessActivityEvent.EventType.MEMBERSHIP_CREATED,
-                origin=BusinessActivityEvent.Origin.PLATFORM,
-                summary=f"Acceso profesional creado para {professional.full_name}.",
-                actor=request.user,
-                entity=membership,
-                entity_type="business_membership",
-            )
-        delivery = queue_and_dispatch(
-            queue_professional_activation(professional, business=business)
-        )
-        if not transactional_email_delivery_enabled():
-            messages.info(
+                membership = BusinessMembership.objects.get(
+                    business=business,
+                    user=professional,
+                )
+                if (
+                    not business.notification_email_normalized
+                    and BusinessMembership.objects.filter(business=business).count()
+                    == 1
+                ):
+                    business.notification_email = professional.email
+                    business.notification_email_normalized = (
+                        professional.email_normalized
+                    )
+                    business.notification_email_verified_at = (
+                        professional.email_verified_at
+                    )
+                    business.save(
+                        update_fields=[
+                            "notification_email",
+                            "notification_email_normalized",
+                            "notification_email_verified_at",
+                            "updated_at",
+                        ]
+                    )
+                record_business_activity(
+                    business=business,
+                    category=BusinessActivityEvent.Category.ACCESS,
+                    event_type=BusinessActivityEvent.EventType.MEMBERSHIP_CREATED,
+                    origin=BusinessActivityEvent.Origin.PLATFORM,
+                    summary=(
+                        f"Acceso profesional creado para {professional.full_name}."
+                    ),
+                    actor=request.user,
+                    entity=membership,
+                    entity_type="business_membership",
+                )
+        except ProfessionalIdentityConflict:
+            messages.error(
                 request,
-                f"El acceso de {professional.full_name} queda preparado. El correo "
-                "externo de activación está desactivado en este entorno y el enlace no se ha enviado.",
-            )
-        elif delivery.status == delivery.Status.SENT:
-            messages.success(
-                request,
-                f"Acceso preparado. El servicio de correo ha aceptado el enlace de activación para {professional.email}.",
+                "Ese correo o teléfono acaba de quedar vinculado a otra cuenta. "
+                "No se ha creado ningún acceso.",
             )
         else:
-            messages.warning(
-                request,
-                f"El acceso de {professional.full_name} está preparado, pero el correo sigue pendiente de envío.",
+            delivery = queue_and_dispatch(
+                queue_professional_activation(professional, business=business)
             )
-        return redirect("businesses:superadmin_business_detail", business_id=business.id)
+            if not transactional_email_delivery_enabled():
+                messages.info(
+                    request,
+                    f"El acceso de {professional.full_name} queda preparado. El correo "
+                    "externo de activación está desactivado en este entorno y el enlace no se ha enviado.",
+                )
+            elif delivery.status == delivery.Status.SENT:
+                messages.success(
+                    request,
+                    f"Acceso preparado. El servicio de correo ha aceptado el enlace de activación para {professional.email}.",
+                )
+            else:
+                messages.warning(
+                    request,
+                    f"El acceso de {professional.full_name} está preparado, pero el correo sigue pendiente de envío.",
+                )
+            return redirect(
+                "businesses:superadmin_business_detail",
+                business_id=business.id,
+            )
     return render(
         request,
         "superadmin/businesses/professional_form.html",
@@ -657,31 +746,13 @@ def superadmin_membership_toggle(request, business_id, membership_id):
     return redirect("businesses:superadmin_business_detail", business_id=business_id)
 
 
-@superadmin_required
-def superadmin_platform_settings(request):
-    platform_settings, _created = PlatformSettings.objects.get_or_create(
-        pk=PlatformSettings.SINGLETON_PK
-    )
-    settings_form = PlatformVisualSettingsForm(
-        request.POST or None,
-        request.FILES or None,
-        instance=platform_settings,
-    )
-    if request.method == "POST" and settings_form.is_valid():
-        theme_changed = "admin_theme" in settings_form.changed_data
-        image_uploaded = "new_login_image" in settings_form.changed_data
-        image_selected = "login_image_choice" in settings_form.changed_data
-        appearance_changed = theme_changed or image_uploaded or image_selected
-
-        with transaction.atomic():
-            platform_settings = settings_form.save(updated_by=request.user)
-
-        if appearance_changed:
-            messages.success(request, "Los ajustes de AgendaSalon quedan guardados.")
-        else:
-            messages.info(request, "No había cambios pendientes en la apariencia.")
-        return redirect("platform_settings:superadmin_platform_settings")
-
+def _render_platform_settings(
+    request,
+    *,
+    platform_settings,
+    settings_form,
+    contact_form,
+):
     latest_holiday_run = latest_boe_national_holiday_run()
     try:
         holiday_year = int(request.GET.get("holiday_year", ""))
@@ -708,6 +779,7 @@ def superadmin_platform_settings(request):
         {
             "platform_settings": platform_settings,
             "settings_form": settings_form,
+            "contact_form": contact_form,
             "login_image_url": get_platform_login_image_url(platform_settings),
             "login_image_is_custom": platform_settings.login_images.filter(
                 is_selected=True
@@ -722,6 +794,66 @@ def superadmin_platform_settings(request):
                 item.appointment_count for item in holiday_business_impacts
             ),
         },
+    )
+
+
+@superadmin_required
+def superadmin_platform_settings(request):
+    platform_settings, _created = PlatformSettings.objects.get_or_create(
+        pk=PlatformSettings.SINGLETON_PK
+    )
+    settings_form = PlatformVisualSettingsForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=platform_settings,
+    )
+    if request.method == "POST" and settings_form.is_valid():
+        theme_changed = "admin_theme" in settings_form.changed_data
+        image_uploaded = "new_login_image" in settings_form.changed_data
+        image_selected = "login_image_choice" in settings_form.changed_data
+        appearance_changed = theme_changed or image_uploaded or image_selected
+
+        with transaction.atomic():
+            platform_settings = settings_form.save(updated_by=request.user)
+
+        if appearance_changed:
+            messages.success(request, "Los ajustes de AgendaSalon quedan guardados.")
+        else:
+            messages.info(request, "No había cambios pendientes en la apariencia.")
+        return redirect("platform_settings:superadmin_platform_settings")
+
+    return _render_platform_settings(
+        request,
+        platform_settings=platform_settings,
+        settings_form=settings_form,
+        contact_form=PlatformPublicContactForm(
+            instance=get_platform_public_contact()
+        ),
+    )
+
+
+@superadmin_required
+@require_POST
+def superadmin_platform_contact_update(request):
+    contact_form = PlatformPublicContactForm(
+        request.POST,
+        instance=get_platform_public_contact(),
+    )
+    if contact_form.is_valid():
+        contact_form.save(updated_by=request.user)
+        messages.success(request, "Los datos públicos de contacto quedan guardados.")
+        return redirect(
+            f"{reverse('platform_settings:superadmin_platform_settings')}#contacto-publico"
+        )
+
+    platform_settings, _created = PlatformSettings.objects.get_or_create(
+        pk=PlatformSettings.SINGLETON_PK
+    )
+    return _render_platform_settings(
+        request,
+        platform_settings=platform_settings,
+        settings_form=PlatformVisualSettingsForm(instance=platform_settings),
+        contact_form=contact_form,
     )
 
 

@@ -7,6 +7,8 @@ from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.db.models import Q
 
+from apps.core.phone import normalize_phone
+
 
 def business_public_image_upload_to(instance, filename):
     extension = Path(filename).suffix.lower()
@@ -152,6 +154,11 @@ class BusinessSignupRequest(models.Model):
     phone = models.CharField("teléfono", max_length=32)
     normalized_phone = models.CharField("teléfono normalizado", max_length=32, db_index=True)
     email = models.EmailField("correo electrónico", blank=True)
+    email_normalized = models.EmailField(
+        "correo electrónico normalizado",
+        blank=True,
+        editable=False,
+    )
     preferred_channel = models.CharField(
         "canal preferido",
         max_length=16,
@@ -221,7 +228,20 @@ class BusinessSignupRequest(models.Model):
                     )
                 ),
                 name="signup_conversion_fields_coherent",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["normalized_phone"],
+                condition=Q(status__in=("new", "reviewing", "contacted")),
+                name="signup_open_phone_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["email_normalized"],
+                condition=(
+                    Q(status__in=("new", "reviewing", "contacted"))
+                    & ~Q(email_normalized="")
+                ),
+                name="signup_open_email_unique",
+            ),
         ]
 
     @classmethod
@@ -256,6 +276,13 @@ class BusinessSignupRequest(models.Model):
 
     def __str__(self):
         return f"{self.business_name} · {self.contact_name}"
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or "").strip()
+        self.email_normalized = self.email.lower()
+        if self.phone:
+            self.normalized_phone = normalize_phone(self.phone)
+        super().save(*args, **kwargs)
 
 
 class BusinessPublicImage(models.Model):
@@ -375,6 +402,44 @@ class PlatformSettings(models.Model):
         return "Ajustes de AgendaSalon"
 
 
+class PlatformPublicContact(models.Model):
+    """Datos públicos de ayuda, separados del correo operativo y de privacidad."""
+
+    SINGLETON_PK = 1
+
+    email = models.EmailField("correo público de contacto")
+    phone = models.CharField("teléfono público de contacto", max_length=32, blank=True)
+    phone_normalized = models.CharField(
+        "teléfono público normalizado",
+        max_length=32,
+        blank=True,
+        editable=False,
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="updated_platform_public_contact",
+        verbose_name="actualizado por",
+        null=True,
+        blank=True,
+    )
+    updated_at = models.DateTimeField("última actualización", auto_now=True)
+
+    class Meta:
+        verbose_name = "contacto público de plataforma"
+        verbose_name_plural = "contacto público de plataforma"
+
+    def save(self, *args, **kwargs):
+        self.pk = self.SINGLETON_PK
+        self.email = (self.email or "").strip().lower()
+        self.phone = (self.phone or "").strip()
+        self.phone_normalized = normalize_phone(self.phone) if self.phone else ""
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return "Contacto público de AgendaSalon"
+
+
 class PlatformLoginImage(models.Model):
     """Imagen reutilizable para el acceso interno de la plataforma."""
 
@@ -453,7 +518,11 @@ class BusinessMembership(models.Model):
             models.UniqueConstraint(
                 fields=["business", "user"],
                 name="unique_business_membership",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["user"],
+                name="membership_user_unique",
+            ),
         ]
         indexes = [
             models.Index(fields=["business", "is_active"], name="membership_business_active_idx"),
@@ -528,6 +597,11 @@ class BusinessActivityEvent(models.Model):
         CLIENT_INVITATION_CREATED = "client_invitation_created", "Invitación de cliente creada"
         CLIENT_INVITATION_REVOKED = "client_invitation_revoked", "Invitación de cliente revocada"
         CLIENT_ACCESS_ACTIVATED = "client_access_activated", "Cuenta de cliente activada"
+        CLIENT_RECORDS_MERGED = "client_records_merged", "Fichas de cliente unificadas"
+        CLIENT_MERGE_REVIEW_DISMISSED = (
+            "client_merge_review_dismissed",
+            "Coincidencia de clientes descartada",
+        )
         NATIONAL_HOLIDAYS_ENABLED = "national_holidays_enabled", "Festivos nacionales aplicados"
         NATIONAL_HOLIDAYS_DISABLED = "national_holidays_disabled", "Festivos nacionales desactivados"
         LEGAL_DOCUMENTATION_ACCEPTED = (

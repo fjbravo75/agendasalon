@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% load core_extras %}
+
+{% block title %}Revisar fichas de cliente - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="client-merge-review" aria-labelledby="client-merge-review-title">
+    <header class="professional-dashboard__hero">
+      <div class="professional-dashboard__copy">
+        <span>Clientes</span>
+        <h1 id="client-merge-review-title" class="page-title page-title--compact">Revisar fichas de {{ candidate.professional_client.full_name }}</h1>
+        <p>
+          Estas dos fichas coinciden en nombre, teléfono y correo. Todavía no se
+          ha realizado ningún cambio.
+        </p>
+      </div>
+      <div class="professional-dashboard__actions">
+        <a class="button button--secondary" href="{% url 'customers:professional_client_list' %}">Volver a clientes</a>
+      </div>
+    </header>
+
+    <div class="client-merge-comparison" aria-label="Comparación de las dos fichas">
+      <article class="client-merge-record">
+        <span class="client-origin-label">Creada en el negocio</span>
+        <h2>{{ candidate.professional_client.full_name }}</h2>
+        <dl>
+          <div>
+            <dt>Teléfono</dt>
+            <dd>{{ candidate.professional_client.phone|format_phone }}</dd>
+          </div>
+          <div>
+            <dt>Correo</dt>
+            <dd>{{ candidate.professional_client.email }}</dd>
+          </div>
+          <div>
+            <dt>Creada</dt>
+            <dd>{{ candidate.professional_client.created_at|date:"j/n/Y · H:i" }}</dd>
+          </div>
+          <div>
+            <dt>Citas</dt>
+            <dd>{{ professional_appointments_count }}</dd>
+          </div>
+          <div>
+            <dt>Cuenta online</dt>
+            <dd>No</dd>
+          </div>
+        </dl>
+      </article>
+
+      <article class="client-merge-record client-merge-record--online">
+        <span class="client-origin-label client-origin-label--online">Cuenta online verificada</span>
+        <h2>{{ candidate.online_client.full_name }}</h2>
+        <dl>
+          <div>
+            <dt>Teléfono</dt>
+            <dd>{{ candidate.online_client.phone|format_phone }}</dd>
+          </div>
+          <div>
+            <dt>Correo</dt>
+            <dd>{{ candidate.online_client.email }}</dd>
+          </div>
+          <div>
+            <dt>Creada</dt>
+            <dd>{{ candidate.online_client.created_at|date:"j/n/Y · H:i" }}</dd>
+          </div>
+          <div>
+            <dt>Citas</dt>
+            <dd>{{ online_appointments_count }}</dd>
+          </div>
+          <div>
+            <dt>Cuenta online</dt>
+            <dd>Activa</dd>
+          </div>
+        </dl>
+      </article>
+    </div>
+
+    <section class="client-merge-outcome" aria-labelledby="client-merge-outcome-title">
+      <div>
+        <span>Resultado previsto</span>
+        <h2 id="client-merge-outcome-title">Una sola ficha, sin perder información</h2>
+        <p>
+          Se conservará la ficha creada en el negocio. Las {{ appointments_total }}
+          cita{% if appointments_total != 1 %}s{% endif %}, la cuenta online y sus
+          permisos quedarán reunidos en ella. La ficha anterior se archivará con
+          trazabilidad.
+        </p>
+      </div>
+      <ul>
+        <li>La cuenta online seguirá activa.</li>
+        <li>Las citas conservarán sus fechas y estados.</li>
+        <li>Las evidencias de privacidad y el historial no se eliminarán.</li>
+      </ul>
+      <div class="client-merge-outcome__actions">
+        <form method="post" action="{% url 'customers:professional_client_merge_confirm' candidate.professional_client.id candidate.online_client.id %}">
+          {% csrf_token %}
+          <button class="button" type="submit">Unificar en una sola ficha</button>
+        </form>
+        <form method="post" action="{% url 'customers:professional_client_merge_dismiss' candidate.professional_client.id candidate.online_client.id %}">
+          {% csrf_token %}
+          <button class="button button--secondary" type="submit">No son la misma persona</button>
+        </form>
+      </div>
+    </section>
+  </section>
+{% endblock %}

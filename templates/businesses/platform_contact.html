@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Contacto - AgendaSalon{% endblock %}
+
+{% block content %}
+  <section class="legal-shell platform-contact-page" aria-labelledby="platform-contact-page-title">
+    <header class="legal-hero">
+      <span class="legal-kicker">Estamos para ayudarte</span>
+      <h1 id="platform-contact-page-title">Contacta con AgendaSalon</h1>
+      <p>
+        Si tienes una duda sobre el alta de tu negocio, ya dispones de una cuenta
+        o crees que alguno de tus datos se ha utilizado por error, puedes
+        escribirnos o llamarnos.
+      </p>
+    </header>
+
+    <section class="platform-contact-card" aria-label="Datos de contacto">
+      <div>
+        <span>Correo electrónico</span>
+        <a href="mailto:{{ platform_contact.email }}">{{ platform_contact.email }}</a>
+      </div>
+      {% if platform_contact.phone %}
+        <div>
+          <span>Teléfono</span>
+          <a href="tel:{{ platform_contact.phone_normalized }}">{{ platform_contact.phone }}</a>
+        </div>
+      {% endif %}
+      <p>
+        Cuéntanos brevemente qué ha ocurrido. No envíes contraseñas ni datos
+        bancarios.
+      </p>
+      <div class="platform-contact-card__actions">
+        <a class="button" href="mailto:{{ platform_contact.email }}">Escribir a AgendaSalon</a>
+        <a class="button button--secondary" href="{% url 'accounts:login' %}">Volver al acceso profesional</a>
+      </div>
+    </section>
+  </section>
+{% endblock %}

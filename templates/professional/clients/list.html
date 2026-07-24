@@ -41,6 +41,47 @@
       <a class="{% if status_filter == 'all' %}is-active{% endif %}" href="?status=all{% if search %}&q={{ search|urlencode }}{% endif %}">Todos <strong>{{ all_clients_count }}</strong></a>
     </nav>
 
+    {% if merge_candidates %}
+      <section class="client-merge-alert" aria-labelledby="client-merge-alert-title">
+        <header class="client-merge-alert__head">
+          <div>
+            <span>Coincidencias por revisar · {{ merge_candidates|length }}</span>
+            <h2 id="client-merge-alert-title">Fichas que podrían pertenecer a la misma persona</h2>
+            <p>No se ha realizado ningún cambio. Revisa cada caso antes de reunir la información.</p>
+          </div>
+        </header>
+        <div class="client-merge-alert__list">
+          {% for candidate in merge_candidates %}
+            <article class="client-merge-card">
+              <div class="client-merge-card__identity">
+                <strong>{{ candidate.professional_client.full_name }}</strong>
+                <span>{{ candidate.professional_client.phone|format_phone }}</span>
+              </div>
+              <div class="client-merge-card__records">
+                <div>
+                  <span class="client-origin-label">Creada en el negocio</span>
+                  <strong>{{ candidate.professional_client.appointments.count }} cita{% if candidate.professional_client.appointments.count != 1 %}s{% endif %}</strong>
+                  <small>Sin cuenta online</small>
+                </div>
+                <div>
+                  <span class="client-origin-label client-origin-label--online">Cuenta online verificada</span>
+                  <strong>{{ candidate.online_client.appointments.count }} cita{% if candidate.online_client.appointments.count != 1 %}s{% endif %}</strong>
+                  <small>Acceso activo</small>
+                </div>
+              </div>
+              <div class="client-merge-card__actions">
+                <a class="button" href="{% url 'customers:professional_client_merge_review' candidate.professional_client.id candidate.online_client.id %}">Revisar fichas</a>
+                <form method="post" action="{% url 'customers:professional_client_merge_dismiss' candidate.professional_client.id candidate.online_client.id %}">
+                  {% csrf_token %}
+                  <button class="button button--secondary" type="submit">No son la misma persona</button>
+                </form>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
     <div class="clients-workspace">
       <section class="client-list-panel" aria-label="Listado de clientes">
         <div class="ops-section-head ops-section-head--compact">
@@ -56,6 +97,13 @@
               <div class="client-row__main">
                 <strong>{{ client.full_name }}</strong>
                 <span>{% if client.phone %}{{ client.phone|format_phone }}{% else %}Sin teléfono propio{% endif %}</span>
+                {% if client.access.email_verified_at %}
+                  <small class="client-origin-label client-origin-label--online">Cuenta online verificada</small>
+                {% elif client.source == "professional" %}
+                  <small class="client-origin-label">Creada en el negocio</small>
+                {% elif client.access %}
+                  <small class="client-origin-label client-origin-label--pending">Registro online pendiente</small>
+                {% endif %}
                 {% if not client.is_active %}<small>Ficha pausada</small>{% endif %}
               </div>
               <div class="client-row__meta">

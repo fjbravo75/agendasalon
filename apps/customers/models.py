@@ -49,6 +49,51 @@ class BusinessClient(models.Model):
     created_at = models.DateTimeField("fecha de alta", auto_now_add=True)
     updated_at = models.DateTimeField("última actualización", auto_now=True)
     last_activity_at = models.DateTimeField("última actividad", null=True, blank=True)
+    merged_into = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="merged_records",
+        editable=False,
+        verbose_name="ficha resultante",
+    )
+    merged_at = models.DateTimeField(
+        "unificada el",
+        null=True,
+        blank=True,
+        editable=False,
+    )
+    merged_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="merged_client_records",
+        editable=False,
+        verbose_name="unificada por",
+    )
+    merge_review_dismissed_fingerprint = models.CharField(
+        "coincidencia descartada",
+        max_length=64,
+        blank=True,
+        editable=False,
+    )
+    merge_review_dismissed_at = models.DateTimeField(
+        "coincidencia descartada el",
+        null=True,
+        blank=True,
+        editable=False,
+    )
+    merge_review_dismissed_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dismissed_client_merge_reviews",
+        editable=False,
+        verbose_name="coincidencia descartada por",
+    )
 
     class Meta:
         verbose_name = "ficha de cliente"
@@ -62,7 +107,21 @@ class BusinessClient(models.Model):
                     & ~models.Q(phone_normalized="")
                 ),
                 name="unique_active_professional_client_identity",
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        merged_into__isnull=True,
+                        merged_at__isnull=True,
+                    )
+                    | models.Q(
+                        merged_into__isnull=False,
+                        merged_at__isnull=False,
+                        is_active=False,
+                    )
+                ),
+                name="client_merge_state_consistent",
+            ),
         ]
         indexes = [
             models.Index(fields=["business", "phone_normalized"], name="client_business_phone_idx"),
@@ -76,6 +135,17 @@ class BusinessClient(models.Model):
             raise ValidationError({"full_name": "El nombre completo es obligatorio."})
         self.full_name_normalized = normalize_search_text(self.full_name)
         self.phone_normalized = normalize_phone(self.phone) if self.phone.strip() else ""
+        if self.merged_into_id:
+            if self.pk and self.merged_into_id == self.pk:
+                raise ValidationError({"merged_into": "Una ficha no puede unificarse consigo misma."})
+            if self.merged_into.business_id != self.business_id:
+                raise ValidationError(
+                    {"merged_into": "La ficha resultante debe pertenecer al mismo negocio."}
+                )
+            if self.is_active:
+                raise ValidationError(
+                    {"is_active": "Una ficha ya unificada no puede permanecer activa."}
+                )
 
     def save(self, *args, **kwargs):
         self.full_name_normalized = normalize_search_text(self.full_name)

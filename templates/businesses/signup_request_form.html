@@ -31,6 +31,10 @@
             <span>Tu negocio en AgendaSalon</span>
             <h2 id="signup-form-title">Solicita el acceso</h2>
             <p>Completa los campos marcados con *. Usaremos estos datos únicamente para estudiar el alta y responderte.</p>
+            <p class="business-signup-panel__identity-note">
+              Cada negocio necesita un correo y un teléfono propios que no estén
+              vinculados a otra cuenta de AgendaSalon.
+            </p>
           </div>
 
           <form method="post" class="business-signup-form" novalidate>
@@ -39,6 +43,14 @@
             {% if form.errors %}
               <div class="business-signup-error-summary" role="alert" tabindex="-1" data-error-summary>
                 <strong>Revisa los campos indicados</strong>
+                {% if form.has_identity_conflict %}
+                  <p class="business-signup-error-summary__help">
+                    Si ya tienes acceso a AgendaSalon,
+                    <a href="{% url 'accounts:login' %}">entra con tu cuenta</a>.
+                    Si crees que se trata de un error,
+                    <a href="{% url 'platform_contact' %}">contacta con AgendaSalon</a>.
+                  </p>
+                {% endif %}
                 <ul>
                   {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
                   {% for field in form %}

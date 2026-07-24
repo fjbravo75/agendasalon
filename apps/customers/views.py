@@ -63,12 +63,16 @@ from apps.customers.models import (
 from apps.customers.services import (
     activate_claimed_invitation,
     create_client_access_invitation,
+    dismiss_client_merge_candidate,
     find_available_invitation,
+    get_client_merge_candidate,
+    get_client_merge_candidates,
     get_claimed_invitation,
     get_session_client_access,
     lock_pending_public_registration_for_resend,
     login_client_access,
     logout_client_access,
+    merge_client_records,
     public_registration_expiry,
     revoke_client_access_invitation,
     set_authorized_contact_active,
@@ -272,7 +276,41 @@ def professional_client_list(request):
     if status_filter not in {"active", "inactive", "all"}:
         status_filter = "active"
 
-    clients = BusinessClient.objects.filter(business=business)
+    all_merge_candidates = get_client_merge_candidates(business=business)
+    merge_candidates = all_merge_candidates
+    if status_filter == "inactive":
+        merge_candidates = ()
+    elif search:
+        normalized_search = normalize_search_text(search)
+        phone_search = "".join(character for character in search if character.isdigit())
+        merge_candidates = tuple(
+            candidate
+            for candidate in merge_candidates
+            if normalized_search
+            in candidate.professional_client.full_name_normalized
+            or (
+                phone_search
+                and phone_search
+                in candidate.professional_client.phone_normalized
+            )
+        )
+    merge_candidate_client_ids = {
+        client_id
+        for candidate in all_merge_candidates
+        for client_id in (
+            candidate.professional_client.pk,
+            candidate.online_client.pk,
+        )
+    }
+
+    clients = (
+        BusinessClient.objects.select_related("access")
+        .filter(
+            business=business,
+            merged_into__isnull=True,
+        )
+        .exclude(pk__in=merge_candidate_client_ids)
+    )
     if status_filter == "active":
         clients = clients.filter(is_active=True)
     elif status_filter == "inactive":
@@ -308,6 +346,7 @@ def professional_client_list(request):
             BusinessClient.objects.filter(
                 business=business,
                 is_active=True,
+                merged_into__isnull=True,
                 pk=selected_authorized_client_id,
             )
             .select_related("access")
@@ -354,6 +393,7 @@ def professional_client_list(request):
             "business": business,
             "clients": clients_page,
             "clients_page": clients_page,
+            "merge_candidates": merge_candidates,
             "search": search,
             "status_filter": status_filter,
             "quick_form": quick_form,
@@ -366,16 +406,27 @@ def professional_client_list(request):
             "client_search_url": reverse("customers:professional_client_lookup"),
             "selected_authorized_client": selected_authorized_client,
             "selected_authorized_access": selected_authorized_access,
-            "clients_count": clients_page.paginator.count,
+            "clients_count": (
+                clients_page.paginator.count + len(merge_candidates)
+            ),
             "active_clients_count": BusinessClient.objects.filter(
                 business=business,
                 is_active=True,
-            ).count(),
+                merged_into__isnull=True,
+            ).count()
+            - len(all_merge_candidates),
             "inactive_clients_count": BusinessClient.objects.filter(
                 business=business,
                 is_active=False,
+                merged_into__isnull=True,
             ).count(),
-            "all_clients_count": BusinessClient.objects.filter(business=business).count(),
+            "all_clients_count": (
+                BusinessClient.objects.filter(
+                    business=business,
+                    merged_into__isnull=True,
+                ).count()
+                - len(all_merge_candidates)
+            ),
         },
         status=response_status,
     )
@@ -387,12 +438,132 @@ def professional_client_detail(request, client_id):
     if business is None:
         return redirect("accounts:no_business")
 
-    business_client = _get_professional_client(business, client_id)
+    business_client = _get_professional_client(
+        business,
+        client_id,
+        include_merged=True,
+    )
+    if business_client.merged_into_id:
+        messages.info(
+            request,
+            "Esta ficha ya se unificó. Te mostramos la ficha que reúne su información.",
+        )
+        return redirect(
+            "customers:professional_client_detail",
+            client_id=business_client.merged_into_id,
+        )
     return render(
         request,
         "professional/clients/detail.html",
         _professional_client_context(business, business_client, request.user),
     )
+
+
+@login_required
+def professional_client_merge_review(
+    request,
+    professional_client_id,
+    online_client_id,
+):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+    candidate = get_client_merge_candidate(
+        business=business,
+        professional_client_id=professional_client_id,
+        online_client_id=online_client_id,
+        include_dismissed=True,
+    )
+    if candidate is None:
+        messages.info(
+            request,
+            "La coincidencia ha cambiado o ya no necesita revisión.",
+        )
+        return redirect("customers:professional_client_list")
+    return render(
+        request,
+        "professional/clients/merge_review.html",
+        {
+            "business": business,
+            "candidate": candidate,
+            "professional_appointments_count": (
+                candidate.professional_client.appointments.count()
+            ),
+            "online_appointments_count": (
+                candidate.online_client.appointments.count()
+            ),
+            "appointments_total": (
+                candidate.professional_client.appointments.count()
+                + candidate.online_client.appointments.count()
+            ),
+        },
+    )
+
+
+@login_required
+@require_POST
+def professional_client_merge_confirm(
+    request,
+    professional_client_id,
+    online_client_id,
+):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+    try:
+        result = merge_client_records(
+            business=business,
+            professional_client_id=professional_client_id,
+            online_client_id=online_client_id,
+            actor=request.user,
+        )
+    except ValidationError as exc:
+        messages.error(request, _validation_message(exc))
+        return redirect(
+            "customers:professional_client_merge_review",
+            professional_client_id=professional_client_id,
+            online_client_id=online_client_id,
+        )
+    appointments_total = result.canonical_client.appointments.count()
+    messages.success(
+        request,
+        (
+            f"Fichas unificadas. {result.canonical_client.full_name} conserva "
+            f"{appointments_total} cita"
+            f"{'' if appointments_total == 1 else 's'} y su cuenta online."
+        ),
+    )
+    return redirect(
+        "customers:professional_client_detail",
+        client_id=result.canonical_client.pk,
+    )
+
+
+@login_required
+@require_POST
+def professional_client_merge_dismiss(
+    request,
+    professional_client_id,
+    online_client_id,
+):
+    business = get_primary_business_for_user(request.user)
+    if business is None:
+        return redirect("accounts:no_business")
+    try:
+        dismiss_client_merge_candidate(
+            business=business,
+            professional_client_id=professional_client_id,
+            online_client_id=online_client_id,
+            actor=request.user,
+        )
+    except ValidationError as exc:
+        messages.error(request, _validation_message(exc))
+    else:
+        messages.success(
+            request,
+            "La coincidencia queda revisada. Las dos fichas se mantienen separadas.",
+        )
+    return redirect("customers:professional_client_list")
 
 
 @login_required
@@ -633,7 +804,11 @@ def _professional_client_search_response(request, *, business, excluded_client_i
     filters = Q(full_name_normalized__contains=normalized_query)
     if phone_digits:
         filters |= Q(phone_normalized__contains=phone_digits)
-    clients = BusinessClient.objects.filter(business=business, is_active=True)
+    clients = BusinessClient.objects.filter(
+        business=business,
+        is_active=True,
+        merged_into__isnull=True,
+    )
     if excluded_client_id is not None:
         clients = clients.exclude(pk=excluded_client_id)
     clients = clients.filter(filters).select_related("access").order_by("full_name", "pk")[:8]
@@ -911,6 +1086,7 @@ def _professional_contact_form_view(request, *, business, business_client, conta
             BusinessClient.objects.filter(
                 business=business,
                 is_active=True,
+                merged_into__isnull=True,
                 pk=selected_linked_client_id,
             )
             .select_related("access")
@@ -939,11 +1115,16 @@ def _professional_contact_form_view(request, *, business, business_client, conta
     )
 
 
-def _get_professional_client(business, client_id):
-    return get_object_or_404(
-        BusinessClient.objects.select_related("access")
+def _get_professional_client(business, client_id, *, include_merged=False):
+    clients = (
+        BusinessClient.objects.select_related("access", "merged_into")
         .prefetch_related("authorized_contacts")
-        .filter(business=business),
+        .filter(business=business)
+    )
+    if not include_merged:
+        clients = clients.filter(merged_into__isnull=True)
+    return get_object_or_404(
+        clients,
         id=client_id,
     )
 

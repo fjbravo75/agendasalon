@@ -18,7 +18,7 @@ from django.core.management.base import CommandError
 from django.db import DatabaseError, transaction
 from django.test import SimpleTestCase, TransactionTestCase
 
-from apps.businesses.models import Business
+from apps.businesses.models import Business, PlatformPublicContact
 from apps.core.demo_integrity import (
     DemoIntegrityError,
     DemoRefreshGuard,
@@ -698,6 +698,11 @@ class DemoRefreshDatabaseTests(TransactionTestCase):
     def test_protected_global_records_keep_their_exact_signature(self):
         self._seed()
         now = datetime(2026, 7, 16, 8, 0, tzinfo=MADRID)
+        PlatformPublicContact.objects.create(
+            email="contacto-preservado@example.com",
+            phone="600 777 888",
+            updated_by=get_user_model().objects.get(is_superuser=True),
+        )
         previous_receipt = DemoRefreshReceipt.objects.create(
             run_id="refresh-20260716-4444444444444444",
             base_date=date(2026, 7, 16),

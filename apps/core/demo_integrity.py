@@ -450,6 +450,7 @@ PRESERVED_MODEL_LABELS = frozenset(
         "holidays.HolidaySyncRun",
         "holidays.OfficialHoliday",
         "legal.LegalDocument",
+        "businesses.PlatformPublicContact",
     }
 )
 
@@ -880,11 +881,22 @@ def protected_records_signature() -> str:
     """Firma de los registros globales que el refresco no puede alterar."""
 
     from apps.core.models import DemoRefreshReceipt, DemoRefreshRequest
+    from apps.businesses.models import PlatformPublicContact
     from apps.dashboards.models import BackupExecution
     from apps.holidays.models import HolidaySyncRun, OfficialHoliday
     from apps.legal.models import LegalDocument
 
     payload = {
+        "platform_public_contact": list(
+            PlatformPublicContact._base_manager.order_by("pk").values_list(
+                "pk",
+                "email",
+                "phone",
+                "phone_normalized",
+                "updated_by_id",
+                "updated_at",
+            )
+        ),
         "demo_refresh_receipts": list(
             DemoRefreshReceipt._base_manager.order_by("pk").values_list(
                 "pk",
