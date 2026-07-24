@@ -174,10 +174,7 @@ def get_client_merge_candidate(
     include_dismissed=False,
     lock=False,
 ):
-    clients = BusinessClient.objects.select_related(
-        "business",
-        "merged_into",
-    )
+    clients = BusinessClient.objects.all()
     if lock:
         clients = clients.select_for_update()
     records = {
@@ -192,7 +189,7 @@ def get_client_merge_candidate(
     if professional_client is None or online_client is None:
         return None
 
-    accesses = BusinessClientAccess.objects.select_related("business_client")
+    accesses = BusinessClientAccess.objects.all()
     if lock:
         accesses = accesses.select_for_update()
     access = accesses.filter(
