@@ -287,6 +287,7 @@ class PlatformSettingsTests(TestCase):
         self.assertContains(response, "contacto-demo@example.com")
         self.assertContains(response, "600 990 456")
         self.assertContains(response, "escribirnos o llamarnos")
+        self.assertNotContains(response, "platform-contact-card--email-only")
 
     @override_settings(
         AGENDA_PLATFORM_CONTACT_EMAIL="contacto-demo@example.com",
@@ -299,6 +300,7 @@ class PlatformSettingsTests(TestCase):
         self.assertContains(response, "escribirnos.")
         self.assertNotContains(response, "o llamarnos")
         self.assertNotContains(response, "<span>Teléfono</span>", html=True)
+        self.assertContains(response, "platform-contact-card--email-only")
 
     def test_holiday_panel_lists_catalog_and_last_run(self):
         OfficialHoliday.objects.create(
