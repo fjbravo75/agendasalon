@@ -344,7 +344,6 @@ def superadmin_continuity(request):
             "continuity": continuity_snapshot(),
             "execution_page": page,
             "executions": page,
-            "demo_refresh": demo_refresh_snapshot(),
         },
     )
 
@@ -401,10 +400,10 @@ def superadmin_demo_refresh(request):
             else:
                 messages.success(
                     request,
-                    "Regeneración solicitada. La aplicación puede cerrar temporalmente "
-                    "mientras recupera la demostración y verifica el resultado.",
+                    "Solicitud registrada. Puedes seguir su estado y consultar el "
+                    "resultado desde esta misma página.",
                 )
-                return redirect("dashboards:superadmin_continuity")
+                return redirect("dashboards:superadmin_demo_refresh")
         else:
             response_status = 400
 

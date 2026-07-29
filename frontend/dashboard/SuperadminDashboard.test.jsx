@@ -30,7 +30,8 @@ function business(id, name, city) {
     public_booking_enabled: true,
     last_activity_at: "2026-07-12T10:00:00+02:00",
     health: { code: "operational", label: "Operativo", tone: "ready", detail: "Configuración básica completa." },
-    counts: { services: 5, work_lines: 2, schedule_rules: 10, professionals: 1, clients: 6, appointments: 12, upcoming_confirmed: 3, pending_closure: 0 },
+    legal: { is_current: true, status: "current", label: "Documentación al día" },
+    counts: { services: 5, work_lines: 2, schedule_rules: 10, schedule_days: 5, professionals: 1, clients: 6, appointments: 12, upcoming_confirmed: 3, pending_closure: 0 },
     urls: { detail: `/superadmin/negocios/${id}/` },
   };
 }
@@ -65,16 +66,16 @@ function dashboardPayload() {
       status: {
         code: "deployment_pending",
         tone: "neutral",
-        label: "Preparado para desplegar",
-        detail: "El procedimiento está preparado, pero todavía no hay una copia correcta registrada en este entorno.",
+        label: "Sin copias registradas",
+        detail: "Todavía no hay una copia disponible para recuperación.",
       },
       last_successful_at: null,
-      integrity_label: "Procedimiento disponible",
-      external_destination: { configured: false, label: "No previsto en esta demo" },
+      integrity_label: "Sin copia verificada",
+      external_destination: { configured: false, label: "Sin copia externa" },
       schedule: {
         configured: false,
         code: "stopped",
-        label: "Automatización detenida",
+        label: "Sin automatización activa",
         detail: "No hay una programación automática activa ni copias correctas registradas.",
       },
       history_url: "/superadmin/continuidad/",
@@ -92,7 +93,13 @@ describe("SuperadminDashboard", () => {
     render(<SuperadminDashboard config={config} />);
 
     expect(await screen.findByRole("heading", { name: "Negocios" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Preparado para desplegar" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sin copias registradas" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Vista general de AgendaSalon." })).toBeInTheDocument();
+    expect(screen.getAllByText("Servicios activos")).toHaveLength(2);
+    expect(screen.getAllByText("2 líneas")).toHaveLength(2);
+    expect(screen.getAllByText("5 días")).toHaveLength(2);
+    expect(screen.getAllByText("1 con acceso")).toHaveLength(2);
+    expect(screen.queryByText("Privacidad")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Consultar historial y objetivos" })).toHaveAttribute("href", "/superadmin/continuidad/");
     expect(screen.getByRole("link", { name: "Revisar solicitudes" })).toHaveAttribute("href", "/superadmin/negocios/solicitudes/");
     const activity = screen.getByRole("list", { name: "Actividad reciente, 7 movimientos" });

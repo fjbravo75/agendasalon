@@ -17,7 +17,7 @@ from apps.dashboards.continuity import continuity_snapshot
 from apps.legal.models import BusinessLegalProfile, LegalAcceptance, LegalDocument
 
 
-SUPERADMIN_DASHBOARD_API_VERSION = "1.2"
+SUPERADMIN_DASHBOARD_API_VERSION = "1.3"
 ACTIVITY_DAYS = 14
 
 
@@ -137,9 +137,20 @@ def _attach_business_counts(businesses, *, now):
         "active_lines_count": _grouped_counts(
             WorkLine.objects.filter(business_id__in=business_ids, is_active=True)
         ),
-        "active_rules_count": _grouped_counts(
-            AvailabilityRule.objects.filter(business_id__in=business_ids, is_active=True)
-        ),
+    }
+    active_schedule_counts = {
+        row["business_id"]: row
+        for row in (
+            AvailabilityRule.objects.filter(
+                business_id__in=business_ids,
+                is_active=True,
+            )
+            .values("business_id")
+            .annotate(
+                active_rules_count=Count("id"),
+                active_schedule_days_count=Count("weekday", distinct=True),
+            )
+        )
     }
     client_counts = {
         row["business_id"]: row
@@ -174,6 +185,12 @@ def _attach_business_counts(businesses, *, now):
     for business in businesses:
         for attribute, counts in count_maps.items():
             setattr(business, attribute, counts.get(business.pk, 0))
+        schedule_row = active_schedule_counts.get(business.pk, {})
+        business.active_rules_count = schedule_row.get("active_rules_count", 0)
+        business.active_schedule_days_count = schedule_row.get(
+            "active_schedule_days_count",
+            0,
+        )
         client_row = client_counts.get(business.pk, {})
         business.clients_total = client_row.get("clients_total", 0)
         business._all_clients_count = client_row.get("all_clients_count", 0)
@@ -257,7 +274,7 @@ def _business_payload(business):
         legal_status = {
             "is_current": True,
             "status": "disabled",
-            "label": "Control legal no requerido",
+            "label": "Gestión legal no activada",
             "latest_acceptance_at": None,
         }
     else:
@@ -272,7 +289,11 @@ def _business_payload(business):
         legal_status = {
             "is_current": legal_is_current,
             "status": "current" if legal_is_current else "pending_documents",
-            "label": "Documentación vigente" if legal_is_current else "Documentación pendiente",
+            "label": (
+                "Documentación al día"
+                if legal_is_current
+                else "Documentación pendiente"
+            ),
             "latest_acceptance_at": business.legal_latest_acceptance_at,
         }
     if not legal_status["is_current"]:
@@ -321,6 +342,7 @@ def _business_payload(business):
             "services": business.active_services_count,
             "work_lines": business.active_lines_count,
             "schedule_rules": business.active_rules_count,
+            "schedule_days": business.active_schedule_days_count,
             "professionals": business.professionals_total,
             "clients": business.clients_total,
             "appointments": business.appointments_total,

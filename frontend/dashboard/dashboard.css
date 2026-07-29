@@ -572,7 +572,7 @@
 
 .superadmin-business-card__setup {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
   margin: 14px 0 0 44px;
 }
@@ -590,6 +590,11 @@
 }
 
 .superadmin-business-card__setup small { color: var(--sa-muted); }
+.superadmin-business-card__setup strong {
+  font-size: 0.76rem;
+  line-height: 1.2;
+  text-align: right;
+}
 .superadmin-business-card__setup .is-ready strong { color: var(--sa-green-dark); }
 .superadmin-business-card__setup .is-missing { border-color: #edd5a6; background: #fff8e9; }
 .superadmin-business-card__setup .is-missing strong { color: var(--sa-warning); }

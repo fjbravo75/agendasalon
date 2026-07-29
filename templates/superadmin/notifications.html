@@ -8,7 +8,7 @@
       <div class="professional-dashboard__copy">
         <span>Supervisión de la plataforma</span>
         <h1 class="page-title page-title--compact" id="notifications-title">Avisos de AgendaSalon</h1>
-        <p>Elige los avisos de supervisión que quieres recibir y revisa la actividad reciente. Las verificaciones del canal no dependen de estas preferencias, pero solo pueden salir cuando la entrega por correo está disponible.</p>
+        <p>Configura qué cambios e incidencias quieres recibir por correo y consulta aquí los últimos movimientos de la plataforma.</p>
       </div>
       <div class="professional-dashboard__actions">
         <a class="button button--secondary" href="{% url 'dashboards:superadmin_home' %}">Volver al dashboard</a>
@@ -30,7 +30,7 @@
               {% if not agenda_operational_notification_delivery_enabled %}Entrega pausada{% elif not platform_settings.notification_email %}Sin configurar{% elif not platform_settings.notification_email_verified_at %}Pendiente de verificar{% elif not platform_settings.notifications_enabled %}Pausado{% else %}Activo{% endif %}
             </span>
           </div>
-          <p class="settings-panel__intro">Recibirás solicitudes, incidencias y resultados de supervisión. Debe verificarse antes de enviar.</p>
+          <p class="settings-panel__intro">Usaremos esta dirección para los avisos que hayas activado. Debe verificarse antes de empezar a recibirlos.</p>
           <div class="field">
             {{ form.notification_email.label_tag }}
             {{ form.notification_email }}
@@ -48,10 +48,9 @@
           <div class="ops-section-head ops-section-head--compact"><div><span>Preferencias</span><h2 id="platform-notification-preferences-title">Qué quieres recibir</h2></div></div>
           <fieldset class="notification-preferences notification-preferences--fieldset">
             <legend class="visually-hidden">Preferencias de avisos de la plataforma</legend>
-            <label class="notification-preference">{{ form.notify_continuity }}<span><strong>{{ form.notify_continuity.label }}</strong><small>Incidencias y recuperaciones de copias o continuidad.</small></span></label>
-            <label class="notification-preference">{{ form.notify_demo_refresh }}<span><strong>{{ form.notify_demo_refresh.label }}</strong><small>Aviso cuando se registra una solicitud. El resultado y cualquier fallo quedan disponibles en Continuidad.</small></span></label>
-            <label class="notification-preference">{{ form.notify_signup_requests }}<span><strong>{{ form.notify_signup_requests.label }}</strong><small>Solicitudes públicas, negocios creados y activaciones profesionales.</small></span></label>
-            <label class="notification-preference">{{ form.notify_email_failures }}<span><strong>{{ form.notify_email_failures.label }}</strong><small>Mensajes que han agotado todos sus intentos.</small></span></label>
+            <label class="notification-preference">{{ form.notify_continuity }}<span><strong>{{ form.notify_continuity.label }}</strong><small>Te avisaremos si una copia falla o cuando el servicio vuelva a estar protegido.</small></span></label>
+            <label class="notification-preference">{{ form.notify_signup_requests }}<span><strong>{{ form.notify_signup_requests.label }}</strong><small>Nuevas solicitudes, negocios dados de alta y accesos profesionales activados.</small></span></label>
+            <label class="notification-preference">{{ form.notify_email_failures }}<span><strong>{{ form.notify_email_failures.label }}</strong><small>Mensajes que no se han podido enviar después de varios intentos.</small></span></label>
           </fieldset>
         </section>
       </div>
@@ -63,7 +62,7 @@
 
     <section class="settings-panel notification-feed" aria-labelledby="platform-notification-feed-title">
       <div class="ops-section-head ops-section-head--compact">
-        <div><span>Situación actual</span><h2 id="platform-notification-feed-title">Actividad reciente</h2></div>
+        <div><span>Últimos movimientos</span><h2 id="platform-notification-feed-title">Actividad reciente</h2></div>
         {% if failed_email_count %}<span class="settings-state settings-state--danger">{{ failed_email_count }} por revisar</span>{% endif %}
       </div>
       <div class="notification-feed__list">
@@ -73,9 +72,24 @@
             <div class="notification-feed__meta"><time datetime="{{ item.when|date:'c' }}">{{ item.when|date:"d/m/Y · H:i" }}</time>{% if item.url %}<a href="{{ item.url }}">{{ item.action_label|default:"Revisar" }}</a>{% endif %}</div>
           </article>
         {% empty %}
-          <div class="continuity-empty"><strong>No hay avisos que revisar.</strong><p>La actividad aparecerá aquí cuando exista un hecho operativo real.</p></div>
+          <div class="continuity-empty"><strong>No hay avisos que revisar.</strong><p>Cuando haya cambios o incidencias, aparecerán aquí por orden de fecha.</p></div>
         {% endfor %}
       </div>
+      {% if feed_page.paginator.num_pages > 1 %}
+        <nav class="text-pagination" aria-label="Páginas de la actividad reciente">
+          {% if feed_page.has_previous %}
+            <a href="?page={{ feed_page.previous_page_number }}" rel="prev">Anterior</a>
+          {% else %}
+            <span aria-disabled="true">Anterior</span>
+          {% endif %}
+          <span>Página {{ feed_page.number }} de {{ feed_page.paginator.num_pages }}</span>
+          {% if feed_page.has_next %}
+            <a href="?page={{ feed_page.next_page_number }}" rel="next">Siguiente</a>
+          {% else %}
+            <span aria-disabled="true">Siguiente</span>
+          {% endif %}
+        </nav>
+      {% endif %}
     </section>
   </section>
 {% endblock %}

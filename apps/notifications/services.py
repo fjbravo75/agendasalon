@@ -80,16 +80,16 @@ _OPERATIONAL_NOTICE_COPY = {
         "La última copia no ha terminado correctamente. Revisa Continuidad.",
     ),
     "demo_refresh_requested": (
-        "Regeneración solicitada",
-        "Se ha registrado una solicitud para reconstruir la demostración.",
+        "Restauración de datos solicitada",
+        "Se ha registrado una solicitud de mantenimiento de los datos.",
     ),
     "demo_refresh_completed": (
-        "Regeneración completada",
-        "La demostración ha recuperado el escenario canónico de la solicitud.",
+        "Restauración de datos completada",
+        "El mantenimiento de los datos ha terminado correctamente.",
     ),
     "demo_refresh_failed": (
-        "La regeneración necesita revisión",
-        "La reconstrucción no ha podido comprobarse correctamente. Revisa Continuidad.",
+        "La restauración de datos necesita revisión",
+        "El mantenimiento no ha podido comprobarse correctamente. Revisa Continuidad.",
     ),
     "email_failure": (
         "Un correo necesita revisión",
@@ -390,9 +390,9 @@ def _operational_preference_enabled(target, *, scope, code):
     preferences = {
         ("platform", "continuity_succeeded"): "notify_continuity",
         ("platform", "continuity_failed"): "notify_continuity",
-        ("platform", "demo_refresh_requested"): "notify_demo_refresh",
-        ("platform", "demo_refresh_completed"): "notify_demo_refresh",
-        ("platform", "demo_refresh_failed"): "notify_demo_refresh",
+        ("platform", "demo_refresh_requested"): "notify_continuity",
+        ("platform", "demo_refresh_completed"): "notify_continuity",
+        ("platform", "demo_refresh_failed"): "notify_continuity",
         ("platform", "signup_request"): "notify_signup_requests",
         ("platform", "business_created"): "notify_signup_requests",
         ("platform", "professional_activated"): "notify_signup_requests",
