@@ -50,7 +50,10 @@ class SuperadminDemoRefreshViewTests(TestCase):
 
         self.assertEqual(get_response.status_code, 200)
         self.assertEqual(head_response.status_code, 200)
-        self.assertContains(get_response, "Revisar regeneración")
+        self.assertContains(get_response, "Mantenimiento de la demostración")
+        self.assertContains(get_response, "Sin solicitudes en curso")
+        self.assertContains(get_response, "La web solo registra la solicitud")
+        self.assertContains(get_response, "Solicitar regeneración")
         self.assertContains(get_response, "REGENERAR DEMO")
         self.assertFalse(DemoRefreshRequest.objects.exists())
 
@@ -86,7 +89,7 @@ class SuperadminDemoRefreshViewTests(TestCase):
             REMOTE_ADDR="203.0.113.44",
         )
 
-        self.assertRedirects(response, self.continuity_url)
+        self.assertRedirects(response, self.url)
         refresh_request = DemoRefreshRequest.objects.get()
         self.assertEqual(refresh_request.requested_by, self.superadmin)
         self.assertEqual(refresh_request.status, DemoRefreshRequest.Status.PENDING)
@@ -128,12 +131,35 @@ class SuperadminDemoRefreshViewTests(TestCase):
         self.assertEqual(first.status_code, 302)
 
         review = self.client.get(self.url)
-        self.assertContains(review, "La solicitud ya está registrada")
+        self.assertContains(review, "Solicitud recibida")
+        self.assertContains(review, "Operación ya solicitada")
+        self.assertContains(review, str(DemoRefreshRequest.objects.get().public_id))
+        self.assertContains(review, "Actualizar estado")
         self.assertNotContains(review, "name=\"current_password\"")
 
         second = self.client.post(self.url, self._valid_payload())
         self.assertEqual(second.status_code, 409)
         self.assertEqual(DemoRefreshRequest.objects.count(), 1)
+
+    def test_processing_request_has_a_clear_live_status_and_hides_the_form(self):
+        started_at = timezone.now()
+        processing_request = DemoRefreshRequest.objects.create(
+            requested_by=self.superadmin,
+            base_date=timezone.localdate(),
+            status=DemoRefreshRequest.Status.PROCESSING,
+            started_at=started_at,
+            origin_digest="a" * 64,
+        )
+        self.client.force_login(self.superadmin)
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, "Regeneración en curso")
+        self.assertContains(response, "El servidor está reconstruyendo y verificando")
+        self.assertContains(response, str(processing_request.public_id))
+        self.assertContains(response, started_at.strftime("%d/%m/%Y"))
+        self.assertContains(response, "Actualizar estado")
+        self.assertNotContains(response, "name=\"current_password\"")
 
     def test_attempt_limit_returns_429_before_another_password_check(self):
         self.client.force_login(self.superadmin)
@@ -232,7 +258,7 @@ class SuperadminDemoRefreshViewTests(TestCase):
         self.assertTrue(snapshot["has_mutable_changes"])
         self.assertEqual(snapshot["counts"]["additional_businesses"], 1)
 
-    def test_continuity_shows_the_completed_request_and_its_verified_receipt(self):
+    def test_continuity_does_not_expose_a_completed_demo_refresh(self):
         now = timezone.now()
         public_id = UUID("e83e0d3c-786c-4595-9f16-29c4c4578230")
         fingerprint = "c" * 64
@@ -256,13 +282,22 @@ class SuperadminDemoRefreshViewTests(TestCase):
 
         response = self.client.get(self.continuity_url)
 
-        self.assertContains(response, "Resultado de la última solicitud")
-        self.assertContains(response, str(public_id))
-        self.assertContains(response, "Escenario canónico comprobado")
-        self.assertContains(response, fingerprint)
+        self.assertNotContains(response, "Resultado de la última solicitud")
+        self.assertNotContains(response, str(public_id))
+        self.assertNotContains(response, "Escenario canónico comprobado")
+        self.assertNotContains(response, fingerprint)
         self.assertNotContains(response, "d" * 64)
 
-    def test_continuity_shows_a_bounded_reference_for_a_failed_request(self):
+        technical_response = self.client.get(self.url)
+
+        self.assertContains(technical_response, "Última regeneración completada")
+        self.assertContains(technical_response, "Recibo de la última solicitud")
+        self.assertContains(technical_response, "Escenario canónico verificado")
+        self.assertContains(technical_response, str(public_id))
+        self.assertContains(technical_response, fingerprint)
+        self.assertNotContains(technical_response, "d" * 64)
+
+    def test_continuity_does_not_expose_a_failed_demo_refresh(self):
         now = timezone.now()
         failure_code = "runtime_recovery_required"
         DemoRefreshRequest.objects.create(
@@ -278,13 +313,27 @@ class SuperadminDemoRefreshViewTests(TestCase):
 
         response = self.client.get(self.continuity_url)
 
-        self.assertContains(response, "No pudo darse por verificado")
-        self.assertContains(response, failure_code)
-        self.assertContains(response, "terminó con una incidencia operativa")
-        self.assertContains(response, "Revisa la incidencia antes de solicitar otra")
+        self.assertNotContains(response, "No pudo darse por verificado")
+        self.assertNotContains(response, failure_code)
+        self.assertNotContains(response, "terminó con una incidencia operativa")
+        self.assertNotContains(response, "Revisa la incidencia antes de solicitar otra")
         self.assertNotContains(response, "e" * 64)
 
-    def test_continuity_distinguishes_verified_data_from_a_runtime_failure(self):
+        technical_response = self.client.get(self.url)
+
+        self.assertContains(
+            technical_response,
+            "La última regeneración necesita revisión",
+        )
+        self.assertContains(
+            technical_response,
+            "el servidor no pudo acreditar que todos los servicios quedaran "
+            "recuperados con seguridad",
+        )
+        self.assertContains(technical_response, failure_code)
+        self.assertNotContains(technical_response, "e" * 64)
+
+    def test_continuity_keeps_failed_demo_receipts_out_of_the_product_ui(self):
         now = timezone.now()
         public_id = UUID("bbbbbbbb-cccc-4ddd-8eee-ffffffffffff")
         fingerprint = "f" * 64
@@ -309,11 +358,20 @@ class SuperadminDemoRefreshViewTests(TestCase):
 
         response = self.client.get(self.continuity_url)
 
-        self.assertContains(
+        self.assertNotContains(
             response,
             "Datos canónicos verificados; cierre operativo fallido",
         )
-        self.assertContains(response, "Recibo técnico")
-        self.assertContains(response, "Verificado")
-        self.assertContains(response, fingerprint)
-        self.assertContains(response, "runtime_recovery_required")
+        self.assertNotContains(response, "Recibo técnico")
+        self.assertNotContains(response, fingerprint)
+        self.assertNotContains(response, "runtime_recovery_required")
+
+        technical_response = self.client.get(self.url)
+
+        self.assertContains(
+            technical_response,
+            "Recibo disponible; cierre operativo incompleto",
+        )
+        self.assertContains(technical_response, fingerprint)
+        self.assertContains(technical_response, "runtime_recovery_required")
+        self.assertNotContains(technical_response, "1" * 64)

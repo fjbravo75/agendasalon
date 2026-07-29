@@ -88,7 +88,7 @@ class SuperadminDashboardApiTests(TestCase):
 
         payload = self.client.get(self.url).json()
 
-        self.assertEqual(payload["schema_version"], "1.2")
+        self.assertEqual(payload["schema_version"], "1.3")
         self.assertEqual(payload["summary"]["businesses_total"], 3)
         self.assertEqual(payload["summary"]["businesses_operational"], 1)
         self.assertEqual(payload["summary"]["businesses_setup_pending"], 1)
@@ -96,6 +96,7 @@ class SuperadminDashboardApiTests(TestCase):
         self.assertEqual(payload["summary"]["signup_requests_pending"], 0)
         businesses = {item["name"]: item for item in payload["businesses"]}
         self.assertEqual(businesses["Peluquería Mari"]["health"]["code"], "operational")
+        self.assertEqual(businesses["Peluquería Mari"]["counts"]["schedule_days"], 1)
         self.assertEqual(
             businesses["Salón por configurar"]["health"]["code"],
             "setup_pending",
@@ -106,6 +107,14 @@ class SuperadminDashboardApiTests(TestCase):
         )
         self.assertEqual(businesses["Barbería pausada"]["health"]["code"], "inactive")
         self.assertEqual(payload["continuity"]["status"]["code"], "deployment_pending")
+        self.assertEqual(
+            payload["continuity"]["status"]["label"],
+            "Sin copias registradas",
+        )
+        self.assertEqual(
+            payload["continuity"]["external_destination"]["label"],
+            "Sin copia externa",
+        )
         self.assertFalse(payload["continuity"]["external_destination"]["configured"])
         self.assertEqual(
             payload["continuity"]["history_url"],
@@ -331,7 +340,16 @@ class SuperadminContinuityViewTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Continuidad del servicio")
-        self.assertContains(response, "no pueden descargarse ni restaurarse")
+        self.assertContains(
+            response,
+            "La recuperación de datos requiere una intervención técnica controlada",
+        )
+        self.assertNotContains(
+            response,
+            "Las restauraciones se realizan fuera de este panel",
+        )
+        self.assertNotContains(response, "Regeneración manual")
+        self.assertNotContains(response, "demostración")
 
     def test_history_is_paginated_in_tens_without_exposing_artifact_paths(self):
         BackupExecution.objects.bulk_create(

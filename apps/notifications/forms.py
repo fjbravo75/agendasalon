@@ -43,17 +43,15 @@ class PlatformNotificationSettingsForm(_OperationalEmailForm):
             "notification_email",
             "notifications_enabled",
             "notify_continuity",
-            "notify_demo_refresh",
             "notify_signup_requests",
             "notify_email_failures",
         )
         labels = {
             "notification_email": "Correo de avisos",
             "notifications_enabled": "Recibir avisos por correo",
-            "notify_continuity": "Continuidad y copias",
-            "notify_demo_refresh": "Regeneración de la demostración",
-            "notify_signup_requests": "Altas de negocio",
-            "notify_email_failures": "Fallos definitivos de correo",
+            "notify_continuity": "Copias y continuidad",
+            "notify_signup_requests": "Altas de negocios",
+            "notify_email_failures": "Incidencias de correo",
         }
         widgets = {
             "notification_email": forms.EmailInput(
@@ -87,7 +85,6 @@ class PlatformNotificationSettingsForm(_OperationalEmailForm):
                     "notification_email_verification_nonce",
                     "notifications_enabled",
                     "notify_continuity",
-                    "notify_demo_refresh",
                     "notify_signup_requests",
                     "notify_email_failures",
                     "updated_by",

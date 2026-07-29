@@ -45,7 +45,7 @@ def continuity_snapshot(*, now=None, executions=None):
             "label": (
                 "Registrado y verificado"
                 if external_success
-                else "No previsto en esta demo"
+                else "Sin copia externa"
             ),
         },
         "schedule": _schedule_payload(
@@ -58,7 +58,7 @@ def continuity_snapshot(*, now=None, executions=None):
             if latest_success
             and latest_success.integrity_verified
             and latest_success.authenticity_verified
-            else "Procedimiento disponible"
+            else "Sin copia verificada"
         ),
         "targets": {
             "rpo_hours": 24,
@@ -83,7 +83,7 @@ def _schedule_payload(*, now, latest, latest_success):
         return {
             "configured": False,
             "code": "stopped",
-            "label": "Automatización detenida",
+            "label": "Sin automatización activa",
             "detail": "No hay una programación automática activa ni copias correctas registradas.",
         }
     if latest and latest.status == BackupExecution.Status.RUNNING:
@@ -158,16 +158,13 @@ def _status_payload(*, now, latest, latest_success):
             "code": "verified_local",
             "tone": "neutral",
             "label": "Copia local verificada",
-            "detail": "La copia es válida y está conservada dentro del servidor de la demo.",
+            "detail": "La última copia es válida y se conserva en el servidor.",
         }
     return {
         "code": "deployment_pending",
         "tone": "neutral",
-        "label": "Preparado para desplegar",
-        "detail": (
-            "El procedimiento está preparado, pero todavía no hay una copia "
-            "correcta registrada en este entorno."
-        ),
+        "label": "Sin copias registradas",
+        "detail": "Todavía no hay una copia disponible para recuperación.",
     }
 
 

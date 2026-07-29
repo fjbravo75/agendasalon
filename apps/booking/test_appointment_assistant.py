@@ -1001,6 +1001,9 @@ class AppointmentAssistantTests(TestCase):
         self.assertNotContains(response, "María López")
         self.assertNotContains(response, "600111201")
         self.assertNotContains(response, "Línea")
+        self.assertContains(response, "Cambiar servicios o fecha")
+        self.assertContains(response, "data-booking-change-search")
+        self.assertNotContains(response, ">Cambiar búsqueda<")
         self.assertContains(response, "/static/js/public_booking.js")
         self.assertNotContains(response, "<script>\n    (() => {")
 

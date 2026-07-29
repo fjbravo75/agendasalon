@@ -248,7 +248,7 @@
                   <span>Elige la que mejor te venga</span>
                   <h2>Horas disponibles</h2>
                 </div>
-                <a class="appointment-inline-link booking-change-search" href="#buscar-hueco">Cambiar búsqueda</a>
+                <a class="appointment-inline-link booking-change-search" href="#buscar-hueco" data-booking-change-search>Cambiar servicios o fecha</a>
               </header>
 
               {% if options %}
@@ -307,5 +307,5 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'js/public_booking.js' %}?v=20260711-public-theme-v1" defer></script>
+  <script src="{% static 'js/public_booking.js' %}?v=20260729-booking-search-focus-v1" defer></script>
 {% endblock %}

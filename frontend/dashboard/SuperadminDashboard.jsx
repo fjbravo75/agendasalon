@@ -161,11 +161,32 @@ function ContinuitySummary({ continuity }) {
 
 function BusinessCard({ business, index }) {
   const setup = [
-    ["Servicios", business.counts.services],
-    ["Líneas", business.counts.work_lines],
-    ["Horario", business.counts.schedule_rules],
-    ["Accesos", business.counts.professionals],
-    ["Privacidad", business.legal?.is_current ? 1 : 0],
+    {
+      label: "Servicios activos",
+      value: business.counts.services,
+      ready: business.counts.services > 0,
+    },
+    {
+      label: "Capacidad",
+      value: business.counts.work_lines > 0
+        ? pluralize(business.counts.work_lines, "línea", "líneas")
+        : "Pendiente",
+      ready: business.counts.work_lines > 0,
+    },
+    {
+      label: "Horario",
+      value: business.counts.schedule_days > 0
+        ? pluralize(business.counts.schedule_days, "día", "días")
+        : "Pendiente",
+      ready: business.counts.schedule_days > 0,
+    },
+    {
+      label: "Profesionales",
+      value: business.counts.professionals > 0
+        ? `${business.counts.professionals} con acceso`
+        : "Sin acceso",
+      ready: business.counts.professionals > 0,
+    },
   ];
   return (
     <article className="superadmin-business-card">
@@ -184,10 +205,10 @@ function BusinessCard({ business, index }) {
       </div>
 
       <div className="superadmin-business-card__setup" aria-label={`Configuración de ${business.name}`}>
-        {setup.map(([label, value]) => (
-          <span className={value ? "is-ready" : "is-missing"} key={label}>
-            <small>{label}</small>
-            <strong>{value}</strong>
+        {setup.map((item) => (
+          <span className={item.ready ? "is-ready" : "is-missing"} key={item.label}>
+            <small>{item.label}</small>
+            <strong>{item.value}</strong>
           </span>
         ))}
       </div>
@@ -267,7 +288,7 @@ function RecentActivity({ events }) {
   return (
     <section className="superadmin-panel">
       <header className="superadmin-panel__head">
-        <div><span>Hechos observables</span><h2>Actividad reciente</h2></div>
+        <div><span>Últimos movimientos</span><h2>Actividad reciente</h2></div>
       </header>
       {events.length ? (
         <ol
@@ -296,7 +317,7 @@ function DashboardLoading() {
   return (
     <div className="superadmin-loading" role="status">
       <span className="superadmin-loading-fallback__mark" aria-hidden="true" />
-      <strong>Reuniendo el estado real de la plataforma…</strong>
+      <strong>Cargando la información de la plataforma…</strong>
     </div>
   );
 }
@@ -335,8 +356,8 @@ export default function SuperadminDashboard({ config }) {
       <header className="superadmin-react-dashboard__hero">
         <div>
           <span className="superadmin-react-dashboard__eyebrow">Administración de la plataforma</span>
-          <h1>El estado real de AgendaSalon.</h1>
-          <p>Comprueba qué negocios están preparados, qué configuración falta y cómo se está utilizando la plataforma. La operativa diaria sigue en manos de cada equipo.</p>
+          <h1>Vista general de AgendaSalon.</h1>
+          <p>Revisa qué negocios están activos, qué tareas requieren atención y cómo evoluciona la actividad de la plataforma.</p>
         </div>
         <div className="superadmin-react-dashboard__actions">
           <button className="button button--secondary" type="button" onClick={resource.retry}>Actualizar datos</button>
@@ -347,7 +368,7 @@ export default function SuperadminDashboard({ config }) {
 
       <div className="superadmin-meta-line">
         <span>Actualizado {formatDateTime(data.generated_at)}</span>
-        <span>{summary.professionals_active} accesos profesionales · {summary.clients_total} clientes · {summary.appointments_total} citas registradas</span>
+        <span>{summary.professionals_active} profesionales con acceso · {summary.clients_total} clientes · {summary.appointments_total} citas registradas</span>
       </div>
 
       <section className="superadmin-metrics" aria-label="Resumen general">
@@ -369,7 +390,7 @@ export default function SuperadminDashboard({ config }) {
             <div>
               <span>Resumen por negocio</span>
               <h2 id="superadmin-businesses-title">Negocios</h2>
-              <p>Configuración, uso y tareas pendientes con la responsabilidad bien separada.</p>
+              <p>Estado operativo, actividad y tareas pendientes de cada negocio.</p>
             </div>
             <strong>{visibleBusinesses.length}</strong>
           </header>

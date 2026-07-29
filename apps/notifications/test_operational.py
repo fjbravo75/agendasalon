@@ -79,7 +79,6 @@ class OperationalNotificationViewTests(TestCase):
             "notification_email": email,
             "notifications_enabled": "on",
             "notify_continuity": "on",
-            "notify_demo_refresh": "on",
             "notify_signup_requests": "on",
             "notify_email_failures": "on",
         }
@@ -111,7 +110,7 @@ class OperationalNotificationViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(PlatformSettings.objects.exists())
 
-    def test_failed_manual_refresh_with_receipt_is_not_shown_as_completed(self):
+    def test_manual_refresh_activity_stays_outside_commercial_notifications(self):
         receipt = DemoRefreshReceipt.objects.create(
             run_id="12345678-1234-1234-1234-123456789abc",
             base_date=date(2026, 7, 18),
@@ -133,30 +132,49 @@ class OperationalNotificationViewTests(TestCase):
         response = self.client.get(reverse("notifications:superadmin_notifications"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Regeneración fallida")
-        self.assertNotContains(response, "Regeneración completada")
+        self.assertNotContains(response, "Regeneración")
+        self.assertNotContains(response, "Demostración")
 
-    def test_processing_manual_refresh_with_unlinked_receipt_is_not_shown_as_completed(self):
-        receipt = DemoRefreshReceipt.objects.create(
-            run_id="87654321-4321-4321-4321-cba987654321",
-            base_date=date(2026, 7, 18),
-            fingerprint="c" * 64,
-        )
-        DemoRefreshRequest.objects.create(
-            public_id=receipt.run_id,
-            requested_by=self.superadmin,
-            base_date=receipt.base_date,
-            status=DemoRefreshRequest.Status.PROCESSING,
-            started_at=timezone.now(),
-            origin_digest="d" * 64,
-        )
+    def test_notification_center_uses_three_business_facing_preferences(self):
         self.client.force_login(self.superadmin)
 
         response = self.client.get(reverse("notifications:superadmin_notifications"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Regeneración en curso")
-        self.assertNotContains(response, "Regeneración completada")
+        self.assertContains(response, "Copias y continuidad")
+        self.assertContains(response, "Altas de negocios")
+        self.assertContains(response, "Incidencias de correo")
+        self.assertNotContains(response, "Regeneración de la demostración")
+        self.assertNotContains(response, 'id="id_notify_demo_refresh"')
+
+    def test_recent_activity_is_paginated_in_tens(self):
+        PlatformActivityEvent.objects.bulk_create(
+            [
+                PlatformActivityEvent(
+                    actor_user=self.superadmin,
+                    event_type=(
+                        PlatformActivityEvent.EventType.NOTIFICATION_SETTINGS_UPDATED
+                    ),
+                    summary=f"Movimiento operativo {index}.",
+                )
+                for index in range(12)
+            ]
+        )
+        self.client.force_login(self.superadmin)
+
+        first_page = self.client.get(
+            reverse("notifications:superadmin_notifications")
+        )
+        second_page = self.client.get(
+            reverse("notifications:superadmin_notifications"),
+            {"page": 2},
+        )
+
+        self.assertEqual(len(first_page.context["feed"]), 10)
+        self.assertEqual(first_page.context["feed_page"].paginator.num_pages, 2)
+        self.assertContains(first_page, "Página 1 de 2")
+        self.assertEqual(len(second_page.context["feed"]), 2)
+        self.assertContains(second_page, "Página 2 de 2")
 
     def test_platform_reuses_verified_account_without_second_email_and_traces_change(self):
         self.client.force_login(self.superadmin)
@@ -552,6 +570,37 @@ class OperationalNotificationServiceTests(TestCase):
 
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(OutboundEmail.objects.count(), 1)
+
+    def test_data_maintenance_notices_follow_the_continuity_preference(self):
+        platform = PlatformSettings.objects.create(
+            notification_email="plataforma@example.com",
+            notification_email_normalized="plataforma@example.com",
+            notification_email_verified_at=timezone.now(),
+            notifications_enabled=True,
+            notify_continuity=False,
+            notify_demo_refresh=True,
+        )
+
+        disabled = queue_operational_notice(
+            scope="platform",
+            code="demo_refresh_requested",
+            deduplication_key="maintenance:disabled",
+        )
+        platform.notify_continuity = True
+        platform.save(update_fields=["notify_continuity", "updated_at"])
+        enabled = queue_operational_notice(
+            scope="platform",
+            code="demo_refresh_requested",
+            deduplication_key="maintenance:enabled",
+        )
+
+        self.assertIsNone(disabled)
+        self.assertIsNotNone(enabled)
+        dispatch_outbound_email(enabled.pk)
+        self.assertEqual(
+            mail.outbox[-1].subject,
+            "Restauración de datos solicitada · AgendaSalon",
+        )
 
     def test_unknown_operational_codes_are_not_queued(self):
         email = queue_operational_notice(

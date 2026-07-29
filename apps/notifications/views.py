@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
@@ -15,7 +16,6 @@ from apps.businesses.models import (
     PlatformSettings,
 )
 from apps.businesses.services import get_primary_business_for_user
-from apps.core.models import DemoRefreshReceipt, DemoRefreshRequest
 from apps.core.features import (
     operational_notification_delivery_enabled,
     operational_notifications_enabled,
@@ -34,6 +34,15 @@ from apps.notifications.services import (
     queue_operational_email_verification_safely,
     queue_operational_test,
     verify_operational_email,
+)
+
+
+PLATFORM_FEED_PAGE_SIZE = 10
+PLATFORM_FEED_SOURCE_LIMIT = 100
+DEMO_REFRESH_NOTICE_CODES = (
+    "demo_refresh_requested",
+    "demo_refresh_completed",
+    "demo_refresh_failed",
 )
 
 
@@ -76,13 +85,9 @@ def _reserve_email_action(request, *, action, limit=5, target_email=""):
 
 def _platform_feed():
     items = []
-    noncompleted_manual_run_ids = tuple(
-        str(public_id)
-        for public_id in DemoRefreshRequest.objects.exclude(
-            status=DemoRefreshRequest.Status.COMPLETED
-        ).values_list("public_id", flat=True)
-    )
-    for event in PlatformActivityEvent.objects.select_related("actor_user")[:8]:
+    for event in PlatformActivityEvent.objects.select_related("actor_user")[
+        :PLATFORM_FEED_SOURCE_LIMIT
+    ]:
         items.append(
             {
                 "when": event.created_at,
@@ -94,7 +99,9 @@ def _platform_feed():
                 "action_label": "Abrir avisos",
             }
         )
-    for execution in BackupExecution.objects.order_by("-started_at")[:6]:
+    for execution in BackupExecution.objects.order_by("-started_at")[
+        :PLATFORM_FEED_SOURCE_LIMIT
+    ]:
         items.append(
             {
                 "when": execution.started_at,
@@ -106,50 +113,9 @@ def _platform_feed():
                 "action_label": "Ver continuidad",
             }
         )
-    for receipt in (
-        DemoRefreshReceipt.objects.exclude(
-            manual_requests__status__in=(
-                DemoRefreshRequest.Status.PENDING,
-                DemoRefreshRequest.Status.PROCESSING,
-                DemoRefreshRequest.Status.FAILED,
-                DemoRefreshRequest.Status.CANCELLED,
-            )
-        )
-        .exclude(run_id__in=noncompleted_manual_run_ids)
-        .order_by("-completed_at")[:6]
-    ):
-        items.append(
-            {
-                "when": receipt.completed_at,
-                "label": "Demostración",
-                "title": "Regeneración completada",
-                "detail": f"Datos reconstruidos con fecha base {receipt.base_date:%d/%m/%Y}.",
-                "tone": "success",
-                "url": reverse("dashboards:superadmin_continuity"),
-                "action_label": "Ver continuidad",
-            }
-        )
-    for refresh_request in DemoRefreshRequest.objects.exclude(
-        status=DemoRefreshRequest.Status.COMPLETED
-    ).order_by("-requested_at")[:6]:
-        items.append(
-            {
-                "when": refresh_request.finished_at or refresh_request.requested_at,
-                "label": "Demostración",
-                "title": f"Regeneración {refresh_request.get_status_display().lower()}",
-                "detail": f"Fecha base prevista: {refresh_request.base_date:%d/%m/%Y}.",
-                "tone": (
-                    "danger"
-                    if refresh_request.status == DemoRefreshRequest.Status.FAILED
-                    else "neutral"
-                ),
-                "url": reverse("dashboards:superadmin_continuity"),
-                "action_label": "Ver continuidad",
-            }
-        )
     for signup in BusinessSignupRequest.objects.filter(
         status__in=BusinessSignupRequest.open_statuses()
-    ).order_by("-created_at")[:6]:
+    ).order_by("-created_at")[:PLATFORM_FEED_SOURCE_LIMIT]:
         items.append(
             {
                 "when": signup.created_at,
@@ -172,16 +138,15 @@ def _platform_feed():
         "professional_activated": "Profesional activado",
         "continuity_succeeded": "Continuidad recuperada",
         "continuity_failed": "Incidencia de continuidad",
-        "demo_refresh_requested": "Regeneración solicitada",
-        "demo_refresh_completed": "Regeneración completada",
-        "demo_refresh_failed": "Regeneración fallida",
         "email_failure": "Fallo definitivo de correo",
         "holiday_impact": "Impacto de festivos",
         "holiday_review": "Revisión por festivo",
     }
     for email in OutboundEmail.objects.filter(
         kind=OutboundEmail.Kind.OPERATIONAL_NOTICE
-    ).order_by("-updated_at")[:8]:
+    ).exclude(
+        payload__code__in=DEMO_REFRESH_NOTICE_CODES
+    ).order_by("-updated_at")[:PLATFORM_FEED_SOURCE_LIMIT]:
         items.append(
             {
                 "when": email.updated_at,
@@ -199,18 +164,22 @@ def _platform_feed():
                 "action_label": "Revisar correo",
             }
         )
-    return sorted(items, key=lambda item: item["when"], reverse=True)[:12]
+    return sorted(items, key=lambda item: item["when"], reverse=True)
 
 
-def _platform_context(form=None):
+def _platform_context(request, form=None):
     platform_settings = PlatformSettings.objects.filter(
         pk=PlatformSettings.SINGLETON_PK
     ).first() or PlatformSettings(pk=PlatformSettings.SINGLETON_PK)
+    feed_page = Paginator(_platform_feed(), PLATFORM_FEED_PAGE_SIZE).get_page(
+        request.GET.get("page")
+    )
     return {
         "form": form
         or PlatformNotificationSettingsForm(instance=platform_settings),
         "platform_settings": platform_settings,
-        "feed": _platform_feed(),
+        "feed": feed_page.object_list,
+        "feed_page": feed_page,
         "failed_email_count": OutboundEmail.objects.filter(
             status=OutboundEmail.Status.FAILED
         ).count(),
@@ -222,7 +191,11 @@ def _platform_context(form=None):
 def superadmin_notifications(request):
     _require_feature()
     _require_superadmin(request)
-    return render(request, "superadmin/notifications.html", _platform_context())
+    return render(
+        request,
+        "superadmin/notifications.html",
+        _platform_context(request),
+    )
 
 
 @login_required
@@ -242,7 +215,7 @@ def platform_notification_settings(request):
         return render(
             request,
             "superadmin/notifications.html",
-            _platform_context(form),
+            _platform_context(request, form),
             status=400,
         )
 
@@ -276,7 +249,6 @@ def platform_notification_settings(request):
                         name: bool(getattr(platform_settings, name))
                         for name in (
                             "notify_continuity",
-                            "notify_demo_refresh",
                             "notify_signup_requests",
                             "notify_email_failures",
                         )

@@ -1,30 +1,84 @@
 {% extends "base.html" %}
 
-{% block title %}Revisar regeneración - AgendaSalon{% endblock %}
+{% block title %}Mantenimiento de la demostración - AgendaSalon{% endblock %}
 {% block body_class %}continuity-page{% endblock %}
 
 {% block content %}
-  <section class="continuity-shell">
+  <section class="continuity-shell demo-maintenance-shell">
     <header class="continuity-hero">
       <div>
-        <span>Acción protegida</span>
-        <h1>Revisar regeneración</h1>
-        <p>Comprueba el alcance antes de solicitar que la demostración vuelva a su estado original, actualizado al calendario de hoy.</p>
+        <span>Operación interna</span>
+        <h1>Mantenimiento de la demostración</h1>
+        <p>Este espacio está separado del panel comercial. Aquí puedes revisar el estado, consultar el recibo técnico y, cuando sea necesario, devolver el entorno académico a su punto de partida.</p>
       </div>
-      <a class="button button--secondary" href="{% url 'dashboards:superadmin_continuity' %}">Cancelar y volver</a>
+      <a class="button button--secondary" href="{% url 'dashboards:superadmin_continuity' %}">Volver a continuidad</a>
     </header>
 
-    {% if demo_refresh.active_request %}
-      <div class="alert" role="status">
-        Ya hay una regeneración {{ demo_refresh.active_request.get_status_display|lower }}. Vuelve a Continuidad para consultar el resultado.
+    <section class="demo-maintenance-status demo-maintenance-status--{{ demo_refresh.status.tone }}" aria-labelledby="demo-maintenance-status-title" aria-live="polite">
+      <header class="demo-maintenance-status__header">
+        <div>
+          <span>Estado de la operación</span>
+          <h2 id="demo-maintenance-status-title">{{ demo_refresh.status.headline }}</h2>
+          <p>{{ demo_refresh.status.detail }}</p>
+        </div>
+        <span class="demo-maintenance-status__badge">{{ demo_refresh.status.badge }}</span>
+      </header>
+
+      {% if demo_refresh.latest_request %}
+        <dl class="demo-maintenance-status__facts">
+          <div><dt>Solicitada</dt><dd>{{ demo_refresh.latest_request.requested_at|date:"d/m/Y · H:i:s" }}</dd></div>
+          <div><dt>Fecha base</dt><dd>{{ demo_refresh.latest_request.base_date|date:"d/m/Y" }}</dd></div>
+          <div><dt>Solicitante</dt><dd>{{ demo_refresh.latest_request.requested_by.full_name }}</dd></div>
+          <div><dt>Identificador</dt><dd><code>{{ demo_refresh.latest_request.public_id }}</code></dd></div>
+          {% if demo_refresh.latest_request.started_at %}
+            <div><dt>Inicio</dt><dd>{{ demo_refresh.latest_request.started_at|date:"d/m/Y · H:i:s" }}</dd></div>
+          {% endif %}
+          {% if demo_refresh.latest_request.finished_at %}
+            <div><dt>Finalización</dt><dd>{{ demo_refresh.latest_request.finished_at|date:"d/m/Y · H:i:s" }}</dd></div>
+          {% endif %}
+          {% if demo_refresh.latest_request.failure_code %}
+            <div><dt>Referencia técnica</dt><dd><code>{{ demo_refresh.latest_request.failure_code }}</code></dd></div>
+          {% endif %}
+        </dl>
+      {% else %}
+        <dl class="demo-maintenance-status__facts">
+          <div><dt>Próxima fecha base</dt><dd>{{ demo_refresh.base_date|date:"d/m/Y" }}</dd></div>
+          <div><dt>Recogida</dt><dd>Automática por el servidor</dd></div>
+          <div><dt>Confirmación</dt><dd>Contraseña y frase exacta</dd></div>
+          <div><dt>Ejecución web</dt><dd>La web solo registra la solicitud</dd></div>
+        </dl>
+      {% endif %}
+
+      <div class="demo-maintenance-status__guidance">
+        <p>{{ demo_refresh.status.guidance }}</p>
+        {% if demo_refresh.active_request %}
+          <a class="button button--secondary" href="{% url 'dashboards:superadmin_demo_refresh' %}">Actualizar estado</a>
+        {% endif %}
       </div>
-    {% endif %}
+
+      {% if demo_refresh.display_receipt %}
+        <article class="demo-maintenance-receipt" aria-labelledby="demo-maintenance-receipt-title">
+          <header>
+            <div>
+              <span>{% if demo_refresh.display_receipt_is_current %}Recibo de la última solicitud{% else %}Último escenario verificado{% endif %}</span>
+              <h3 id="demo-maintenance-receipt-title">{% if demo_refresh.display_receipt_is_current and demo_refresh.latest_request.status == "failed" %}Recibo disponible; cierre operativo incompleto{% else %}Escenario canónico verificado{% endif %}</h3>
+            </div>
+            <strong>{{ demo_refresh.display_receipt.completed_at|date:"d/m/Y · H:i:s" }}</strong>
+          </header>
+          <dl>
+            <div><dt>Fecha base</dt><dd>{{ demo_refresh.display_receipt.base_date|date:"d/m/Y" }}</dd></div>
+            <div><dt>Identificador de ejecución</dt><dd><code>{{ demo_refresh.display_receipt.run_id }}</code></dd></div>
+            <div class="demo-maintenance-receipt__fingerprint"><dt>Huella del escenario</dt><dd><code>{{ demo_refresh.display_receipt.fingerprint }}</code></dd></div>
+          </dl>
+        </article>
+      {% endif %}
+    </section>
 
     <section class="continuity-refresh-review" aria-labelledby="refresh-review-title">
       <header>
-        <span>Antes de continuar</span>
-        <h2 id="refresh-review-title">Esto devolverá la demostración a su punto de partida</h2>
-        <p>La agenda se reconstruirá con fecha base <strong>{{ demo_refresh.base_date|date:"d/m/Y" }}</strong>. Las citas y movimientos volverán a situarse de forma coherente alrededor de esa fecha.</p>
+        <span>Alcance de una nueva regeneración</span>
+        <h2 id="refresh-review-title">Qué cambiará y qué permanecerá protegido</h2>
+        <p>El escenario se reconstruirá con fecha base <strong>{{ demo_refresh.base_date|date:"d/m/Y" }}</strong>. Las citas y movimientos volverán a situarse de forma coherente alrededor de ese día.</p>
       </header>
 
       <div class="continuity-refresh-review__columns">
@@ -48,62 +102,68 @@
 
       <dl class="continuity-refresh-review__counts">
         <div><dt>Negocios actuales</dt><dd>{{ demo_refresh.counts.businesses }}</dd></div>
-        <div><dt>Negocios adicionales</dt><dd>{{ demo_refresh.counts.additional_businesses }}</dd></div>
+        <div><dt>Fuera del escenario</dt><dd>{{ demo_refresh.counts.additional_businesses }}</dd></div>
         <div><dt>Cuentas adicionales</dt><dd>{{ demo_refresh.counts.additional_users }}</dd></div>
         <div><dt>Sesiones que se cerrarán</dt><dd>{{ demo_refresh.counts.active_sessions }}</dd></div>
-        <div><dt>Solicitudes de alta</dt><dd>{{ demo_refresh.counts.signup_requests }}</dd></div>
-        <div><dt>Correos pendientes o en proceso</dt><dd>{{ demo_refresh.counts.outbound_pending }}</dd></div>
+        <div><dt>Solicitudes que se eliminarán</dt><dd>{{ demo_refresh.counts.signup_requests }}</dd></div>
+        <div><dt>Correos pendientes</dt><dd>{{ demo_refresh.counts.outbound_pending }}</dd></div>
       </dl>
     </section>
 
     <section class="continuity-refresh-confirmation" aria-labelledby="refresh-confirmation-title">
       <header>
         <span>Confirmación personal</span>
-        <h2 id="refresh-confirmation-title">Autorizar la regeneración</h2>
-        <p>Al solicitarla, la aplicación puede dejar de responder durante unos minutos y cerrará las sesiones actuales. El resultado solo se dará por correcto cuando termine todas sus comprobaciones.</p>
+        <h2 id="refresh-confirmation-title">{% if demo_refresh.active_request %}Operación ya solicitada{% else %}Autorizar una nueva regeneración{% endif %}</h2>
+        {% if demo_refresh.active_request %}
+          <p>La solicitud activa ya está en manos del servidor. No vuelvas a introducir la contraseña ni envíes otra petición.</p>
+        {% else %}
+          <p>La web registrará la solicitud y el servidor la ejecutará mediante su proceso protegido. Durante la operación se cerrarán las sesiones y la aplicación puede dejar de responder unos minutos.</p>
+        {% endif %}
       </header>
 
       {% if demo_refresh.active_request %}
         <div class="continuity-refresh-confirmation__active">
-          <strong>La solicitud ya está registrada.</strong>
-          <p>No vuelvas a introducir tu contraseña. Cuando termine, Continuidad mostrará el resultado y su recibo técnico.</p>
-          <a class="button button--secondary" href="{% url 'dashboards:superadmin_continuity' %}">Volver a Continuidad</a>
+          <strong>{{ demo_refresh.status.headline }}</strong>
+          <p>{{ demo_refresh.status.guidance }}</p>
+          <a class="button button--secondary" href="{% url 'dashboards:superadmin_demo_refresh' %}">Actualizar estado</a>
         </div>
       {% else %}
-      <form method="post" novalidate data-submit-busy data-submit-busy-label="Solicitando…">
-        {% csrf_token %}
-        {% if form.errors %}
-          <div class="alert" role="alert" tabindex="-1" data-error-summary>
-            <strong>Revisa los datos antes de continuar.</strong>
-            {{ form.non_field_errors }}
+        <form method="post" novalidate data-submit-busy data-submit-busy-label="Registrando solicitud…">
+          {% csrf_token %}
+          {% if form.errors %}
+            <div class="alert" role="alert" tabindex="-1" data-error-summary>
+              <strong>Revisa los datos antes de continuar.</strong>
+              {{ form.non_field_errors }}
+            </div>
+          {% endif %}
+
+          <div class="demo-maintenance-confirmation__fields">
+            <div class="field">
+              {{ form.current_password.label_tag }}
+              {{ form.current_password }}
+              <small id="demo-refresh-password-help">Vuelve a escribir la contraseña de esta cuenta para autorizar una acción destructiva.</small>
+              {{ form.current_password.errors }}
+            </div>
+
+            <div class="field">
+              {{ form.confirmation_phrase.label_tag }}
+              {{ form.confirmation_phrase }}
+              <small id="demo-refresh-phrase-help">Escribe exactamente <strong>REGENERAR DEMO</strong>, respetando mayúsculas y espacios.</small>
+              {{ form.confirmation_phrase.errors }}
+            </div>
           </div>
-        {% endif %}
 
-        <div class="field">
-          {{ form.current_password.label_tag }}
-          {{ form.current_password }}
-          <small id="demo-refresh-password-help">Vuelve a escribir la contraseña de esta cuenta para autorizar una acción destructiva.</small>
-          {{ form.current_password.errors }}
-        </div>
+          <div class="field field--checkbox continuity-refresh-confirmation__check">
+            {{ form.destructive_scope_confirmed }}
+            {{ form.destructive_scope_confirmed.label_tag }}
+            {{ form.destructive_scope_confirmed.errors }}
+          </div>
 
-        <div class="field">
-          {{ form.confirmation_phrase.label_tag }}
-          {{ form.confirmation_phrase }}
-          <small id="demo-refresh-phrase-help">Escribe exactamente <strong>REGENERAR DEMO</strong>, respetando mayúsculas y espacios.</small>
-          {{ form.confirmation_phrase.errors }}
-        </div>
-
-        <div class="field field--checkbox continuity-refresh-confirmation__check">
-          {{ form.destructive_scope_confirmed }}
-          {{ form.destructive_scope_confirmed.label_tag }}
-          {{ form.destructive_scope_confirmed.errors }}
-        </div>
-
-        <div class="continuity-refresh-confirmation__actions">
-          <button class="button button--danger" type="submit">Regenerar ahora</button>
-          <a class="button button--secondary" href="{% url 'dashboards:superadmin_continuity' %}">Cancelar</a>
-        </div>
-      </form>
+          <div class="continuity-refresh-confirmation__actions">
+            <button class="button button--danger" type="submit">Solicitar regeneración</button>
+            <a class="button button--secondary" href="{% url 'dashboards:superadmin_continuity' %}">Cancelar</a>
+          </div>
+        </form>
       {% endif %}
     </section>
   </section>

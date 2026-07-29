@@ -27,6 +27,21 @@
     return;
   }
 
+  const changeSearchLink = document.querySelector("[data-booking-change-search]");
+  if (changeSearchLink) {
+    changeSearchLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      form.scrollIntoView({ block: "start" });
+      window.requestAnimationFrame(() => {
+        const focusTarget =
+          form.querySelector("[data-booking-service]:checked") ||
+          form.querySelector("[data-booking-service]") ||
+          form.querySelector("input[name='target_date']");
+        focusTarget?.focus({ preventScroll: true });
+      });
+    });
+  }
+
   const services = [...form.querySelectorAll("[data-booking-service]")];
   const countNode = form.querySelector("[data-booking-count]");
   const totalNode = form.querySelector("[data-booking-total]");
