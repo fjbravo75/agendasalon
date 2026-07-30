@@ -82,7 +82,7 @@ class DemoScenarioPureContractTests(SimpleTestCase):
         self.assertEqual(
             demo_scenario.CANONICAL_PROFESSIONAL_THEMES,
             {
-                demo_scenario.BUSINESS_MARI: "dark",
+                demo_scenario.BUSINESS_MARI: "light",
                 demo_scenario.BUSINESS_NORTE: "light",
             },
         )

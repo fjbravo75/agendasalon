@@ -406,7 +406,7 @@ class SeedDemoCommandTests(TestCase):
         norte = Business.objects.get(slug="barberia-norte")
         settings = PlatformSettings.objects.get(pk=PlatformSettings.SINGLETON_PK)
 
-        mari.professional_theme = Business.ProfessionalTheme.LIGHT
+        mari.professional_theme = Business.ProfessionalTheme.DARK
         mari.notification_email = "evaluacion@example.com"
         mari.notification_email_normalized = "evaluacion@example.com"
         mari.notification_email_verified_at = self.reference_now
@@ -448,7 +448,7 @@ class SeedDemoCommandTests(TestCase):
         norte.refresh_from_db()
         settings.refresh_from_db()
         custom_image.refresh_from_db()
-        self.assertEqual(mari.professional_theme, Business.ProfessionalTheme.DARK)
+        self.assertEqual(mari.professional_theme, Business.ProfessionalTheme.LIGHT)
         self.assertEqual(norte.professional_theme, Business.ProfessionalTheme.LIGHT)
         self.assertEqual(settings.admin_theme, PlatformSettings.AdminTheme.LIGHT)
         self.assertEqual(
