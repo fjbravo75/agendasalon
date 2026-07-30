@@ -1052,9 +1052,12 @@ main() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
 
-  write_durable_state
   quiesce_application
   create_and_verify_pre_refresh_backup
+  # La copia verificada recién creada es el único fallback que se persiste.
+  # Así la retención del servicio no puede dejar el estado apuntando a la
+  # generación anterior que acaba de retirar.
+  write_durable_state
   quarantine_media
   run_refresh
 

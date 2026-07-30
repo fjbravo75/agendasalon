@@ -233,6 +233,23 @@ quiesce_application
         )
         self.assertIn("started_epoch", self.script)
 
+    def test_pre_refresh_backup_is_persisted_before_media_move_and_django(self):
+        main = self.script[self.script.index("main() {") :]
+        self.assertEqual(main.count("write_durable_state"), 1)
+        self.assertLess(
+            main.index("quiesce_application"),
+            main.index("create_and_verify_pre_refresh_backup"),
+        )
+        self.assertLess(
+            main.index("create_and_verify_pre_refresh_backup"),
+            main.index("write_durable_state"),
+        )
+        self.assertLess(
+            main.index("write_durable_state"),
+            main.index("quarantine_media"),
+        )
+        self.assertLess(main.index("quarantine_media"), main.index("run_refresh"))
+
     def test_durable_state_precedes_media_move_and_django(self):
         main = self.script[self.script.index("main() {") :]
         self.assertLess(main.index("write_durable_state"), main.index("quarantine_media"))
@@ -580,6 +597,23 @@ class DemoRefreshSystemdContractTests(unittest.TestCase):
         self.assertIn("--canonical-backup", guard)
         self.assertIn("--runtime-rearm", guard)
         self.assertIn("la copia canónica solo se permite con Gunicorn detenido", guard)
+
+    def test_start_guard_allows_only_an_authorized_pre_refresh_backup_without_state(self):
+        guard = START_GUARD.read_text(encoding="utf-8")
+        canonical = guard[
+            guard.index("authorize_only_the_canonical_backup() {") :
+            guard.rindex("\nvalidate_guard_installation\n")
+        ]
+        self.assertIn("copia previa a la regeneración", canonical)
+        self.assertIn("LOCK_HELD == 1", canonical)
+        self.assertIn("STATE_PRESENT == 0", canonical)
+        self.assertIn("AUTH_PRESENT == 1", canonical)
+        self.assertIn('[[ -z "${STATE_TEMP}" && -z "${QUARANTINE}" ]]', canonical)
+        self.assertIn('[[ "${auth_run_id}" =~ ^[0-9a-f]{8}', canonical)
+        self.assertLess(
+            canonical.index("copia previa a la regeneración"),
+            canonical.index("Copia post-commit"),
+        )
 
     def test_start_guard_bash_syntax_is_valid_when_bash_is_available(self):
         if os.name == "nt":

@@ -160,23 +160,34 @@ authorize_only_the_canonical_backup() {
     return
   fi
 
-  # Copia post-commit: orquestador vivo, estado íntegro, media ya reconciliada
-  # y autorización de un solo uso ligada al mismo nonce.
-  (( LOCK_HELD == 1 && STATE_PRESENT == 1 )) ||
+  (( LOCK_HELD == 1 && AUTH_PRESENT == 1 )) ||
     deny "la copia no pertenece a una regeneración controlada"
   [[ -z "${STATE_TEMP}" && -z "${QUARANTINE}" ]] ||
     deny "la media o el estado aún no han quedado limpios"
-  (( AUTH_PRESENT == 1 )) ||
-    deny "falta la autorización efímera de copia"
+  (( REARM_AUTH_PRESENT == 0 )) ||
+    deny "la copia no admite una autorización de rearme simultánea"
   [[ "$(stat -c '%u' -- "${BACKUP_AUTH_FILE}")" == "0" ]] ||
     deny "la autorización de copia no pertenece a root"
   mode="$(stat -c '%a' -- "${BACKUP_AUTH_FILE}")"
   (( (8#${mode} & 8#022) == 0 )) ||
     deny "la autorización de copia es escribible por grupo u otros"
+  auth_run_id="$(cat -- "${BACKUP_AUTH_FILE}")"
+  [[ "${auth_run_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
+    deny "la autorización de copia no contiene un nonce seguro"
+
+  # copia previa a la regeneración: escritores detenidos, lock exclusivo,
+  # token efímero válido y todavía sin estado ni cuarentena.
+  if (( STATE_PRESENT == 0 )); then
+    return
+  fi
+
+  # Copia post-commit: orquestador vivo, estado íntegro, media ya reconciliada
+  # y autorización de un solo uso ligada al mismo nonce.
+  (( STATE_PRESENT == 1 )) ||
+    deny "el estado de la regeneración no es reconocible"
   [[ "$(grep -c '^run_id=' "${STATE_FILE}")" == "1" ]] ||
     deny "el estado no contiene un nonce único"
   state_run_id="$(sed -n 's/^run_id=//p' "${STATE_FILE}")"
-  auth_run_id="$(cat -- "${BACKUP_AUTH_FILE}")"
   [[ -n "${state_run_id}" && "${auth_run_id}" == "${state_run_id}" ]] ||
     deny "la autorización no coincide con el estado duradero"
 }
