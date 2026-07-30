@@ -26,7 +26,7 @@ DEMO_ADVISORY_LOCK_ID = 4_147_326_341_001
 # módulo puro para que tanto el seed manual como el refresco automático partan
 # de la misma apariencia canónica sin importar el estado previo de la demo.
 CANONICAL_PROFESSIONAL_THEMES = {
-    BUSINESS_MARI: "dark",
+    BUSINESS_MARI: "light",
     BUSINESS_NORTE: "light",
 }
 CANONICAL_PLATFORM_SETTINGS = {
