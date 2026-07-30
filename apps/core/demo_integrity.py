@@ -794,6 +794,14 @@ def delete_mutable_demo_data() -> dict[str, int]:
     if not transaction.get_connection().in_atomic_block:
         raise DemoIntegrityError("La limpieza debe ejecutarse dentro de una transacción.")
     assert_model_reset_contract()
+    BusinessClient = apps.get_model("customers", "BusinessClient")
+    # PROTECT evita eliminar por accidente una ficha resultante durante el uso
+    # normal. En el reset total ambas fichas forman parte del mismo allowlist,
+    # por lo que el enlace debe neutralizarse dentro de la propia transacción.
+    BusinessClient._base_manager.filter(merged_into__isnull=False).update(
+        merged_into=None,
+        merged_at=None,
+    )
     deleted = {}
     for label in RESET_MODEL_ORDER:
         model = apps.get_model(label)

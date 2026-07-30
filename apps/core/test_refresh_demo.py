@@ -42,7 +42,7 @@ from apps.core.demo_refresh_requests import (
 from apps.core.management.commands.refresh_demo import Command
 from apps.core.management.commands.seed_demo import DemoSeeder
 from apps.core.models import DemoRefreshReceipt, DemoRefreshRequest
-from apps.customers.models import BusinessClientAccess
+from apps.customers.models import BusinessClient, BusinessClientAccess
 from apps.dashboards.models import BackupExecution
 from apps.holidays.models import HolidaySyncRun, OfficialHoliday
 from apps.holidays.services import BOE_NATIONAL_SOURCE_NAME
@@ -579,6 +579,29 @@ class DemoRefreshDatabaseTests(TransactionTestCase):
         self.assertFalse(Group.permissions.through.objects.exists())
         self.assertTrue(DemoRefreshReceipt.objects.filter(pk=receipt.pk).exists())
 
+    def test_allowlist_deletes_clients_with_merge_history(self):
+        self._seed()
+        business = Business.objects.get(slug="peluqueria-mari")
+        merged_into = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente resultante",
+            phone="600 900 001",
+        )
+        BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente fusionado",
+            phone="600 900 002",
+            is_active=False,
+            merged_into=merged_into,
+            merged_at=datetime(2026, 7, 16, 12, 0, tzinfo=MADRID),
+        )
+
+        with transaction.atomic():
+            delete_mutable_demo_data()
+
+        self.assertFalse(BusinessClient.objects.exists())
+        self.assertFalse(Business.objects.exists())
+
     def test_boe_coverage_requires_a_complete_traced_catalogue(self):
         year = 2026
         reference = "BOE-A-2025-24617"
@@ -888,6 +911,20 @@ class DemoRefreshDatabaseTests(TransactionTestCase):
     ):
         self._seed()
         original_slugs = set(Business.objects.values_list("slug", flat=True))
+        business = Business.objects.get(slug="peluqueria-mari")
+        merged_into = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente resultante antes del rollback",
+            phone="600 900 011",
+        )
+        merged = BusinessClient.objects.create(
+            business=business,
+            full_name="Cliente fusionado antes del rollback",
+            phone="600 900 012",
+            is_active=False,
+            merged_into=merged_into,
+            merged_at=datetime(2026, 7, 16, 13, 0, tzinfo=MADRID),
+        )
         command = Command()
 
         with patch.object(
@@ -919,4 +956,10 @@ class DemoRefreshDatabaseTests(TransactionTestCase):
         self.assertEqual(
             set(Business.objects.values_list("slug", flat=True)),
             original_slugs,
+        )
+        merged.refresh_from_db()
+        self.assertEqual(merged.merged_into_id, merged_into.pk)
+        self.assertEqual(
+            merged.merged_at,
+            datetime(2026, 7, 16, 13, 0, tzinfo=MADRID),
         )
