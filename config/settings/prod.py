@@ -52,6 +52,15 @@ def _required_environment_value(variable):
     return value
 
 
+def _required_demo_password(variable):
+    value = _required_environment_value(variable)
+    if len(value) < 16:
+        raise ImproperlyConfigured(
+            f"{variable} must contain at least 16 characters."
+        )
+    return value
+
+
 AGENDA_PLATFORM_LEGAL_DEMO = _environment_flag("AGENDA_PLATFORM_LEGAL_DEMO")
 AGENDA_BACKUP_SCHEDULE_CONFIGURED = _environment_flag(
     "AGENDA_BACKUP_SCHEDULE_CONFIGURED"
@@ -115,13 +124,15 @@ _required_legal_settings = {
 }
 
 if AGENDA_PLATFORM_LEGAL_DEMO:
-    AGENDA_DEMO_SUPERADMIN_PASSWORD = _required_environment_value(
+    AGENDA_DEMO_SUPERADMIN_PASSWORD = _required_demo_password(
         "AGENDA_DEMO_SUPERADMIN_PASSWORD"
     )
-    if len(AGENDA_DEMO_SUPERADMIN_PASSWORD) < 16:
-        raise ImproperlyConfigured(
-            "AGENDA_DEMO_SUPERADMIN_PASSWORD must contain at least 16 characters."
-        )
+    AGENDA_DEMO_MARI_PASSWORD = _required_demo_password(
+        "AGENDA_DEMO_MARI_PASSWORD"
+    )
+    AGENDA_DEMO_NORTE_PASSWORD = _required_demo_password(
+        "AGENDA_DEMO_NORTE_PASSWORD"
+    )
     for variable in ("AGENDA_PLATFORM_TAX_ID", "AGENDA_PLATFORM_LEGAL_ADDRESS"):
         if os.environ.get(variable, "").strip():
             raise ImproperlyConfigured(
@@ -131,6 +142,8 @@ if AGENDA_PLATFORM_LEGAL_DEMO:
     _required_legal_settings["AGENDA_PLATFORM_LEGAL_ADDRESS"] = ""
 else:
     AGENDA_DEMO_SUPERADMIN_PASSWORD = ""
+    AGENDA_DEMO_MARI_PASSWORD = ""
+    AGENDA_DEMO_NORTE_PASSWORD = ""
     for variable in ("AGENDA_PLATFORM_TAX_ID", "AGENDA_PLATFORM_LEGAL_ADDRESS"):
         _required_legal_settings[variable] = _required_environment_value(variable)
 

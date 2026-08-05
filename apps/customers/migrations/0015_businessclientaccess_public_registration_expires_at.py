@@ -7,10 +7,10 @@ PUBLIC_REGISTRATION_RETENTION = timedelta(hours=48)
 
 
 def backfill_pending_public_registration_expiry(apps, schema_editor):
-    # La línea P1 aceptada parte de cero accesos legacy sin verificar asociados
+    # El esquema vigente parte de cero accesos heredados sin verificar asociados
     # a fichas de origen "other". Este backfill es defensivo para instalaciones
-    # que no compartan esa fotografía; su precondición y revisión previa están
-    # documentadas en la política operativa.
+    # que no compartan esa fotografía y mantiene el tratamiento acotado a los
+    # registros públicos pendientes que carecen de fecha de caducidad.
     client_access = apps.get_model("customers", "BusinessClientAccess")
     pending_accesses = client_access.objects.using(schema_editor.connection.alias).filter(
         is_pending_public_registration=True,

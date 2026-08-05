@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
@@ -1394,7 +1395,7 @@ class AppointmentAssistantTests(TestCase):
                 "csrfmiddlewaretoken": csrf_token,
                 "next": confirmation_url,
                 "phone": "600111201",
-                "password": "CONFIGURE_DEMO_MARI_PASSWORD",
+                "password": settings.AGENDA_DEMO_MARI_PASSWORD,
             },
             HTTP_ORIGIN="https://testserver",
             secure=True,
@@ -2290,7 +2291,7 @@ class AppointmentAssistantTests(TestCase):
                 "action": "login",
                 "next": next_url or reverse("public_booking", args=[self.business.slug]),
                 "phone": "600111201",
-                "password": "CONFIGURE_DEMO_MARI_PASSWORD",
+                "password": settings.AGENDA_DEMO_MARI_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, 302)

@@ -33,6 +33,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 _visual_checks/
+_benchmark_output/
 *.log
 
 # Local design candidates not used by the product

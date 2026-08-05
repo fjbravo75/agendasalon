@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import identify_hasher, is_password_usable, make_password
 from django.core.exceptions import ValidationError
@@ -3356,7 +3357,7 @@ class ProfessionalClientViewTests(TestCase):
                 login_url,
                 {
                     "identifier": access.email,
-                    "password": "CONFIGURE_DEMO_MARI_PASSWORD",
+                    "password": settings.AGENDA_DEMO_MARI_PASSWORD,
                 },
             ).status_code,
             302,
@@ -3421,7 +3422,7 @@ class ProfessionalClientViewTests(TestCase):
                 login_url,
                 {
                     "identifier": access.email,
-                    "password": "CONFIGURE_DEMO_MARI_PASSWORD",
+                    "password": settings.AGENDA_DEMO_MARI_PASSWORD,
                 },
             ).status_code,
             302,

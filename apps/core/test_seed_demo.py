@@ -6,9 +6,10 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import identify_hasher
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.booking.models import (
     Appointment,
@@ -31,7 +32,6 @@ from apps.core.demo_scenario import (
     BUSINESS_MARI,
     BUSINESS_NORTE,
     CLIENTS,
-    DEMO_PASSWORDS,
 )
 from apps.core.management.commands.seed_demo import DemoSeeder
 from apps.customers.models import (
@@ -63,6 +63,21 @@ DEMO_BUSINESS_SLUGS = ("peluqueria-mari", "barberia-norte")
 class SeedDemoCommandTests(TestCase):
     base_date = date(2026, 7, 6)
     reference_now = datetime(2026, 7, 6, 4, 5, tzinfo=MADRID)
+
+    @override_settings(AGENDA_DEMO_MARI_PASSWORD="")
+    def test_seed_demo_rejects_missing_credentials_before_writing(self):
+        with self.assertRaisesRegex(
+            ImproperlyConfigured,
+            "AGENDA_DEMO_MARI_PASSWORD",
+        ):
+            call_command(
+                "seed_demo",
+                base_date=self.base_date.isoformat(),
+                stdout=StringIO(),
+            )
+
+        self.assertEqual(get_user_model().objects.count(), 0)
+        self.assertEqual(Business.objects.count(), 0)
 
     def test_seed_demo_creates_required_demo_data_and_is_idempotent(self):
         scenario = self._run_seed()
@@ -508,8 +523,8 @@ class SeedDemoCommandTests(TestCase):
             superadmin.check_password(settings.AGENDA_DEMO_SUPERADMIN_PASSWORD)
         )
         expected_professional_passwords = {
-            "+34600111001": DEMO_PASSWORDS[BUSINESS_MARI],
-            "+34600222001": DEMO_PASSWORDS[BUSINESS_NORTE],
+            "+34600111001": settings.AGENDA_DEMO_MARI_PASSWORD,
+            "+34600222001": settings.AGENDA_DEMO_NORTE_PASSWORD,
         }
         for phone, password in expected_professional_passwords.items():
             user = restored_users.get(normalized_phone=phone)
@@ -522,7 +537,9 @@ class SeedDemoCommandTests(TestCase):
         self.assertFalse(superadmin.password_change_required)
 
         changed_access.refresh_from_db()
-        self.assertTrue(changed_access.check_password(DEMO_PASSWORDS[BUSINESS_MARI]))
+        self.assertTrue(
+            changed_access.check_password(settings.AGENDA_DEMO_MARI_PASSWORD)
+        )
         self.assertFalse(changed_access.is_pending_public_registration)
         self.assertIsNone(changed_access.public_registration_expires_at)
 

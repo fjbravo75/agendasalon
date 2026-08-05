@@ -24,9 +24,9 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements-dev.txt
       - run: ruff check .
-      - run: python manage.py check
-      - run: python manage.py makemigrations --check --dry-run
-      - run: coverage run manage.py test --verbosity 1
+      - run: python manage.py check --settings=config.settings.test
+      - run: python manage.py makemigrations --check --dry-run --settings=config.settings.test
+      - run: coverage run manage.py test --settings=config.settings.test --verbosity 1
       - run: coverage report
       - run: pip-audit -r requirements.txt
       - run: python -m pip check

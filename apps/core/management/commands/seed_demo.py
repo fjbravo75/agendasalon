@@ -5,7 +5,6 @@ from collections import Counter
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
@@ -27,6 +26,7 @@ from apps.businesses.models import (
     BusinessMembership,
     PlatformSettings,
 )
+from apps.core.demo_credentials import load_demo_passwords
 from apps.core.demo_scenario import (
     ACCESSES,
     APPOINTMENTS,
@@ -36,7 +36,6 @@ from apps.core.demo_scenario import (
     CANONICAL_PROFESSIONAL_THEMES,
     CLIENTS,
     DEMO_ADVISORY_LOCK_ID,
-    DEMO_PASSWORDS,
     RELATIONSHIPS,
     SERVICES,
     STATUS_CANCELLED,
@@ -200,6 +199,7 @@ class Command(BaseCommand):
 
 class DemoSeeder:
     def __init__(self, *, anchor_date: date, reference_now: datetime | None = None):
+        self.superadmin_password, self.professional_passwords = load_demo_passwords()
         self.anchor_date = anchor_date
         self.reference_now = reference_now or timezone.now()
         if timezone.is_naive(self.reference_now):
@@ -280,7 +280,7 @@ class DemoSeeder:
             email="admin@agendasalon.local",
             is_staff=True,
             is_superuser=True,
-            password=settings.AGENDA_DEMO_SUPERADMIN_PASSWORD,
+            password=self.superadmin_password,
         )
         platform_settings = _update_first_or_create(
             PlatformSettings,
@@ -301,7 +301,7 @@ class DemoSeeder:
                 email="mari@agendasalon.local",
                 is_staff=False,
                 is_superuser=False,
-                password=DEMO_PASSWORDS[BUSINESS_MARI],
+                password=self.professional_passwords[BUSINESS_MARI],
             ),
             BUSINESS_NORTE: self._upsert_user(
                 phone="+34600222001",
@@ -309,7 +309,7 @@ class DemoSeeder:
                 email="equipo@barberianorte.local",
                 is_staff=False,
                 is_superuser=False,
-                password=DEMO_PASSWORDS[BUSINESS_NORTE],
+                password=self.professional_passwords[BUSINESS_NORTE],
             ),
         }
 
@@ -551,8 +551,9 @@ class DemoSeeder:
             access.is_pending_public_registration = False
             access.public_registration_expires_at = None
             access.last_login_at = None
-            if not access.check_password(definition.password):
-                access.set_password(definition.password)
+            password = self.professional_passwords[definition.business]
+            if not access.check_password(password):
+                access.set_password(password)
             access.full_clean()
             access.save()
             _set_created_at(

@@ -1,5 +1,7 @@
 """Test settings for exercising the full suite against PostgreSQL."""
 
+import secrets
+
 from .prod import *  # noqa: F403
 
 
@@ -11,7 +13,9 @@ AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL = False
 AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED = True
 AGENDA_MANUAL_DEMO_REFRESH_ENABLED = True
 AGENDA_PLATFORM_LEGAL_DEMO = True
-AGENDA_DEMO_SUPERADMIN_PASSWORD = "CONFIGURE_DEMO_SUPERADMIN_PASSWORD"
+AGENDA_DEMO_SUPERADMIN_PASSWORD = secrets.token_urlsafe(24)
+AGENDA_DEMO_MARI_PASSWORD = secrets.token_urlsafe(24)
+AGENDA_DEMO_NORTE_PASSWORD = secrets.token_urlsafe(24)
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 SECURE_SSL_REDIRECT = False

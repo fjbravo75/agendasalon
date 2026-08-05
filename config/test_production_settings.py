@@ -1,4 +1,5 @@
 import os
+import secrets
 import subprocess
 import sys
 
@@ -6,6 +7,11 @@ from django.test import SimpleTestCase
 
 
 class ProductionEntrypointTests(SimpleTestCase):
+    demo_password_variables = (
+        "AGENDA_DEMO_SUPERADMIN_PASSWORD",
+        "AGENDA_DEMO_MARI_PASSWORD",
+        "AGENDA_DEMO_NORTE_PASSWORD",
+    )
     production_variables = (
         "DJANGO_SETTINGS_MODULE",
         "DJANGO_SECRET_KEY",
@@ -23,6 +29,8 @@ class ProductionEntrypointTests(SimpleTestCase):
         "AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED",
         "AGENDA_MANUAL_DEMO_REFRESH_ENABLED",
         "AGENDA_DEMO_SUPERADMIN_PASSWORD",
+        "AGENDA_DEMO_MARI_PASSWORD",
+        "AGENDA_DEMO_NORTE_PASSWORD",
         "AGENDA_OPERATIONAL_EMAIL_HOURLY_LIMIT",
         "AGENDA_OPERATIONAL_EMAIL_DAILY_LIMIT",
         "AGENDA_DEMO_REFRESH_RECOMMENDED_MAX_AGE_DAYS",
@@ -70,9 +78,14 @@ class ProductionEntrypointTests(SimpleTestCase):
             "AGENDA_TRANSACTIONAL_EMAIL_ENABLED": "0",
             "AGENDA_OPERATIONAL_NOTIFICATIONS_ENABLED": "0",
             "AGENDA_MANUAL_DEMO_REFRESH_ENABLED": "0",
-            "AGENDA_DEMO_SUPERADMIN_PASSWORD": "CONFIGURE_DEMO_SUPERADMIN_PASSWORD",
             "AGENDA_DEMO_SUPPRESS_OUTBOUND_EMAIL": "0",
         }
+        environment.update(
+            {
+                variable: secrets.token_urlsafe(24)
+                for variable in self.demo_password_variables
+            }
+        )
         environment.update(overrides)
         return environment
 
@@ -130,28 +143,33 @@ assert prod.AGENDA_PLATFORM_LEGAL_ADDRESS == ""
             result.stderr,
         )
 
-    def test_academic_demo_requires_a_superadmin_password(self):
-        result = self._run_import(
-            "config.settings.prod",
-            **self._base_environment(AGENDA_DEMO_SUPERADMIN_PASSWORD=""),
-        )
+    def test_academic_demo_requires_every_demo_password(self):
+        for variable in self.demo_password_variables:
+            with self.subTest(variable=variable):
+                result = self._run_import(
+                    "config.settings.prod",
+                    **self._base_environment(**{variable: ""}),
+                )
 
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(
-            "AGENDA_DEMO_SUPERADMIN_PASSWORD is required in production",
-            result.stderr,
-        )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    f"{variable} is required in production",
+                    result.stderr,
+                )
 
-    def test_academic_demo_rejects_a_short_superadmin_password(self):
-        result = self._run_import(
-            "config.settings.prod",
-            **self._base_environment(
-                AGENDA_DEMO_SUPERADMIN_PASSWORD="AgendaSalon1"
-            ),
-        )
+    def test_academic_demo_rejects_every_short_demo_password(self):
+        for variable in self.demo_password_variables:
+            with self.subTest(variable=variable):
+                result = self._run_import(
+                    "config.settings.prod",
+                    **self._base_environment(**{variable: "too-short"}),
+                )
 
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("must contain at least 16 characters", result.stderr)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    f"{variable} must contain at least 16 characters",
+                    result.stderr,
+                )
 
     def test_commercial_mode_still_requires_real_fiscal_data(self):
         result = self._run_import(

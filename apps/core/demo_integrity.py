@@ -29,12 +29,12 @@ from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 
+from apps.core.demo_credentials import load_demo_passwords
 from apps.core.demo_scenario import (
     ACCESSES,
     BUSINESS_MARI,
     BUSINESS_NORTE,
     DEMO_ADVISORY_LOCK_ID,
-    DEMO_PASSWORDS,
 )
 from apps.core.models import DEMO_REFRESH_RUN_ID_PATTERN
 from apps.holidays.services import (
@@ -1045,12 +1045,13 @@ def demo_semantic_fingerprint() -> str:
     )
     from apps.notifications.models import InternalNotification
 
+    superadmin_password, professional_passwords = load_demo_passwords()
     User = get_user_model()
     users = tuple(User.objects.order_by("normalized_phone"))
     expected_user_passwords = {
-        "+34910000001": settings.AGENDA_DEMO_SUPERADMIN_PASSWORD,
-        "+34600111001": DEMO_PASSWORDS[BUSINESS_MARI],
-        "+34600222001": DEMO_PASSWORDS[BUSINESS_NORTE],
+        "+34910000001": superadmin_password,
+        "+34600111001": professional_passwords[BUSINESS_MARI],
+        "+34600222001": professional_passwords[BUSINESS_NORTE],
     }
     accesses_by_email = {
         access.email_normalized: access
@@ -1193,7 +1194,10 @@ def demo_semantic_fingerprint() -> str:
                 definition.email.lower(),
                 bool(
                     (access := accesses_by_email.get(definition.email.lower()))
-                    and check_password(definition.password, access.password_hash)
+                    and check_password(
+                        professional_passwords[definition.business],
+                        access.password_hash,
+                    )
                 ),
             )
             for definition in ACCESSES
