@@ -1,50 +1,74 @@
 # AgendaSalon
 
-[![CI](https://github.com/fjbravo75/agendasalon/actions/workflows/ci.yml/badge.svg)](https://github.com/fjbravo75/agendasalon/actions/workflows/ci.yml)
+Una aplicación web para organizar las citas, los clientes y el trabajo diario
+de peluquerías, barberías y pequeños salones de belleza.
 
-AgendaSalon es una aplicación web para organizar las citas de peluquerías,
-barberías y pequeños salones de belleza. Reúne en un mismo sistema la agenda
-del equipo, la reserva online, la gestión de clientes y la administración del
-negocio.
+![Pantalla de acceso profesional de AgendaSalon](.github/assets/acceso-profesional-agendasalon.webp)
 
-El proyecto es el entregable técnico de un Proyecto Fin de Máster en Desarrollo
-Full Stack. Su núcleo está construido con Django y PostgreSQL; React se utiliza
-en la agenda profesional y en el cuadro de mando del superadministrador.
+**[Abrir la demostración](https://agendasalon.brvsoftwarestudio.com)** ·
+**[Ver el vídeo del proyecto](https://youtu.be/b9vQOPy3WPc)**
+
+## Qué es AgendaSalon
+
+AgendaSalon reúne en un mismo sistema la agenda del equipo, la reserva por
+Internet, la gestión de clientes y la administración del negocio.
+
+El proyecto parte de una situación habitual: muchas citas siguen llegando por
+teléfono, WhatsApp o en el propio establecimiento, mientras otras personas
+prefieren reservar online. AgendaSalon reúne la disponibilidad de todos esos
+canales para evitar solapamientos y no ofrecer horas que ya están ocupadas.
+
+AgendaSalon se ha desarrollado como Proyecto Fin de Máster en Desarrollo Full
+Stack.
 
 ## Funcionalidades principales
 
-- Agenda diaria y mensual por líneas de trabajo.
-- Nueva cita asistida con varios servicios y búsqueda de disponibilidad.
-- Reserva pública con revalidación del hueco en el momento de confirmar.
+- Agenda diaria y mensual organizada por líneas de trabajo.
+- Creación asistida de citas con uno o varios servicios.
+- Reserva pública con una comprobación final de la disponibilidad.
 - Gestión de clientes, accesos y personas autorizadas.
-- Servicios, horarios, cierres, festivos y líneas de trabajo.
-- Administración de negocios y profesionales desde la plataforma.
+- Configuración de servicios, horarios, cierres y festivos.
+- Administración general de negocios y profesionales.
 - Modos claro y oscuro y personalización visual de cada negocio.
-- Aislamiento por negocio, permisos por rol y trazabilidad de operaciones.
+- Separación de los datos por negocio, permisos según el tipo de usuario y
+  registro de la actividad.
 
-## Arquitectura y tecnologías
+## Demostración académica
+
+La aplicación está desplegada en
+[agendasalon.brvsoftwarestudio.com](https://agendasalon.brvsoftwarestudio.com).
+Las cuentas de acceso y los datos utilizados en la demostración son ficticios.
+AgendaSalon no está implantado actualmente en ninguno de los establecimientos
+que aparecen en ella.
+
+Las credenciales preparadas para la evaluación no se publican en este
+repositorio. La academia las recibe dentro de la memoria técnica del Proyecto
+Fin de Máster.
+
+Con las credenciales incluidas en la memoria, el evaluador puede recorrer tres
+usos principales:
+
+- gestionar una cita desde el panel profesional;
+- realizar una reserva como cliente;
+- revisar negocios y profesionales desde la administración general.
+
+## Tecnologías y arquitectura
 
 | Área | Tecnología |
 | --- | --- |
 | Backend | Python 3.12 y Django 5.2 LTS |
-| Base de datos | SQLite en desarrollo; PostgreSQL 17 en integración y producción |
+| Base de datos | SQLite en desarrollo y PostgreSQL en integración y producción |
 | Interfaz | Plantillas Django, React 19 y Vite 8 |
-| Contraseñas | Argon2id como algoritmo preferente |
 | Producción | Gunicorn, Nginx y HTTPS |
-| Calidad | Ruff, pruebas Django, Vitest, cobertura y auditoría de dependencias |
+| Calidad | Ruff, pruebas Django y React, cobertura e integración continua |
 
-La disponibilidad se calcula en el servidor para todos los canales. Tanto la
-reserva pública como el panel profesional vuelven a comprobar el hueco antes de
-crear una cita, evitando solapamientos y confirmaciones obsoletas.
+La mayor parte de la aplicación está construida con Django. React se utiliza
+en la agenda profesional y en el panel de administración general, donde
+facilita la consulta de información y el cambio entre vistas.
 
-## Demostración académica
-
-La demostración está disponible en
-[agendasalon.brvsoftwarestudio.com](https://agendasalon.brvsoftwarestudio.com).
-Todos los negocios, personajes y datos del escenario son ficticios.
-
-Las credenciales de evaluación no se publican en este repositorio. Se facilitan
-a la academia dentro de la memoria técnica del Proyecto Fin de Máster.
+La disponibilidad se calcula siempre en el servidor. Antes de guardar una
+cita, tanto la reserva pública como el panel profesional vuelven a comprobar
+que el horario sigue libre.
 
 ## Puesta en marcha local
 
@@ -54,10 +78,10 @@ a la academia dentro de la memoria técnica del Proyecto Fin de Máster.
 - Node.js 20.19 o 22.12 en adelante.
 - Git.
 
-El perfil de desarrollo utiliza SQLite de forma predeterminada, por lo que no
-es necesario instalar PostgreSQL para explorar el proyecto.
+Para trabajar en local no es necesario instalar PostgreSQL: el perfil de
+desarrollo utiliza SQLite de forma predeterminada.
 
-### Backend
+### Instalación
 
 ```bash
 git clone https://github.com/fjbravo75/agendasalon.git
@@ -67,18 +91,23 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
+
+npm ci
+npm run build
+
 python manage.py migrate
 ```
 
-En PowerShell, la activación del entorno virtual se realiza con:
+En PowerShell, la línea `source .venv/bin/activate` se sustituye por:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-Las tres contraseñas del escenario local se obtienen exclusivamente del
-entorno. Antes de ejecutar la semilla hay que definir valores propios de al
-menos 16 caracteres para estas variables:
+### Configuración de la demostración local
+
+Antes de crear los datos de ejemplo hay que definir tres contraseñas propias,
+de al menos 16 caracteres, mediante estas variables de entorno:
 
 ```text
 AGENDA_DEMO_SUPERADMIN_PASSWORD
@@ -86,7 +115,12 @@ AGENDA_DEMO_MARI_PASSWORD
 AGENDA_DEMO_NORTE_PASSWORD
 ```
 
-Después se puede crear el escenario ficticio y arrancar Django:
+En Bash se define una variable con `export NOMBRE="valor"`. En PowerShell se
+utiliza `$env:NOMBRE="valor"`. El archivo [`.env.example`](.env.example)
+describe el resto de opciones disponibles, pero no contiene credenciales
+utilizables.
+
+Después se puede crear el escenario ficticio y arrancar la aplicación:
 
 ```bash
 python manage.py seed_demo
@@ -94,23 +128,11 @@ python manage.py runserver
 ```
 
 La aplicación quedará disponible en
-[`http://127.0.0.1:8000/`](http://127.0.0.1:8000/). El archivo
-[`.env.example`](.env.example) enumera las variables de configuración sin
-incluir secretos utilizables.
+[`http://127.0.0.1:8000/`](http://127.0.0.1:8000/).
 
-### Frontend
+## Comprobaciones
 
-```bash
-npm ci
-npm run build
-```
-
-Durante el desarrollo, Vite puede ejecutarse con `npm run dev`.
-
-## Verificación
-
-El perfil de pruebas genera credenciales efímeras en cada proceso y no depende
-de las credenciales de la demostración:
+Las verificaciones principales se ejecutan con:
 
 ```bash
 ruff check .
@@ -121,18 +143,17 @@ coverage report
 npm run check
 ```
 
-La integración continua repite las pruebas de backend sobre SQLite y
-PostgreSQL 17, valida el frontend, audita las dependencias y revisa el historial
-en busca de secretos.
+GitHub Actions ejecuta automáticamente estas comprobaciones sobre SQLite y
+PostgreSQL 17.
 
 ## Estructura del repositorio
 
-- `apps/`: módulos de negocio de Django.
-- `config/`: configuración, rutas y perfiles de ejecución.
-- `frontend/`: componentes React y pruebas de interfaz.
+- `apps/`: funcionalidades del backend organizadas por áreas de negocio.
+- `config/`: configuración y rutas de Django.
+- `frontend/`: componentes y pruebas de las interfaces React.
 - `templates/`: páginas renderizadas por Django.
-- `ops/`: utilidades operativas verificables.
-- `tools/`: herramientas auxiliares de desarrollo y rendimiento.
+- `static/`: estilos, JavaScript e imágenes de la aplicación.
+- `ops/`: scripts de apoyo para el despliegue y las tareas de mantenimiento.
 
 ## Autoría y uso
 
